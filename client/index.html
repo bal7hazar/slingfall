@@ -8,6 +8,16 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="hud" class="hud">
+      <span>Score <b data-hud="score">0</b></span>
+      <span>Shots <b data-hud="shots">0</b></span>
+      <span>Tick <b data-hud="tick">0 / 0</b></span>
+    </div>
+    <div id="controls" class="controls">
+      <button id="play" type="button">Pause</button>
+      <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub" />
+      <span class="hint">Drag from the sling to aim</span>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
