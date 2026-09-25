@@ -17,3 +17,20 @@ Working name. Original mechanics and assets: a *pebble* is launched at structure
 
 Status: bootstrapping (2026-09-25). Plan: `docs/PLAN.md`. Decisions: `docs/DESIGN.md`. The
 research behind them: `docs/research/`. Rules for every agent: `AGENTS.md`.
+
+## Commands
+
+Toolchain: scarb 2.19.4 and snforge 0.61.0 (`.tool-versions`, asdf), Python 3, Node 24. On the
+shared machine, run one `scarb` / `snforge` command at a time and never `snforge test --workspace`
+(`AGENTS.md` §6).
+
+| what | command |
+|---|---|
+| format | `scarb fmt --workspace` |
+| lint one crate | `scarb lint -p <crate> --deny-warnings` |
+| build | `scarb build --workspace` |
+| build the replay executable | `scarb --manifest-path crates/slingfall_replay/Scarb.toml build` |
+| test one crate | `snforge test -p <crate>` (replay: `cd crates/slingfall_replay && snforge test --profile snforge`) |
+| steps snapshot | `python3 scripts/steps.py snapshot --filter <crate>` · check: `python3 scripts/steps.py check` · delta: `python3 scripts/steps.py diff` |
+| run the client | `cd client && nice -n 10 npm ci && npm run dev` (lint: `npm run lint`, tests: `npm test`) |
+| launch an executor | `scripts/executor-unit.sh <id> claude:<sonnet\|opus\|fable> docs/briefs/<id>.md` (resume: `scripts/executor-unit.sh resume <id> claude:<model> "<follow-up>"`) |

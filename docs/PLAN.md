@@ -35,7 +35,7 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 
 | quantity | target | measured |
 |---|---|---|
-| Cairo steps per shot | ≤ 3e7 | pile12 (rapier scene, 12 boxes + ball, 120 ticks): 40.0M (`docs/research/04`) |
+| Cairo steps per shot | ≤ 3e7 (interim ≤ 1e8 until rapier's BT lands) | pile12 (12 boxes + ball, 120 ticks): 40.0M (`docs/research/04`); rapier G0 (#133): 10-block level, 300 ticks, 60 Hz x4 = 204M, x1 substep 103M, 30 Hz x4 = 79M / 150 ticks; a settled structure never re-sleeps in 300 ticks, so the calm rule (D5) is essential |
 | Cairo steps per tick, 13 bodies | – | 333k average, 540k during impact |
 | `WorldState` round trip (pile10) | – | 1 864 felts, 52k steps (rapier #131) |
 | browser, 4e7-step shot, chunked | ≤ 10 s | 12-14 s (Firefox, loaded VPS) |
@@ -47,6 +47,6 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 
 ## Open points
 
-- `rapier2d` `0.1.0-alpha.1` publication (rapier-cairo, decided 2026-09-25); B0 pins it, or
-  pins a path dependency temporarily with a TODO if the alpha is not on the registry yet.
+- `rapier2d = "0.1.0-alpha.1"` is on scarbs.xyz since 2026-09-25 18:30 UTC (SE, RB, WS, prelude re-exports):
+  if B0 landed with a path dependency, the first orchestrator PR switches to the registry pin.
 - E1 / E2 / E3 resources (owner): `pm/decisions/PENDING-proof-experiments.md`.

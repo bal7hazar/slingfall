@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# See lock.sh. Real binary resolved through asdf (the repository pins versions in .tool-versions).
+exec "$(dirname "$0")/lock.sh" "$HOME/.asdf/shims/snforge" "$@"

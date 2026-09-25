@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Nested executable package, outside the root workspace (enable-gas = false).
+  REPLAY: crates/slingfall_replay/Scarb.toml
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: software-mansion/setup-scarb@v1
+      - run: scarb fmt --check --workspace
+      - run: scarb --manifest-path "$REPLAY" fmt --check
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: software-mansion/setup-scarb@v1
+      - run: scarb lint --workspace --deny-warnings
+      - run: scarb --manifest-path "$REPLAY" lint --deny-warnings
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: software-mansion/setup-scarb@v1
+      - run: scarb build --workspace
+      - run: scarb --manifest-path "$REPLAY" build
+      - name: Execute the replay (empty level and inputs)
+        run: scarb --manifest-path "$REPLAY" execute --arguments 0,0 --print-program-output --print-resource-usage
+
+  test:
+    # One job per crate; the `steps` job checks the snapshot on the merged logs.
+    name: test (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_contract, slingfall_replay]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: software-mansion/setup-scarb@v1
+      - uses: foundry-rs/setup-snfoundry@v6
+      - name: Run tests
+        env:
+          CRATE: ${{ matrix.crate }}
+        run: |
+          set -o pipefail
+          args=(--tracked-resource cairo-steps --detailed-resources)
+          if [ "$CRATE" = slingfall_replay ]; then
+            # Nested executable package (enable-gas = false): tests run under its `snforge` profile.
+            (cd crates/slingfall_replay && snforge test --profile snforge "${args[@]}") | tee "snforge-$CRATE.log"
+          else
+            snforge test -p "$CRATE" "${args[@]}" | tee "snforge-$CRATE.log"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snforge-${{ matrix.crate }}
+          path: snforge-${{ matrix.crate }}.log
+
+  steps:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: snforge-*
+          merge-multiple: true
+      - name: Check the Cairo-steps snapshot
+        run: |
+          cat snforge-*.log > snforge.log
+          python3 scripts/steps.py check --from-log snforge.log
+      - name: Steps delta summary
+        if: always()
+        run: python3 scripts/steps.py diff --from-log snforge.log >> "$GITHUB_STEP_SUMMARY"
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  all-checks:
+    # The single required check: green only when every job above is.
+    if: always()
+    needs: [fmt, lint, build, test, steps, client]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || exit 1; done

@@ -1,0 +1,23 @@
+[package]
+name = "slingfall_rules"
+description = "Slingfall game rules on rapier2d: world builder, slingshot, damage, calm rule, scoring."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fixed.workspace = true
+glam.workspace = true
+rapier2d.workspace = true
+slingfall_level = { path = "../slingfall_level" }
+
+[dev-dependencies]
+snforge_std.workspace = true
+assert_macros.workspace = true
+slingfall_testing = { path = "../slingfall_testing" }
+
+[tool]
+fmt.workspace = true
+scarb.workspace = true
+snforge.workspace = true

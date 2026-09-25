@@ -1,0 +1,26 @@
+[package]
+name = "slingfall_contract"
+description = "Slingfall Starknet contract: level registry, simulate, submit, verifier interface."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+starknet.workspace = true
+fixed.workspace = true
+slingfall_level = { path = "../slingfall_level" }
+slingfall_rules = { path = "../slingfall_rules" }
+
+[dev-dependencies]
+snforge_std.workspace = true
+assert_macros.workspace = true
+slingfall_testing = { path = "../slingfall_testing" }
+
+[[target.starknet-contract]]
+sierra = true
+
+[tool]
+fmt.workspace = true
+scarb.workspace = true
+snforge.workspace = true
