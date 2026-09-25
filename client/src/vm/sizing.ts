@@ -9,7 +9,11 @@ export interface ChunkSizing {
   /** Cairo steps aimed at per chunk (2-5M: ~265-375 MB of wasm, < 3 % per-chunk overhead). */
   targetSteps: number;
   minTicks: number;
-  /** Upper bound on K (bounds the latency of a chunk when ticks are cheap). */
+  /**
+   * Upper bound on K (bounds the latency of a chunk when ticks are cheap). D8 says 60; lot G6b
+   * measured 20 on pile10: a 54-tick chunk sized on the flight (65k steps per tick) runs into
+   * the impact (200k+) and needs 6.7M cells, 1.5x any reserve the rule can give it.
+   */
   maxTicks: number;
   /** K of the first stepping chunk, when no tick has been measured yet. */
   firstTicks: number;
@@ -22,15 +26,22 @@ export interface ChunkSizing {
    * 330 MB with 1.25.
    */
   reserveFactor: number;
+  /**
+   * Floor of the reserve, cells (lot G6b). The worker's wasm memory already plateaus at the first
+   * chunk's reserve (5 x 700k x 1.25 = 4.4M cells), so reserving at least ~that much costs no
+   * memory and absorbs a chunk whose steps per tick jump at the impact.
+   */
+  minReserveCells?: number;
 }
 
 export const DEFAULT_SIZING: ChunkSizing = {
   targetSteps: 3_500_000,
   minTicks: 1,
-  maxTicks: 60,
+  maxTicks: 20,
   firstTicks: 5,
   priorCellsPerTick: 700_000,
   reserveFactor: 1.25,
+  minReserveCells: 5_000_000,
 };
 
 /** What a finished chunk measured (execution segment cells, not all segments). */
@@ -70,6 +81,6 @@ export function planChunk(
   }
   ticks = Math.max(1, Math.min(ticks, remaining));
   const cellsPerTick = measured ? prev.execCells / prev.ticks : sizing.priorCellsPerTick;
-  const reserveCells = Math.ceil(sizing.reserveFactor * cellsPerTick * ticks);
+  const reserveCells = Math.max(Math.ceil(sizing.reserveFactor * cellsPerTick * ticks), sizing.minReserveCells ?? 0);
   return { ticks, reserveCells };
 }

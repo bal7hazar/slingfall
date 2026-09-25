@@ -13,8 +13,15 @@ Promoted from the spike `pm/spikes/wasm-vm` (docs/research/03 and 04).
 | `scripts/vendor.sh` | clones cairo-vm @ `f7ac327f` into `vendor/cairo-vm` and applies the patch |
 | `scripts/build.sh` | wasm32 build + `wasm-bindgen` into `pkg/` (web) and `pkg-node/` (Node) |
 | `scripts/bench.mjs` | the Node figures below |
-| `fixtures/ball_drop/` | the stand-in executable's source (spike G1b copy, registry `rapier2d`) until lot G4 |
-| `fixtures/ball_drop.executable.json` | its build (the worker and the tests load it) |
+| `scripts/fetch-executables.sh` | copies the replay executables into `fixtures/replay/` (`--build` builds them first) |
+| `scripts/worker-check.mjs` | lot G6b: page side + `worker_threads` worker on pile10, the page's figures in Node |
+| `scripts/browser-check.py` | lot G6b: headless Firefox on `dist/` (console + screenshot); not run yet |
+| `fixtures/replay/` | the executables the client runs: `init`, `step_chunk` (crates/slingfall_replay, lot G4), `outputs` (below), and `main_trace` (tests) |
+| `fixtures/outputs/` | the `outputs(state, inputs)` executable's source: slingfall_replay's `state_outputs` (lot G6b) |
+| `fixtures/pile10-reference.main_trace.txt` | `scarb execute` of `main_trace` on pile10, reference shot (the lines and outputs the tests compare with) |
+| `fixtures/pile10-*.args.json` | `tools/tracec/tracec.py args` on pile10 (the argument-encoding tests) |
+| `fixtures/ball_drop/` | the G1c stand-in executable's source (spike G1b copy, registry `rapier2d`) |
+| `fixtures/ball_drop.executable.json` | its build (the runner's bit-exactness tests and `bench.mjs` load it) |
 | `fixtures/pile12-mode3-120.state.txt` | golden: pile12's state after 120 uninterrupted ticks (`mode 3`, native) |
 | `../src/vm/` | TypeScript: sizing rule, chunk loop, worker, `WorkerTraceSource` |
 
@@ -50,6 +57,15 @@ cairo-vm's `cairo-lang-casm` 2.12.0-dev.0.
 [--quiet-prints]` prints the ticks, `returned: <felts>` and a summary on stderr. The golden state
 was produced with `slingfall-run client/vm/fixtures/ball_drop.executable.json "3 3 120 0 0"`.
 
+**Replay executables.** `client/vm/scripts/fetch-executables.sh --build` builds
+`crates/slingfall_replay` and `client/vm/fixtures/outputs`, then copies `init`, `step_chunk`,
+`main_trace` and `outputs` into `fixtures/replay/` (committed: 28 MB of JSON, the app serves the
+first three and `outputs`). Rebuild them whenever the replay or its dependencies change: the
+tests compare them with `fixtures/pile10-reference.main_trace.txt`, recorded with
+`scarb execute --executable-name main_trace --arguments-file client/vm/fixtures/pile10-reference.args.json
+--print-program-output` (the args from `tracec.py args fixtures/levels/pile10.felts.json
+--shot=-600,-392`).
+
 **Fixture.** `scarb --manifest-path client/vm/fixtures/ball_drop/Scarb.toml build`, then copy
 `fixtures/ball_drop/target/dev/ball_drop.executable.json` to `fixtures/`, rerun `slingfall-run`
 for the golden state. Arguments: `mode scene steps trace <len> <state felts..>`; mode 1 =
@@ -80,23 +96,25 @@ A Cairo panic or VM error throws (`Error` with the VM message and the panic data
   chunk assumes 700k cells per tick). D8 says 1.1. Measured, 1.1 is overrun when steps per tick
   rise by more than 10 % from one chunk to the next, and the segment then doubles (556 MB instead
   of 330 MB).
-- `program.ts`: the `ChunkProgram` interface (init/step_chunk arguments, ticks left, a
-  `TickLineParser` from `src/trace/lines.ts` and the sample-to-`TraceFrame` mapping) and its only
-  implementation, `ballDropProgram` (`SpikeTickLineParser`). G4's replay executable and observer
-  format replace it, with no change to the loop.
-- `shot.ts`: `runShot(engine, program, level, inputs, options)`, the chunk loop (pure, used by the
-  worker, the tests and `bench.mjs`).
+- `program.ts`: the `ChunkProgram` interface (`init` / `step_chunk` / `outputs` arguments, ticks
+  left of a shot, the line parser) and two programs: `slingfallProgram` (lot G6b: the replay's
+  argument layouts, `ChunkState` header, trace lines v1, `Outputs` decoding) and
+  `ballDropProgram` (the G1c stand-in).
+- `shot.ts`: `runInit`, `runShot(engine, program, level, inputs, { shot, state, ... })` (the chunk
+  loop, from a given state) and `runOutputs` (pure, used by the worker, the tests and
+  `bench.mjs`). A `VmEngine` holds one `Runner` per executable (`chunk`, `init`, `outputs`).
 - `worker.ts` (module Web Worker) + `serve.ts` (its message loop) + `protocol.ts`; `index.ts`:
-  `VmClient` (one persistent worker: `ready`, `shot(request, handlers)`) and
+  `VmClient` (one persistent worker: `ready`, `init(level)`, `shot(request, handlers)`,
+  `outputs(state, inputs)`; frames, events and chunk reports stream while a request runs) and
   `WorkerTraceSource(client, request, { level, onChunk })` (a `TraceSource` of kind `'worker'`,
   re-exported by `src/trace/source.ts`; `level()` returns the `TraceLevel` the caller passes;
-  `events` stays empty until G4's observer prints events).
-  `DEFAULT_LOAD` points at `/vm/pkg/slingfall_vm_runner.js` and
-  `/vm/fixtures/ball_drop.executable.json`. `npm run dev` serves both from the client root. The
-  wasm is imported at run time, so `npm run build` never needs it. Lot G6b will serve it in a
-  production build.
+  `events` fills as the shot runs).
+  `DEFAULT_LOAD` points at `/vm/pkg/slingfall_vm_runner.js` and the three executables under
+  `/vm/fixtures/replay/`; `BALL_DROP_LOAD` at the stand-in. `npm run dev` serves them from the
+  client root, `npm run build` copies them into `dist/vm/` (`../vite.config.ts`). The wasm is
+  imported at run time, so the build never needs it.
 
-## The slingfall replay executables (lot G4; wiring is G6b's)
+## The slingfall replay executables (lot G4; wired by G6b)
 
 `crates/slingfall_replay` builds one `executable.json` per entry point
 (`scarb --manifest-path crates/slingfall_replay/Scarb.toml build`, then
@@ -113,12 +131,46 @@ worker loads both. Arguments (decimal felts, `-x` = P - x; the full layout is in
 - With `trace = 1`, one line per tick, `frame <tick> (<handle> <x> <y> <re> <im> <asleep>)*`, and
   the event lines `damage`, `destroyed`, `score`, `shot_end` (all start with the tick after the tag);
   the pebble of shot `s` has handle `bodies + s`.
+- `outputs` (lot G6b, `fixtures/outputs/`): `<len S> <S...> <len I> <I...>` → the 10 felts of
+  `Outputs` (D4): slingfall_replay's own `chunk::state_outputs` (≈ 41k steps on pile10), so that
+  `level_hash`, `inputs_hash` and `final_state_hash` are the Poseidon hashes of the replay's code.
+  `main` / `main_trace` over the whole level would need one VM run of all its ticks (47M steps on
+  pile10's three shots: several GB of cells, beyond wasm32).
+
+**Chunk sizing, amended by G6b** (`src/vm/sizing.ts`): `maxTicks` 60 → **20**, and a reserve floor
+`minReserveCells` = **5M** cells. With the G1c rule, pile10's reference shot runs K = 37 then 54
+flight ticks (65k steps per tick) and the 54-tick chunk runs into the impact: 6.3M steps, 6.7M
+cells against a 4.5M reserve, so the segment doubles (602-820 MB of wasm). The floor costs no
+memory (the worker already plateaus at the first chunk's 4.4M-cell reserve) and 20 ticks of
+impact (4.2M steps, 4.5M cells, the worst chunk measured) fit in it.
 
 Measured with `scarb execute` (native): a chunk's fixed cost (state decode, `WorldState` round
 trip, level, inputs, serialisation) is ≈ 50k steps on pile10 (K = 1 over the reference shot adds
 ≈ 17M steps to its 43M); `init` ≈ 0.33M.
 
-## Figures (this machine, Node 24.21, `pkg-node`, 2026-09-25)
+## Figures, lot G6b (pile10, the slingfall replay; Node 24, `pkg-node`, 2026-09-25)
+
+Same shared VPS, load average 6-9, `nice -n 10`. Reference shot (-600, -392): 191 ticks, won,
+score 5 350, every frame, event and output felt equal to the native `main_trace` (`vm.test.ts`).
+
+| figure | measured | budget (brief) |
+|---|---:|---:|
+| load in a `worker_threads` worker: wasm + `init` + `step_chunk` + `outputs` executables | 632 ms | – |
+| `init` (level load, once per level) | 327k steps, 130-211 ms | – |
+| release → first frame, across threads (`worker-check.mjs`) | **77 ms** | ≤ 0.5 s |
+| release → first frame, same thread (`bench.mjs slingfall`, 4 runs) | 65-110 ms | ≤ 0.5 s |
+| whole shot, end to end (`worker-check.mjs`) | **10.32 s**, 34.31M steps | ≤ 15 s |
+| whole shot, `bench.mjs slingfall` (4 runs, G6b sizing) | 9.35-14.47 s, 2.37-3.67M steps/s | ≤ 15 s |
+| worst gap between two frames | 285-441 ms | – |
+| peak wasm, G6b sizing / G1c sizing (`bench.mjs slingfall 60`) | **299-349 MB** / 602-654 MB | ≤ 450 MB (G1c) |
+| `outputs` run | 41k steps, 19-21 ms | – |
+
+G6b sizing, K per chunk: `5 20 20 20 20 20 16 16 14 13 11 11 11` (13 chunks, +0.4M steps of
+round trips over G1c's 10 chunks, 9.35-9.51 s against 9.77-10.14 s back to back). pile10's three
+shots in one session (two weak, then the reference; `vm.test.ts`): 120 ticks 9.8M steps 2.7 s,
+120 ticks 9.5M steps 2.5 s, 191 ticks 33.9M steps 10.0 s; won, score 1 350.
+
+## Figures, lot G1c (this machine, Node 24.21, `pkg-node`, 2026-09-25)
 
 AMD EPYC 9354P VPS, 8 vCPU, **load average 8-9.8** during every run (shared machine); `nice -n 10`.
 `node client/vm/scripts/bench.mjs first-chunk 5` and `… shot <rule|K> [120] [reserveFactor]`, one

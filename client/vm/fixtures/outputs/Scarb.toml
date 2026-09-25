@@ -1,0 +1,25 @@
+[package]
+name = "slingfall_outputs"
+description = "The D4 outputs of a finished chunked replay, for the client (lot G6b): slingfall_replay's `state_outputs` as an executable."
+version = "0.1.0"
+edition = "2024_07"
+cairo-version = "2.19.4"
+license = "MIT"
+
+# Standalone package, outside the root workspace (an executable needs `enable-gas = false`), as
+# `ball_drop`. Build: `scarb --manifest-path client/vm/fixtures/outputs/Scarb.toml build`;
+# `client/vm/scripts/fetch-executables.sh` copies `target/dev/outputs.executable.json` to
+# `client/vm/fixtures/replay/`. Belongs in `crates/slingfall_replay` (escalated in G6b).
+[workspace]
+
+[dependencies]
+slingfall_level = { path = "../../../../crates/slingfall_level" }
+slingfall_replay = { path = "../../../../crates/slingfall_replay" }
+cairo_execute = "2.19.4"
+
+[[target.executable]]
+name = "outputs"
+function = "slingfall_outputs::outputs"
+
+[cairo]
+enable-gas = false

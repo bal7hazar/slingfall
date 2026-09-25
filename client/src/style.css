@@ -49,3 +49,77 @@ canvas {
 .hint {
   opacity: 0.6;
 }
+
+.simulating {
+  color: #f0c060;
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.4;
+  }
+}
+
+.banner {
+  position: fixed;
+  top: 40px;
+  left: 14px;
+  right: 14px;
+  padding: 8px 12px;
+  background: rgba(120, 60, 40, 0.9);
+  border-radius: 4px;
+}
+
+.result {
+  position: fixed;
+  top: 40px;
+  right: 14px;
+  width: min(560px, calc(100% - 28px));
+  max-height: calc(100% - 100px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  background: rgba(20, 22, 27, 0.92);
+  border-radius: 6px;
+}
+
+.result h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.result p {
+  margin: 0 0 8px;
+}
+
+.result table {
+  border-collapse: collapse;
+  font: 12px/1.5 ui-monospace, monospace;
+}
+
+.result th {
+  padding-right: 10px;
+  text-align: left;
+  font-weight: normal;
+  opacity: 0.7;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.result td {
+  word-break: break-all;
+}
+
+.result tr.proof td {
+  color: #9fd8e8;
+}
+
+.result-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}

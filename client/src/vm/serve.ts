@@ -1,9 +1,9 @@
 // The worker side of the protocol, independent of the Worker global so that tests can serve it
-// in-process: loads the engine once, then runs the shots it receives one after the other,
-// streaming frames while the VM runs (`println!` -> `postMessage`, synchronously).
+// in-process: loads the engine once, then runs the requests it receives one after the other,
+// streaming frames and events while the VM runs (`println!` -> `postMessage`, synchronously).
 import { PROGRAMS, type ChunkProgram } from './program.ts';
 import type { FromWorker, LoadRequest, ToWorker } from './protocol';
-import { runShot, type VmEngine } from './shot.ts';
+import { runInit, runOutputs, runShot, type ShotOptions, type VmEngine } from './shot.ts';
 
 /** What `serveVm` needs from the worker global (`self` in a Web Worker). */
 export interface WorkerScope {
@@ -33,24 +33,36 @@ export function serveVm(scope: WorkerScope, loadEngine: EngineLoader, now = () =
     }
     const { id } = msg;
     if (loaded === null) {
-      scope.postMessage({ type: 'error', id, message: 'shot before load' });
+      scope.postMessage({ type: 'error', id, message: `${msg.type} before load` });
       return;
     }
+    const { engine, program } = loaded;
+    const stream: ShotOptions = {
+      onFrame: (frame) => scope.postMessage({ type: 'frame', id, frame }),
+      onEvent: (event) => scope.postMessage({ type: 'event', id, event }),
+      onLine: (line) => scope.postMessage({ type: 'line', id, line }),
+      onChunk: (chunk) => scope.postMessage({ type: 'chunk', id, chunk }),
+      now,
+    };
     try {
-      const result = runShot(loaded.engine, loaded.program, msg.level, msg.inputs, {
-        sizing: msg.sizing,
-        fixedTicks: msg.fixedTicks,
-        onFrame: (frame) => scope.postMessage({ type: 'frame', id, frame }),
-        onLine: (line) => scope.postMessage({ type: 'line', id, line }),
-        onChunk: (chunk) => scope.postMessage({ type: 'chunk', id, chunk }),
-        now,
-      });
+      const result =
+        msg.type === 'init'
+          ? runInit(engine, program, msg.level, stream)
+          : msg.type === 'outputs'
+            ? runOutputs(engine, program, msg.state, msg.inputs, stream)
+            : runShot(engine, program, msg.level, msg.inputs, {
+                ...stream,
+                shot: msg.shot,
+                state: msg.state,
+                sizing: msg.sizing,
+                fixedTicks: msg.fixedTicks,
+              });
       scope.postMessage({ type: 'done', id, result });
     } catch (e) {
       scope.postMessage({ type: 'error', id, message: describe(e) });
     }
   };
-  // One message at a time, in arrival order (a load is async, shots are not).
+  // One message at a time, in arrival order (a load is async, runs are not).
   let queue = Promise.resolve();
   scope.onmessage = ({ data }) => {
     queue = queue.then(() => handle(data));
