@@ -1,0 +1,29 @@
+[package]
+name = "ball_drop"
+description = "Stand-in executable for the VM worker until G4 (spike G1b copy of rapier-cairo/examples/ball_drop)."
+version = "0.1.0"
+edition = "2024_07"
+cairo-version = "2.19.4"
+license = "MIT"
+
+# Standalone package, outside the root workspace (an executable needs `enable-gas = false`).
+# Build: `scarb --manifest-path client/vm/fixtures/ball_drop/Scarb.toml build`, then copy
+# `target/dev/ball_drop.executable.json` to `client/vm/fixtures/` (client/vm/README.md).
+[workspace]
+
+[dependencies]
+# Same registry pins as the root `Scarb.toml` (docs/DESIGN.md D11). `Collider`, `ImpulseJoint`,
+# `ContactPair` and the set traits are not in `rapier2d::prelude` (spike escalation E3).
+fixed = "0.3.0"
+glam = "0.3.0"
+rapier2d = "=0.1.0-alpha.1"
+rapier_core = "=0.1.0-alpha.1"
+rapier_math = "=0.1.0-alpha.1"
+rapier_dynamics2d = "=0.1.0-alpha.1"
+cairo_execute = "2.19.4"
+
+[executable]
+sierra = true
+
+[cairo]
+enable-gas = false

@@ -1,0 +1,27 @@
+diff --git a/vm/src/vm/vm_memory/memory.rs b/vm/src/vm/vm_memory/memory.rs
+index 58898fa5..d4246445 100644
+--- a/vm/src/vm/vm_memory/memory.rs
++++ b/vm/src/vm/vm_memory/memory.rs
+@@ -198,6 +198,22 @@ impl Memory {
+             .ok_or_else(|| MemoryError::UnallocatedSegment(Box::new((value_index, data_len))))
+     }
+
++    /// G1b spike: reserves room for `additional` more cells in a segment, so that the segment
++    /// grows without the doubling copies of `insert`. Returns `false` if the segment does not
++    /// exist or the allocation fails.
++    pub fn reserve_segment(&mut self, segment_index: isize, additional: usize) -> bool {
++        let key = Relocatable::from((segment_index, 0));
++        match self.get_segment(key) {
++            Ok(segment) => segment.try_reserve_exact(additional).is_ok(),
++            Err(_) => false,
++        }
++    }
++
++    /// G1b spike: `(len, capacity)` of every non-temporary segment, in cells.
++    pub fn segment_capacities(&self) -> Vec<(usize, usize)> {
++        self.data.iter().map(|s| (s.len(), s.capacity())).collect()
++    }
++
+     /// Inserts a value into a memory address
+     /// Will return an Error if the segment index given by the address corresponds to a non-allocated segment,
+     /// or if the inserted value is inconsistent with the current value at the memory cell
