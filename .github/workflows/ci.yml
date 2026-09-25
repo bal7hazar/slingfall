@@ -104,6 +104,37 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  vm:
+    # cairo-vm wasm worker (client/vm/README.md): runner unit tests, wasm build, then the client
+    # tests that run the wasm (bit-exact chunk chaining). Optional: not in `all-checks`.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            client/vm/vendor
+            client/vm/tools
+            client/vm/runner/target
+          key: vm-${{ hashFiles('client/vm/runner/Cargo.lock', 'client/vm/runner/rust-toolchain.toml', 'client/vm/runner/cairo-vm-reserve.patch') }}
+          restore-keys: vm-
+      # rustup installs the toolchain and wasm32 target of client/vm/runner/rust-toolchain.toml.
+      - name: Build the wasm runner
+        run: client/vm/scripts/build.sh
+      - name: Runner unit tests
+        working-directory: client/vm/runner
+        run: cargo test -j 4 --lib
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Client tests on the wasm
+        working-directory: client
+        run: npm ci && npm test
+
   all-checks:
     # The single required check: green only when every job above is.
     if: always()
