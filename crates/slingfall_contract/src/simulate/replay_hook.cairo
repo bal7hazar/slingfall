@@ -60,8 +60,8 @@ mod tests {
         let outputs = run::<ReplaySimulateHook>(pile10_felts().span(), to_felts(@inputs).span());
         let expected: Array<felt252> = array![
             1, PILE10_HASH, 0, PLAYER,
-            0x31b10e77b97a88153b1e9d781ecddece54061fe1cf88e6a3660eee99fda4f3b, 5350, 1, 1, 334,
-            0x590e9e20e7a972c7e63544b1358f879f0b8b8dc169707c3cb2d597604aabc61,
+            0x31b10e77b97a88153b1e9d781ecddece54061fe1cf88e6a3660eee99fda4f3b, 5350, 1, 1, 191,
+            0x2ff3945fee21a4cc7f9447a645a65108dd2a7e697f0c06e75ef0475bbef13e9,
         ];
         assert_eq!(outputs.to_felts(), expected);
     }
