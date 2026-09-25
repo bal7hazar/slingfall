@@ -96,6 +96,28 @@ A Cairo panic or VM error throws (`Error` with the VM message and the panic data
   wasm is imported at run time, so `npm run build` never needs it. Lot G6b will serve it in a
   production build.
 
+## The slingfall replay executables (lot G4; wiring is G6b's)
+
+`crates/slingfall_replay` builds one `executable.json` per entry point
+(`scarb --manifest-path crates/slingfall_replay/Scarb.toml build`, then
+`crates/slingfall_replay/target/dev/init.executable.json` and `step_chunk.executable.json`); the
+worker loads both. Arguments (decimal felts, `-x` = P - x; the full layout is in
+[`crates/slingfall_replay/README.md`](../../crates/slingfall_replay/README.md)):
+
+- `init`: `<len L> <L...>` (the `Level` felts of `levelc.py to-felts`) → the state felts. Prints
+  the level header lines (`trace 1`, `level …`, `material …`, `body …`).
+- `step_chunk`: `<len S> <S...> <len I> <I...> <shot> <k> <trace>`, `I` = `player n (pull_x
+  pull_y delay 0)×n`, `shot` 0-based, `k` ticks at most, `trace` 0/1 → the new state felts.
+  State header: `S[1]` = shots finished (shot `s` is over when `S[1] == s + 1`), `S[2]` = level over,
+  `S[5]` = tick, `S[6]` = score. So `remainingTicks` becomes "`S[1] == shot` and `S[2] == 0`".
+- With `trace = 1`, one line per tick, `frame <tick> (<handle> <x> <y> <re> <im> <asleep>)*`, and
+  the event lines `damage`, `destroyed`, `score`, `shot_end` (all start with the tick after the tag);
+  the pebble of shot `s` has handle `bodies + s`.
+
+Measured with `scarb execute` (native): a chunk's fixed cost (state decode, `WorldState` round
+trip, level, inputs, serialisation) is ≈ 50k steps on pile10 (K = 1 over the reference shot adds
+≈ 17M steps to its 43M); `init` ≈ 0.33M.
+
 ## Figures (this machine, Node 24.21, `pkg-node`, 2026-09-25)
 
 AMD EPYC 9354P VPS, 8 vCPU, **load average 8-9.8** during every run (shared machine); `nice -n 10`.
