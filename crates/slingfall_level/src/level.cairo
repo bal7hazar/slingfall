@@ -29,22 +29,10 @@ pub const KIND_BLOCK: u8 = 1;
 /// `BodyDef.kind` of a target: destroying every core wins the level.
 pub const KIND_CORE: u8 = 2;
 
-/// Rotation as the unit complex number `re + im·i` (cosine, sine), raw Q32.32 each. Same fields
-/// and felt layout as `rapier_math::rot2::Rot2`, which `rapier2d::prelude` re-exports; it is
-/// declared here because this crate does not depend on `rapier2d` (escalation in `REPORT.md`).
-#[derive(Copy, Drop, Serde, PartialEq, Debug)]
-pub struct Rot2 {
-    pub re: Fixed,
-    pub im: Fixed,
-}
-
-/// Rigid transform: translation, then rotation (`[x, y, re, im]`). Same fields, order and felt
-/// layout as `rapier_math::pose2::Pose2` (see `Rot2`).
-#[derive(Copy, Drop, Serde, PartialEq, Debug)]
-pub struct Pose2 {
-    pub translation: Vec2,
-    pub rotation: Rot2,
-}
+/// `Pose2` / `Rot2` are rapier's own types (`rapier_math`, re-exported by `rapier2d::prelude`):
+/// translation then rotation, felts `[x, y, re, im]`; one type shared with the rules and the
+/// engine.
+pub use rapier2d::prelude::{Pose2, Rot2};
 
 /// Physical and game properties of a body: rapier's density, friction and restitution, then the
 /// damage model of `docs/DESIGN.md` D6 (`hp -= floor((force - force_threshold) ·

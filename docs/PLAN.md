@@ -1,6 +1,6 @@
 # Execution plan
 
-Status: **v1.1, 2026-09-25** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged, G2 / G1c running) (owner of this file: the `slingfall` orchestrator session).
+Status: **v1.2, 2026-09-25** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged; v1.2: G2 #3 merged, Pose2 swap, wave 2 G3 + G7 launched, G1c running) (owner of this file: the `slingfall` orchestrator session).
 Programme context: `/home/claude/projects/pm/PLAN.md` phase D. Design: `docs/DESIGN.md`.
 
 ## Target
@@ -17,7 +17,7 @@ orchestrator before each wave.
 | wave | id | lot | model | depends on |
 |---|---|---|---|---|
 | 0 | B0 ✅ #1 | bootstrap: workspace, crates and stubs, `client/` skeleton, CI, `scripts/` (executor, steps snapshots), PR template, `.tool-versions`, dependency pin | Opus | – |
-| 1 | G2 | `slingfall_level`: `Level` / `Material` / `BodyDef` / `ShapeDef` / `Inputs` / `Shot` / `Outputs` (D2-D4), Serde layouts, `level_hash` / `inputs_hash`, JSON schema + `tools/levelc` converter (Python, decimal → raw Q32.32, round trip), 3 fixture levels (`fixtures/levels/*.json` + felts) | Sonnet | B0 |
+| 1 | G2 ✅ #3 | `slingfall_level`: `Level` / `Material` / `BodyDef` / `ShapeDef` / `Inputs` / `Shot` / `Outputs` (D2-D4), Serde layouts, `level_hash` / `inputs_hash`, JSON schema + `tools/levelc` converter (Python, decimal → raw Q32.32, round trip), 3 fixture levels (`fixtures/levels/*.json` + felts) | Sonnet | B0 |
 | 1 | G6 ✅ #2 | `client/`: Vite + TS + PixiJS renderer of a recorded trace (JSON emitted by `main_trace` via `scarb execute`), placeholder assets, aim UI with the quantised pull and the exact BigInt arc; trace source behind an interface (recorded now, worker later) | Sonnet | B0 (fixture trace from `docs/research/03`'s scene until G4) |
 | 1 | G1c | `client/vm/`: the chunked cairo-vm worker as a reusable TS package, from the spike `pm/spikes/wasm-vm/` (runner crate vendored under `client/vm/runner/`, wasm build script, step-budgeted chunking, memory reservation, `println!` streaming), tested on the spike's executable | Opus | B0 |
 | 2 | G3 | `slingfall_rules`: world builder from `Level` (shapes, materials, `user_data`, pre-slept bodies), slingshot (clamp, launch), damage (D6), despawn, calm rule (D5), pebble removal, scoring and win (D7); snforge tests; steps per tick; tunnelling check at `v_max` | Opus | G2, `rapier2d` alpha |
@@ -50,6 +50,7 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 | lot | PR | notes |
 |---|---|---|
 | B0 | #1 | workspace, client skeleton, CI, executor tooling; `rapier2d = "=0.1.0-alpha.1"` |
+| G2 | #3 | level / inputs / outputs, `levelc` with a stdlib Poseidon matching Cairo, 3 fixtures, 55 + 15 tests; hash of pile10 = 5.8k steps; orchestrator follow-up: `Pose2` / `Rot2` now `pub use rapier2d::prelude` (felt layout unchanged) |
 | G6 | #2 | renderer + aim UI, 65 tests, ~150 kB gz; not verified in a browser (no Firefox in the executor sandbox); trace format v1 in `client/README.md`; D3 clamp rounding amended |
 
 ## Open points

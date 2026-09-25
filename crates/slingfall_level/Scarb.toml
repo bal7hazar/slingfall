@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 fixed.workspace = true
 glam.workspace = true
+rapier2d.workspace = true
 
 [dev-dependencies]
 snforge_std.workspace = true
