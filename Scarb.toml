@@ -36,6 +36,8 @@ max-line-length = 100
 
 [workspace.tool.snforge]
 tracked_resource = "cairo-steps"
+# Whole-shot tests run 20-60M Cairo steps (G3); the default cap is ~10M.
+max_n_steps = 400000000
 
 [scripts]
 steps = "python3 scripts/steps.py snapshot"
