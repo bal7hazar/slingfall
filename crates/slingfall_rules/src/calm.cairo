@@ -5,8 +5,10 @@
 //! rules: a body whose translation leaves `level.bounds` is removed (a block or core counts as
 //! destroyed and scores; the pebble is simply removed), and the shot is over when every remaining
 //! dynamic body is asleep, or when every awake one has `|v|² < ε_v²` and `ω² < ε_ω²` for
-//! `CALM_TICKS` consecutive ticks (then all of them are put to sleep). The tick cap is checked by
-//! `GameTrait::tick`, which knows `shot_tick`.
+//! `CALM_TICKS` consecutive ticks (then all of them are put to sleep). The pebble takes part in
+//! those tests only until it is spent ([`pebble_spent`]: first contact, or `PEBBLE_FLIGHT_CAP`
+//! ticks of flight): a rolling ball never calms. The tick cap is checked by `GameTrait::tick`,
+//! which knows `shot_tick`.
 
 use fixed::wide::dot2;
 use rapier2d::prelude::{Fixed, RigidBody, RigidBodyTrait, Vec2, WorldTrait};
@@ -16,6 +18,8 @@ use crate::world::Game;
 
 /// Consecutive calm ticks that end a shot.
 pub const CALM_TICKS: u8 = 20;
+/// Ticks of flight without any contact after which the pebble is spent.
+pub const PEBBLE_FLIGHT_CAP: u32 = 120;
 /// `ε_v = 0.05 m/s`, raw rounded to nearest; a component at or above it is not calm.
 pub const EPS_V: Fixed = Fixed { raw: 214748365 };
 /// `ε_v² = 0.0025 m²/s²`, raw floored (`floor(0.0025 · 2^32)`).
@@ -77,7 +81,7 @@ pub impl CalmImpl of CalmTrait {
                 if outside(body.translation(), bounds) {
                     let _ = game.world.remove_body(pebble);
                     game.pebble = None;
-                } else {
+                } else if !pebble_spent(@game) {
                     all_asleep = false;
                     all_calm = all_calm && is_calm(@body);
                 }
@@ -102,6 +106,18 @@ pub impl CalmImpl of CalmTrait {
         };
         CalmReport { out_of_bounds, shot_over }
     }
+}
+
+/// The pebble is spent (D5): it has had its first contact with a block or a core, or
+/// `PEBBLE_FLIGHT_CAP` ticks went by since the launch. A spent pebble no longer counts in the calm
+/// test (a rolling ball never calms: no rolling resistance).
+///
+/// Contacts with static colliders (the ground, fixed bodies) do not spend the pebble: one that
+/// lands short can still roll into the pile. While it is not spent it keeps the shot going (it is
+/// awake and moving), so a pebble that rolls on flat ground delays the end of the shot until the
+/// flight cap, 120 ticks after the launch, at the latest.
+pub fn pebble_spent(game: @Game) -> bool {
+    *game.pebble_contact || *game.shot_tick >= PEBBLE_FLIGHT_CAP
 }
 
 /// `|v|² < ε_v²` and `ω² < ε_ω²`, squared compares through one fused `dot2` and one
