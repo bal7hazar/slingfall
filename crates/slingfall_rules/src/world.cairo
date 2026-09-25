@@ -32,6 +32,8 @@ pub mod errors {
     pub const HANDLE_ORDER: felt252 = 'rules: handle order';
     /// `launch` while a pebble is already in the world.
     pub const PEBBLE: felt252 = 'rules: pebble in flight';
+    /// `launch` of a shot whose `level.projectiles` kind is not 0 (pebble); abilities are deferred.
+    pub const PROJECTILE_KIND: felt252 = 'rules: projectile kind';
     /// `play_shot` after the level was won or every shot was used.
     pub const LEVEL_OVER: felt252 = 'rules: level over';
 }
@@ -65,6 +67,11 @@ pub struct Game {
     /// Ticks stepped since the current pebble was launched (the tick cap counts these).
     pub shot_tick: u32,
     pub pebble: Option<Handle>,
+    /// The pebble has had its first contact (a contact-force event involving it): it no longer
+    /// counts in the calm test (D5, spent pebble). Cleared at launch.
+    pub pebble_contact: bool,
+    /// `shot_tick` of that first contact, 0 while there is none.
+    pub pebble_contact_tick: u32,
     pub calm: Calm,
 }
 
@@ -80,6 +87,8 @@ pub struct GameState {
     pub tick: u32,
     pub shot_tick: u32,
     pub pebble: Option<Handle>,
+    pub pebble_contact: bool,
+    pub pebble_contact_tick: u32,
     pub calm: Calm,
 }
 
@@ -88,7 +97,8 @@ pub struct GameState {
 pub struct TickReport {
     /// Entities destroyed this tick: by damage (ascending), then out of bounds (ascending).
     pub destroyed: Array<usize>,
-    /// The shot is over: D5 (1) all asleep, (2) calm, or (3) the tick cap.
+    /// The shot is over: D5 (1) all asleep, (2) calm (the spent pebble excluded), or (3) the tick
+    /// cap.
     pub shot_over: bool,
     /// Every core is destroyed.
     pub won: bool,
@@ -169,6 +179,8 @@ pub impl GameImpl of GameTrait {
             tick: 0,
             shot_tick: 0,
             pebble: None,
+            pebble_contact: false,
+            pebble_contact_tick: 0,
             calm: CalmTrait::new(),
         };
         settle(ref game);
@@ -189,6 +201,8 @@ pub impl GameImpl of GameTrait {
             tick: self.tick,
             shot_tick: self.shot_tick,
             pebble: self.pebble,
+            pebble_contact: self.pebble_contact,
+            pebble_contact_tick: self.pebble_contact_tick,
             calm: self.calm,
         }
     }
@@ -205,6 +219,8 @@ pub impl GameImpl of GameTrait {
             tick,
             shot_tick,
             pebble,
+            pebble_contact,
+            pebble_contact_tick,
             calm,
         } = state;
         Game {
@@ -217,6 +233,8 @@ pub impl GameImpl of GameTrait {
             tick,
             shot_tick,
             pebble,
+            pebble_contact,
+            pebble_contact_tick,
             calm,
         }
     }
@@ -227,6 +245,12 @@ pub impl GameImpl of GameTrait {
         let (_, events) = self.world.step_with_force_events();
         self.tick += 1;
         self.shot_tick += 1;
+        if self.pebble.is_some()
+            && !self.pebble_contact
+            && sling::pebble_touched(self.entities.span(), events.span()) {
+            self.pebble_contact = true;
+            self.pebble_contact_tick = self.shot_tick;
+        }
         let mut destroyed = damage::apply(ref self, level, events.span());
         damage::remove(ref self, level, destroyed.span());
         let mut calm = self.calm;

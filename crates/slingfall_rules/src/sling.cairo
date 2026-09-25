@@ -8,12 +8,14 @@
 use core::num::traits::Sqrt;
 use fixed::FixedTrait;
 use rapier2d::prelude::{
-    ColliderBuilderTrait, Fixed, Pose2, RigidBodyBuilderTrait, Rot2, Vec2, WorldTrait,
+    CONTACT_FORCE_EVENTS, ColliderBuilderTrait, ContactForceEvent, Fixed, Pose2,
+    RigidBodyBuilderTrait, Rot2, Vec2, WorldTrait,
 };
 use slingfall_level::inputs::Shot;
-use slingfall_level::level::Level;
+use slingfall_level::level::{KIND_STATIC, Level};
 use crate::calm::CalmTrait;
-use crate::world::{Game, errors};
+use crate::damage::entity_of;
+use crate::world::{Entity, Game, errors};
 
 /// Radius of the pebble, 0.25 m (`docs/DESIGN.md` D12).
 pub const PEBBLE_RADIUS: Fixed = Fixed { raw: 0x40000000 };
@@ -25,6 +27,8 @@ pub const PEBBLE_FRICTION: Fixed = Fixed { raw: 0x80000000 };
 pub const PEBBLE_RESTITUTION: Fixed = Fixed { raw: 858993459 };
 /// `user_data` of the pebble's collider: above every entity index (entities use their index).
 pub const PEBBLE_USER_DATA: u128 = 0x100000000;
+/// The only projectile kind for now: the pebble.
+pub const KIND_PEBBLE: u8 = 0;
 
 /// Clamps a pull to the disk of radius `radius` (`docs/DESIGN.md` D3, `clampPull` of
 /// `client/src/aim/pull.ts`): kept when `px² + py² <= R²`; otherwise `s = ceil_isqrt(px² +
@@ -66,13 +70,21 @@ pub fn launch_velocity(px: i16, py: i16, launch_scale: Fixed) -> Vec2 {
 
 /// Spawns the pebble at `level.sling_anchor` (identity rotation, awake) with the launch velocity
 /// of `shot`'s clamped pull, and starts a new shot: `shot_tick` and the calm counter restart. The
-/// `delay` ticks are stepped by the caller before (`GameTrait::play_shot`).
+/// pebble's collider reports contact-force events at threshold 0, so that any contact of the
+/// pebble with a block or a core is seen ([`pebble_touched`], the spent-pebble rule of
+/// `docs/DESIGN.md` D5), and its contact state restarts. The `delay` ticks are stepped by the
+/// caller before (`GameTrait::play_shot`).
 ///
 /// # Panics
-/// `errors::PEBBLE` when a pebble is already in the world.
+/// `errors::PEBBLE` when a pebble is already in the world; `errors::PROJECTILE_KIND` when the
+/// level's projectile for this shot (`level.projectiles[game.shots_used]`) is not [`KIND_PEBBLE`]
+/// (abilities are deferred).
 pub fn launch(ref game: Game, level: @Level, shot: @Shot) {
     if game.pebble.is_some() {
         core::panic_with_felt252(errors::PEBBLE);
+    }
+    if *level.projectiles[game.shots_used.into()] != KIND_PEBBLE {
+        core::panic_with_felt252(errors::PROJECTILE_KIND);
     }
     let (px, py) = clamp_pull(*shot.pull_x, *shot.pull_y, *level.pull_radius);
     let pose = Pose2 {
@@ -88,11 +100,38 @@ pub fn launch(ref game: Game, level: @Level, shot: @Shot) {
         .friction(PEBBLE_FRICTION)
         .restitution(PEBBLE_RESTITUTION)
         .user_data(PEBBLE_USER_DATA)
+        .contact_force_event_threshold(Fixed { raw: 0 })
+        .active_events(CONTACT_FORCE_EVENTS)
         .build();
     let (handle, _) = game.world.insert(body, collider);
     game.pebble = Some(handle);
     game.shot_tick = 0;
+    game.pebble_contact = false;
+    game.pebble_contact_tick = 0;
     game.calm = CalmTrait::new();
+}
+
+/// The pebble is one side of at least one of `events` and the other side is a block or a core: its
+/// first contact (D5, spent pebble). Contacts with static colliders (the ground, fixed bodies) do
+/// not count. The pebble is the only collider that is not an entity's (`damage::entity_of`).
+pub fn pebble_touched(entities: Span<Entity>, events: Span<ContactForceEvent>) -> bool {
+    for event in events {
+        let first = entity_of(entities, *event.collider1);
+        let second = entity_of(entities, *event.collider2);
+        let other = if first.is_none() {
+            second
+        } else if second.is_none() {
+            first
+        } else {
+            None
+        };
+        if let Some(index) = other {
+            if *entities[index].kind != KIND_STATIC {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// `|v|` of an `i16`, widened.

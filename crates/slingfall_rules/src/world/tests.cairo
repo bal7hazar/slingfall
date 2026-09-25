@@ -9,7 +9,7 @@ use slingfall_testing::opaque;
 use crate::world::fixtures::{CORES3_HASH, ONE_BLOCK_HASH, PILE10_HASH, cores3, one_block, pile10};
 use crate::world::{Game, GameState, GameTrait};
 
-/// The reference shot at pile10: first contact at shot tick 83, ends calm (see REPORT.md).
+/// The reference shot at pile10: first contact at shot tick 83, ends calm, the level is won.
 const SHOT: Shot = Shot { pull_x: -600, pull_y: -392, delay: 0, ability_tick: 0 };
 /// Shot tick of the first contact of `SHOT` with pile10 (measured).
 const FIRST_CONTACT: u32 = 83;
@@ -114,10 +114,8 @@ fn test_resting_pile10_takes_no_damage_over_120_ticks() {
 /// The same pile woken up at rest: the static load alone exceeds timber's 40 N threshold under
 /// the two inner bottom blocks (entities 2 and 3, about 41-43 N each), which lose hp until the
 /// calm rule puts the pile back to sleep (tick 20): hp 100 -> 81 and 82. Measured, not tuned
-/// (level design, lot G8). 22M steps: over the default snforge cap (see
-/// `test_pile10_shot_ends_calm_before_the_cap`).
+/// (level design, lot G8). 22M steps.
 #[test]
-#[ignore]
 fn test_awake_pile10_load_damage_is_the_inner_bottom_timber() {
     let level = pile10();
     let mut game = GameTrait::new(@level);
@@ -151,7 +149,7 @@ fn test_awake_pile10_load_damage_is_the_inner_bottom_timber() {
 }
 
 /// The reference shot destroys a block well within the cap (CI-sized: stops at the first
-/// destruction).
+/// destruction), and that tick is the pebble's first contact.
 #[test]
 fn test_pile10_shot_destroys_a_block_within_the_cap() {
     let level = pile10();
@@ -159,30 +157,30 @@ fn test_pile10_shot_destroys_a_block_within_the_cap() {
     crate::sling::launch(ref game, @level, @SHOT);
     let mut destroyed = array![];
     while destroyed.is_empty() {
+        assert!(!game.pebble_contact);
         let report = game.tick(@level);
         assert!(!report.shot_over);
         destroyed = report.destroyed;
     }
     // The first contact tick itself: frost, the core and three timber blocks at once.
     assert_eq!(game.shot_tick, FIRST_CONTACT);
+    assert_eq!((game.pebble_contact, game.pebble_contact_tick), (true, FIRST_CONTACT));
     assert_eq!(destroyed, array![1, 2, 3, 8, 9, 10]);
 }
 
-/// The whole reference shot (43M steps: over the default snforge cap, run with
-/// `snforge test -p slingfall_rules --include-ignored --max-n-steps 200000000`): the calm rule
-/// ends it at shot tick 334, before the 360 cap; the level is won.
+/// The whole reference shot (32M steps): first contact at shot tick 83, the pebble is then spent
+/// and the pile calms, so the shot ends by the calm rule at tick 191 (the pebble still rolling),
+/// before the 360 cap; the level is won.
 #[test]
-#[ignore]
 fn test_pile10_shot_ends_calm_before_the_cap() {
     let level = pile10();
     let mut game = GameTrait::new(@level);
     let report = game.play_shot(@level, @SHOT);
-    println!("pile10 shot: {:?}, score {}", report, game.score);
     assert!(!report.capped);
-    assert_eq!(report.shot_ticks, 334);
-    assert_eq!(report.ticks, 334);
+    assert_eq!((report.shot_ticks, report.ticks), (191, 191));
     assert_eq!(report.destroyed, array![1, 2, 3, 8, 9, 10]);
     assert!(report.won);
+    assert_eq!((game.pebble_contact, game.pebble_contact_tick), (true, FIRST_CONTACT));
     // Frost 2 × 100, timber 3 × 50, the core 1 000, two unused shots × 2 000.
     assert_eq!(game.score, 5_350);
     assert_eq!(game.shots_used, 1);
@@ -190,6 +188,54 @@ fn test_pile10_shot_ends_calm_before_the_cap() {
     for entity in game.entities.span() {
         if *entity.alive && *entity.kind != KIND_STATIC {
             assert!(game.world.body(*entity.body).unwrap().is_sleeping());
+        }
+    }
+}
+
+/// A pebble that touches no block is spent by the flight cap: pull (-700, -450) misses pile10 and
+/// the shot ends at shot tick 120 (`PEBBLE_FLIGHT_CAP`, all blocks asleep), not on the 360-tick
+/// cap; there is no first contact.
+#[test]
+fn test_pile10_missed_shot_ends_at_the_flight_cap() {
+    let level = pile10();
+    let mut game = GameTrait::new(@level);
+    let report = game
+        .play_shot(@level, @Shot { pull_x: -700, pull_y: -450, delay: 0, ability_tick: 0 });
+    assert_eq!(crate::calm::PEBBLE_FLIGHT_CAP, 120);
+    assert!(!report.capped);
+    assert_eq!((report.shot_ticks, report.destroyed), (120, array![]));
+    assert_eq!((game.pebble_contact, game.pebble_contact_tick), (false, 0));
+    assert!(!report.won);
+}
+
+/// Six pulls, whole shots (about 95M steps): every one ends before the tick cap, by the calm rule
+/// or by all asleep. `(pull_x, pull_y, shot ticks, first contact, destroyed, won)`; the two pulls
+/// that miss end when the flight cap spends the pebble (tick 120).
+#[test]
+fn test_pile10_pulls_end_before_the_cap() {
+    let cases: Array<(i16, i16, u32, u32, Array<usize>, bool)> = array![
+        (-600, -392, 191, 83, array![1, 2, 3, 8, 9, 10], true),
+        (-500, -300, 169, 87, array![1, 2, 3, 4, 8, 6, 9, 10], true),
+        (-700, -450, 120, 0, array![], false),
+        (-800, -200, 110, 57, array![2, 4, 5, 8, 3, 1, 9, 6, 7, 10], true),
+        (-400, -500, 209, 119, array![1, 2, 3, 8, 9, 10, 5, 4], true),
+        (-900, -600, 120, 0, array![], false),
+    ];
+    for (px, py, shot_ticks, contact, destroyed, won) in cases {
+        let level = pile10();
+        let mut game = GameTrait::new(@level);
+        let report = game
+            .play_shot(@level, @Shot { pull_x: px, pull_y: py, delay: 0, ability_tick: 0 });
+        assert!(!report.capped);
+        assert_eq!(report.shot_ticks, shot_ticks);
+        assert_eq!(game.pebble_contact_tick, contact);
+        assert_eq!(report.destroyed, destroyed);
+        assert_eq!(report.won, won);
+        assert!(game.pebble.is_none());
+        for entity in game.entities.span() {
+            if *entity.alive && *entity.kind != KIND_STATIC {
+                assert!(game.world.body(*entity.body).unwrap().is_sleeping());
+            }
         }
     }
 }
@@ -231,10 +277,10 @@ fn test_round_trip_mid_flight() {
     assert_round_trip(ref game, @level, 10);
 }
 
-/// Round trip during the impact (2 ticks after the first contact, frost already destroyed):
-/// 10 more ticks bit-exact, removals and the pebble's handle included (over the default cap).
+/// Round trip during the impact (2 ticks after the first contact, frost already destroyed): 10
+/// more ticks bit-exact, removals, the pebble's handle and its contact state (`pebble_contact`,
+/// `pebble_contact_tick`, two felts of `GameState`) included.
 #[test]
-#[ignore]
 fn test_round_trip_mid_impact() {
     let level = pile10();
     let mut game = GameTrait::new(@level);
@@ -243,6 +289,11 @@ fn test_round_trip_mid_impact() {
         let _ = game.tick(@level);
     }
     assert!(game.pebble.is_some());
+    assert_eq!((game.pebble_contact, game.pebble_contact_tick), (true, FIRST_CONTACT));
+    let state = game.to_state();
+    assert_eq!((state.pebble_contact, state.pebble_contact_tick), (true, FIRST_CONTACT));
+    let restored = through_felts(ref game);
+    assert_eq!((restored.pebble_contact, restored.pebble_contact_tick), (true, FIRST_CONTACT));
     assert_round_trip(ref game, @level, 10);
 }
 
@@ -339,7 +390,7 @@ fn test_play_shot_delay_and_cap() {
     let mut game = GameTrait::new(@level);
     let report = game
         .play_shot(@level, @Shot { pull_x: -500, pull_y: 0, delay: 5, ability_tick: 0 });
-    // A lone pebble rolls on flat ground: never calm, the cap ends the shot.
+    // The pebble is still in flight at tick 30 (not spent before 120): the cap ends the shot.
     assert_eq!((report.ticks, report.shot_ticks, report.capped), (35, 30, true));
     assert_eq!(report.destroyed, array![]);
     assert_eq!(game.tick, 35);
@@ -348,6 +399,40 @@ fn test_play_shot_delay_and_cap() {
     assert_eq!(game.world.bodies.len(), 2);
     assert!(!report.won);
     assert_eq!(game.score, 0);
+}
+
+/// Spent-pebble rule: landing on and rolling along the static ground is not a first contact (the
+/// pebble could still roll into a pile), so the shot goes on until `PEBBLE_FLIGHT_CAP`, where the
+/// spent pebble is excluded and the sleeping core ends it (tick 120, below the 360 cap).
+#[test]
+fn test_static_contact_does_not_spend_the_pebble() {
+    let core = BodyDef {
+        kind: KIND_CORE,
+        shape: ShapeDef::Ball(fixed(1717986918)),
+        pose: at(0x2800000000, 1717986918),
+        material: 3,
+    };
+    let level = custom_level(360, 85899346, 0x280000000, array![ground(), core]);
+    let mut game = GameTrait::new(@level);
+    crate::sling::launch(
+        ref game, @level, @Shot { pull_x: -500, pull_y: 0, delay: 0, ability_tick: 0 },
+    );
+    let pebble = game.pebble.unwrap();
+    let mut on_ground_at = 0;
+    loop {
+        let report = game.tick(@level);
+        assert!(!report.capped && !game.pebble_contact);
+        // Resting on the ground: centre at most half a metre high (radius 0.25).
+        if on_ground_at == 0 && game.world.body(pebble).unwrap().translation().y.raw < 0x80000000 {
+            on_ground_at = game.shot_tick;
+        }
+        if report.shot_over {
+            break;
+        }
+    }
+    assert_eq!(game.shot_tick, 120);
+    assert!(on_ground_at != 0 && on_ground_at < 120);
+    assert_eq!(game.pebble_contact_tick, 0);
 }
 
 #[test]
@@ -375,6 +460,41 @@ fn test_second_launch_panics() {
     let mut game = GameTrait::new(@level);
     crate::sling::launch(ref game, @level, @SHOT);
     crate::sling::launch(ref game, @level, @SHOT);
+}
+
+/// `level.projectiles[shots_used]` picks the kind of the launched shot: kind 0 is the pebble, and
+/// a launch reads the entry of its own shot index.
+#[test]
+fn test_launch_reads_the_projectile_of_the_shot_index() {
+    let mut level = pile10();
+    level.projectiles = array![0, 7, 0];
+    let mut game = GameTrait::new(@level);
+    crate::sling::launch(ref game, @level, @SHOT);
+    assert!(game.pebble.is_some());
+    // No damping (D5): the flight is the client's exact arc.
+    let pebble = game.world.body(game.pebble.unwrap()).unwrap();
+    assert_eq!(pebble.linear_damping(), fixed(0));
+    assert_eq!(pebble.angular_damping(), fixed(0));
+    assert_eq!((game.pebble_contact, game.pebble_contact_tick), (false, 0));
+}
+
+#[test]
+#[should_panic(expected: ('rules: projectile kind',))]
+fn test_launch_of_a_non_pebble_kind_panics() {
+    let mut level = pile10();
+    level.projectiles = array![0, 7, 0];
+    let mut game = GameTrait::new(@level);
+    game.shots_used = 1;
+    crate::sling::launch(ref game, @level, @SHOT);
+}
+
+#[test]
+#[should_panic(expected: ('rules: projectile kind',))]
+fn test_play_shot_of_a_non_pebble_kind_panics() {
+    let mut level = pile10();
+    level.projectiles = array![1, 0, 0];
+    let mut game = GameTrait::new(@level);
+    let _ = game.play_shot(@level, @SHOT);
 }
 
 #[test]
