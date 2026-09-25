@@ -16,8 +16,7 @@ repository = "https://github.com/bal7hazar/slingfall"
 # Same pins as the root `Scarb.toml` (two sources of `fixed` would mean two `Fixed` types).
 fixed = "0.3.0"
 glam = "0.3.0"
-# TODO(B0): registry alpha (`rapier2d = "=0.1.0-alpha.1"`); see the root `Scarb.toml`.
-rapier2d = { path = "../../../rapier-cairo/crates/rapier2d" }
+rapier2d = "=0.1.0-alpha.1"
 slingfall_level = { path = "../slingfall_level" }
 slingfall_rules = { path = "../slingfall_rules" }
 cairo_execute = "2.19.4"

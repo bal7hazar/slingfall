@@ -20,11 +20,9 @@ research behind them: `docs/research/`. Rules for every agent: `AGENTS.md`.
 
 ## Commands
 
-Toolchain: scarb 2.19.4 and snforge 0.61.0 (`.tool-versions`, asdf), Python 3, Node 24. Until
-`rapier2d` `0.1.0-alpha.1` reaches scarbs.xyz, a clone of
-[rapier-cairo](https://github.com/bal7hazar/rapier-cairo) must sit next to this repository
-(`../rapier-cairo`). On the shared machine, run one `scarb` / `snforge` command at a time and never
-`snforge test --workspace` (`AGENTS.md` §6).
+Toolchain: scarb 2.19.4 and snforge 0.61.0 (`.tool-versions`, asdf), Python 3, Node 24. On the
+shared machine, run one `scarb` / `snforge` command at a time and never `snforge test --workspace`
+(`AGENTS.md` §6).
 
 | what | command |
 |---|---|

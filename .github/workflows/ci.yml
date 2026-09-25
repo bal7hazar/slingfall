@@ -10,9 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # TODO(B0): registry alpha. `rapier2d = "=0.1.0-alpha.1"` is not on scarbs.xyz yet: the root
-  # `Scarb.toml` points at a sibling clone `../rapier-cairo`, cloned here at this commit.
-  RAPIER_CAIRO_REV: 50e3a5c26c6a060e0aabc74c7dafce71b77d7ce3
+  # Nested executable package, outside the root workspace (enable-gas = false).
   REPLAY: crates/slingfall_replay/Scarb.toml
 
 jobs:
@@ -20,12 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - &rapier
-        name: Clone rapier-cairo next to the checkout (temporary path dependency)
-        run: |
-          git init -q ../rapier-cairo
-          git -C ../rapier-cairo fetch -q --depth 1 https://github.com/bal7hazar/rapier-cairo "$RAPIER_CAIRO_REV"
-          git -C ../rapier-cairo checkout -q FETCH_HEAD
       - uses: software-mansion/setup-scarb@v1
       - run: scarb fmt --check --workspace
       - run: scarb --manifest-path "$REPLAY" fmt --check
@@ -34,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - *rapier
       - uses: software-mansion/setup-scarb@v1
       - run: scarb lint --workspace --deny-warnings
       - run: scarb --manifest-path "$REPLAY" lint --deny-warnings
@@ -43,7 +34,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - *rapier
       - uses: software-mansion/setup-scarb@v1
       - run: scarb build --workspace
       - run: scarb --manifest-path "$REPLAY" build
@@ -60,7 +50,6 @@ jobs:
         crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_contract, slingfall_replay]
     steps:
       - uses: actions/checkout@v7
-      - *rapier
       - uses: software-mansion/setup-scarb@v1
       - uses: foundry-rs/setup-snfoundry@v6
       - name: Run tests
