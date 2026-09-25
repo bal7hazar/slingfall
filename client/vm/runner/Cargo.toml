@@ -1,0 +1,42 @@
+[package]
+name = "slingfall-vm-runner"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Runs a scarb `executable.json` (Cairo 2.19) on cairo-vm, natively and in wasm32, streaming `println!`."
+
+# Standalone: not a member of any enclosing workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "slingfall-run"
+path = "src/bin/slingfall-run.rs"
+
+[dependencies]
+# lambdaclass/cairo-vm `main` @ f7ac327f (workspace version 3.2.0, the cairo-vm of cairo-lang
+# 2.19.4). Built from `../vendor/cairo-vm` through `[patch]` below: `scripts/vendor.sh` clones
+# this revision there and applies `cairo-vm-reserve.patch` (client/vm/README.md).
+cairo-vm = { git = "https://github.com/lambdaclass/cairo-vm", rev = "f7ac327f8f21abd05dd6e808e513010443d9742e", features = ["cairo-1-hints"] }
+# Same version as cairo-vm's own (its `Hint` type crosses the API).
+cairo-lang-casm = "=2.12.0-dev.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+num-bigint = "0.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# `wasm-bindgen-cli` must be this exact version (scripts/build.sh checks it).
+wasm-bindgen = "=0.2.100"
+js-sys = "0.3"
+# cairo-vm pulls in `rand`; wasm32-unknown-unknown needs the JS entropy source.
+getrandom = { version = "0.2", features = ["js"] }
+
+[patch."https://github.com/lambdaclass/cairo-vm"]
+cairo-vm = { path = "../vendor/cairo-vm/vm" }
+
+[profile.release]
+# As cairo-vm's workspace (the spike's measurements were taken with it).
+lto = "fat"

@@ -1,0 +1,7 @@
+# Built or fetched locally (client/vm/README.md), never committed.
+/vendor/
+/pkg/
+/pkg-node/
+/tools/
+/runner/target/
+/fixtures/ball_drop/target/
