@@ -22,7 +22,7 @@ python3 tools/levelc/test_levelc.py       # unit tests
   skipped. `--strict` also requires the source JSON to be canonical (no `angle_deg`, shortest
   decimals). `--cairo` checks that the generated Cairo fixtures are current.
 - `hash` prints `level_hash`. `poseidon.py` is a standard-library Starknet Poseidon
-  (`poseidon_hash_span`, about 40 lines); the Cairo tests check every fixture golden against
+  (`poseidon_hash_span`, about 50 lines); the Cairo tests check every fixture golden against
   `core::poseidon::poseidon_hash_span`, so both agree.
 - `to-cairo` generates `crates/slingfall_level/src/level/fixtures.cairo` (felts and golden hash of
   each fixture; run `scarb fmt --workspace` afterwards, `check --cairo` ignores whitespace).
