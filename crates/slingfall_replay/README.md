@@ -107,5 +107,41 @@ followed by its `score` line, then the frame; at a shot's end, the unused-shot b
 
 ## Steps
 
-See "Steps per shot and per level" below (`scarb execute --print-resource-usage`, the proof
-executables as run; snforge counts about 1M more per shot, the gas-enabled profile).
+On the rules of G3 + G3b (spent pebble), 2026-09-25, `scarb execute --print-resource-usage` (the
+executables as run; snforge counts ≈ 0.65M more per pile10 shot, the gas-enabled profile). Pulls:
+reference = (-600, -392); the weak shots (-150, -150), (-200, -200) fall before the target.
+
+Whole runs (`scripts/measure.py`):
+
+| level, shots | played | score | won | ticks | `main` | per tick | `main_trace` | trace overhead |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| pile10, reference | 1 | 5 350 | yes | 191 | **31,487,873** | 164,857 | 33,336,475 | +5.9 % |
+| cores3, reference | 1 | 11 250 | yes | 143 | **7,394,341** | 51,708 | 8,392,926 | +13.5 % |
+| one_block, reference | 1 | 0 | no | 120 | **2,546,605** | 21,221 | 2,975,096 | +16.8 % |
+
+Three shots per level, chunked (`scripts/measure.py --per-shot 20`: a whole 3-shot `main` needs
+more memory than the shared machine gives one `scarb execute`, the VM keeps every cell). Net =
+the shot's `step_chunk` steps minus one `k = 0` round trip per chunk:
+
+| level | shot | pull | ticks | net steps | per tick | score after |
+|---|---:|---|---:|---:|---:|---:|
+| pile10 | 0 | weak | 120 | 8,230,518 | 68,587 | 0 |
+| pile10 | 1 | weak | 120 | 7,916,380 | 65,969 | 0 |
+| pile10 | 2 | reference | 191 | 30,882,364 | 161,687 | 1 350 (won, no shot left) |
+| pile10 | level | | 431 | **47,356,253** with `init` | | |
+| cores3 | 0 | weak | 120 | 6,169,223 | 51,410 | 0 |
+| cores3 | 1 | weak | 120 | 6,033,083 | 50,275 | 0 |
+| cores3 | 2 | reference | 143 | 7,185,462 | 50,247 | 7 250 (won) |
+| cores3 | level | | 383 | **19,579,605** with `init` | | |
+
+Chunked build: `init` 326,991 (pile10) / 191,837 (cores3); a `step_chunk` round trip (`k = 0`:
+decode the state, the level and the inputs, restore and save the world, serialise) 136,301 on
+pile10, 82,705 on cores3. K = 60 on the pre-G3b reference shot: 6 chunks, +584k over `main`.
+
+snforge probes (`steps/slingfall_replay/*.snap`), pile10 reference shot: rules alone (`new` +
+`play_shot` + hash) 32,129,896; `play` + `NoopObserver` 32,133,817 (**+0.012 %**, budget 1 %);
+`main` 32,134,146; `main_trace` 34,167,774 (+6.3 %). The trace costs ≈ 3.5-10k steps per tick,
+mostly the decimal formatting of the moving bodies: each body's pose text is cached while it does
+not move (−27 % of the trace cost on pile10). It is ≤ 10 % of a shot on pile10 but not on the
+light levels, whose ticks cost 21-52k. Rejected candidate (`trace::tests::alternatives`): a
+two-digit table, 15,393 vs 14,810 steps for 44 typical values.

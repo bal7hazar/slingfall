@@ -33,7 +33,7 @@ CASES = {
     # Two short shots that fall before the pile, then the reference shot.
     "pile10-3": ("pile10", [(-150, -150, 0), (-200, -200, 0), REFERENCE]),
     "cores3-1": ("cores3", [REFERENCE]),
-    "cores3-3": ("cores3", [REFERENCE, REFERENCE, REFERENCE]),
+    "cores3-3": ("cores3", [(-150, -150, 0), (-200, -200, 0), REFERENCE]),
     "one_block-1": ("one_block", [REFERENCE]),
 }
 STEPS_RE = re.compile(r"^\s*steps:\s*([\d,]+)", re.M)
