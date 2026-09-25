@@ -9,8 +9,9 @@ import {
 
 /**
  * Where the renderer gets its frames from: a recorded trace (a JSON file emitted from
- * `main_trace` through `scarb execute`), or, from lot G6b on, the cairo-vm worker running the
- * chunked replay live (docs/DESIGN.md D8). Frames arrive in tick order.
+ * `main_trace` through `scarb execute`), or the cairo-vm worker running the chunked replay live
+ * (`WorkerTraceSource`, `src/vm/`, docs/DESIGN.md D8; wired into the app by lot G6b). Frames
+ * arrive in tick order.
  */
 export interface TraceSource {
   readonly kind: 'recorded' | 'worker';
@@ -21,6 +22,9 @@ export interface TraceSource {
   /** Events so far: those with `tick` up to the latest yielded frame are present. */
   readonly events: readonly TraceEvent[];
 }
+
+/** A shot replayed live in the cairo-vm worker (lot G1c). */
+export { WorkerTraceSource } from '../vm';
 
 /** Fetches a JSON document; injectable so that tests read fixtures without a browser. */
 export type JsonLoader = (url: string) => Promise<unknown>;
