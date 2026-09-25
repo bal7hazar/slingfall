@@ -1,0 +1,48 @@
+[package]
+name = "slingfall_replay"
+description = "Slingfall replay executables: proof build, trace build, chunked build (docs/DESIGN.md D1)."
+version = "0.1.0"
+edition = "2024_07"
+cairo-version = "2.19.4"
+license = "MIT"
+repository = "https://github.com/bal7hazar/slingfall"
+
+# Kept out of the root workspace (as rapier-cairo/examples/ball_drop): an executable target needs
+# `[cairo] enable-gas = false`, which the snforge-tested workspace crates do not use. Build with
+# `scarb --manifest-path crates/slingfall_replay/Scarb.toml build`.
+[workspace]
+
+[dependencies]
+# Same pins as the root `Scarb.toml` (two sources of `fixed` would mean two `Fixed` types).
+fixed = "0.3.0"
+glam = "0.3.0"
+# TODO(B0): registry alpha (`rapier2d = "=0.1.0-alpha.1"`); see the root `Scarb.toml`.
+rapier2d = { path = "../../../rapier-cairo/crates/rapier2d" }
+slingfall_level = { path = "../slingfall_level" }
+slingfall_rules = { path = "../slingfall_rules" }
+cairo_execute = "2.19.4"
+
+[dev-dependencies]
+snforge_std = "0.61.0"
+assert_macros = "2.19.4"
+slingfall_testing = { path = "../slingfall_testing" }
+
+[executable]
+
+[cairo]
+enable-gas = false
+
+# `snforge test` refuses `enable-gas = false`: tests run under this profile
+# (`snforge test --profile snforge`), the executable keeps the default one.
+[profile.snforge]
+inherits = "dev"
+
+[profile.snforge.cairo]
+enable-gas = true
+
+[tool.scarb]
+allow-prebuilt-plugins = ["snforge_std"]
+
+[tool.fmt]
+sort-module-level-items = true
+max-line-length = 100

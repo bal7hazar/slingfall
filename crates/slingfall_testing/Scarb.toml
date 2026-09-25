@@ -1,0 +1,20 @@
+[package]
+name = "slingfall_testing"
+description = "Shared test and step-probe helpers for the slingfall workspace."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fixed.workspace = true
+glam.workspace = true
+
+[dev-dependencies]
+snforge_std.workspace = true
+assert_macros.workspace = true
+
+[tool]
+fmt.workspace = true
+scarb.workspace = true
+snforge.workspace = true
