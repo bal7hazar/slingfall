@@ -8,7 +8,7 @@ python3 tools/levelc/levelc.py to-felts   fixtures/levels/pile10.json [--out pil
 python3 tools/levelc/levelc.py from-felts fixtures/levels/pile10.felts.json [--out level.json]
 python3 tools/levelc/levelc.py check      fixtures/levels/*.json [--strict] [--cairo FIXTURES.cairo]
 python3 tools/levelc/levelc.py hash       fixtures/levels/pile10.json
-python3 tools/levelc/levelc.py to-cairo   fixtures/levels/*.json --out crates/slingfall_level/src/level/fixtures.cairo
+python3 tools/levelc/levelc.py to-cairo   fixtures/levels/*.json --out crates/slingfall_level/src/level/fixtures.cairo [--check]
 python3 tools/levelc/test_levelc.py       # unit tests
 ```
 
@@ -25,7 +25,10 @@ python3 tools/levelc/test_levelc.py       # unit tests
   (`poseidon_hash_span`, about 50 lines); the Cairo tests check every fixture golden against
   `core::poseidon::poseidon_hash_span`, so both agree.
 - `to-cairo` generates `crates/slingfall_level/src/level/fixtures.cairo` (felts and golden hash of
-  each fixture; run `scarb fmt --workspace` afterwards, `check --cairo` ignores whitespace).
+  each fixture; run `scarb fmt --workspace` afterwards, `check --cairo` ignores whitespace). The
+  module is public (`slingfall_level::level::fixtures`): the level, game, replay and
+  contract tests import it instead of keeping copies. `to-cairo ... --out F --check` fails when `F`
+  is stale, like `check --cairo`.
 
 ## Conversion rules
 

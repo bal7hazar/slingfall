@@ -9,7 +9,6 @@ use glam::Vec2;
 use crate::errors;
 use crate::hash::serde_hash;
 
-#[cfg(test)]
 pub mod fixtures;
 #[cfg(test)]
 pub mod tests;
