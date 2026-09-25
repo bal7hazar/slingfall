@@ -1,6 +1,6 @@
 # Execution plan
 
-Status: **v1, 2026-09-25, bootstrapping** (owner of this file: the `slingfall` orchestrator session).
+Status: **v1.1, 2026-09-25** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged, G2 / G1c running) (owner of this file: the `slingfall` orchestrator session).
 Programme context: `/home/claude/projects/pm/PLAN.md` phase D. Design: `docs/DESIGN.md`.
 
 ## Target
@@ -16,13 +16,13 @@ orchestrator before each wave.
 
 | wave | id | lot | model | depends on |
 |---|---|---|---|---|
-| 0 | B0 | bootstrap: workspace, crates and stubs, `client/` skeleton, CI, `scripts/` (executor, steps snapshots), PR template, `.tool-versions`, dependency pin | Opus | – |
+| 0 | B0 ✅ #1 | bootstrap: workspace, crates and stubs, `client/` skeleton, CI, `scripts/` (executor, steps snapshots), PR template, `.tool-versions`, dependency pin | Opus | – |
 | 1 | G2 | `slingfall_level`: `Level` / `Material` / `BodyDef` / `ShapeDef` / `Inputs` / `Shot` / `Outputs` (D2-D4), Serde layouts, `level_hash` / `inputs_hash`, JSON schema + `tools/levelc` converter (Python, decimal → raw Q32.32, round trip), 3 fixture levels (`fixtures/levels/*.json` + felts) | Sonnet | B0 |
-| 1 | G6 | `client/`: Vite + TS + PixiJS renderer of a recorded trace (JSON emitted by `main_trace` via `scarb execute`), placeholder assets, aim UI with the quantised pull and the exact BigInt arc; trace source behind an interface (recorded now, worker later) | Sonnet | B0 (fixture trace from `docs/research/03`'s scene until G4) |
+| 1 | G6 ✅ #2 | `client/`: Vite + TS + PixiJS renderer of a recorded trace (JSON emitted by `main_trace` via `scarb execute`), placeholder assets, aim UI with the quantised pull and the exact BigInt arc; trace source behind an interface (recorded now, worker later) | Sonnet | B0 (fixture trace from `docs/research/03`'s scene until G4) |
 | 1 | G1c | `client/vm/`: the chunked cairo-vm worker as a reusable TS package, from the spike `pm/spikes/wasm-vm/` (runner crate vendored under `client/vm/runner/`, wasm build script, step-budgeted chunking, memory reservation, `println!` streaming), tested on the spike's executable | Opus | B0 |
 | 2 | G3 | `slingfall_rules`: world builder from `Level` (shapes, materials, `user_data`, pre-slept bodies), slingshot (clamp, launch), damage (D6), despawn, calm rule (D5), pebble removal, scoring and win (D7); snforge tests; steps per tick; tunnelling check at `v_max` | Opus | G2, `rapier2d` alpha |
 | 2 | G7 | `slingfall_contract`: level registry, `simulate` (D9) behind a `Verifier` interface stubbed until E2, `submit` checks, nullifiers, best score, events; snforge tests | Opus | G2 (layouts); G3 for `simulate`'s body (stub first) |
-| 3 | G4 | `slingfall_replay`: `main`, `main_trace` (observer), `init` / `step_chunk` on `WorldState` (D1); `scarb execute` on the fixtures; **Cairo steps per shot and per level measured** and written here | Opus | G3 |
+| 3 | G4 | `slingfall_replay`: `main`, `main_trace` (observer emitting **trace format v1** of `client/README.md`: level header with `gravity_y`, `launch_scale`, `pull_radius`, `shots`, per-body `pose`; frames with `asleep`; events `damage` / `destroyed` / `score` / `shot_end`; semantics fixed by G6: a handle absent from `level.bodies` is the pebble, a dynamic body absent from a frame no longer exists, shots left = `level.shots` minus `shot_end` events, ticks strictly increase), `init` / `step_chunk` on `WorldState` (D1); assert `client/src/aim/arc.ts`'s flight formula against rapier's `integrate` on a free-flying pebble; `scarb execute` on the fixtures; **Cairo steps per shot and per level measured** and written here | Opus | G3 |
 | 3 | G5 | determinism and budget CI: golden `(level, inputs) -> outputs` snapshots, trace ≡ proof ≡ chunked outputs, input fuzzing, per-level step ceilings (+10 %) | Sonnet | G4 |
 | 4 | G8 | content and editor tooling: pre-settle tool, level validator (zero damage at rest over 120 ticks, step budget), 5 levels of 8-10 blocks, material tuning | Sonnet | G4, G6 |
 | 4 | G6b | client live mode: G1c worker runs `step_chunk` per shot, slow-motion impact presentation, score UI | Opus | G1c, G4, G6 |
@@ -44,6 +44,13 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 ## Escalations sent
 
 (none yet)
+
+## Merged lots
+
+| lot | PR | notes |
+|---|---|---|
+| B0 | #1 | workspace, client skeleton, CI, executor tooling; `rapier2d = "=0.1.0-alpha.1"` |
+| G6 | #2 | renderer + aim UI, 65 tests, ~150 kB gz; not verified in a browser (no Firefox in the executor sandbox); trace format v1 in `client/README.md`; D3 clamp rounding amended |
 
 ## Open points
 
