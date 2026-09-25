@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { ABSENT, ASLEEP, TraceBuffer } from './buffer';
 import { UNITS_PER_METRE, type Camera } from './camera';
+import type { Effects } from './effects';
 import { fixedToNumber, type LevelBody, type Shape, type TraceLevel } from '../trace/types';
 
 /** Placeholder flat colours per material (docs/DESIGN.md D12 names) until real assets exist. */
@@ -19,6 +20,8 @@ const PEBBLE_SHAPE: Shape = { type: 'ball', radius: String(2 ** 30) };
 
 const AWAKE_TINT = 0xffffff;
 const ASLEEP_TINT = 0x8a8f99;
+/** A damaged body flashes red (`Effects`). */
+const FLASH_TINT = 0xff6a5c;
 const OUTLINE = 0x14161b;
 
 const u = (metres: number): number => metres * UNITS_PER_METRE;
@@ -98,8 +101,11 @@ export class Scene {
     this.world.position.set(camera.offsetX, camera.offsetY);
   }
 
-  /** Draws the buffer at fractional frame index `position`. */
-  update(position: number): void {
+  /**
+   * Draws the buffer at fractional frame index `position`; with `effects`, damaged bodies flash
+   * and destroyed ones fade out at their last pose (`now`: display time, ms).
+   */
+  update(position: number, effects?: Effects, now = 0): void {
     this.syncSprites();
     const { frameCount, columns } = this.buffer;
     if (frameCount === 0) return;
@@ -110,21 +116,37 @@ export class Scene {
     for (let slot = 0; slot < columns.length; slot++) {
       const c = columns[slot];
       const sprite = this.sprites[slot];
-      const state = c.state[i];
-      sprite.visible = state !== ABSENT;
-      if (state === ABSENT) continue;
+      let state = c.state[i];
+      let f = i;
+      let g = j;
+      let alpha = 1;
+      if (state === ABSENT && effects !== undefined) {
+        // A destroyed body stays at its last pose while it fades.
+        alpha = effects.fade(slot, now);
+        f = g = alpha > 0 ? effects.fadePose(slot) : -1;
+        if (f >= 0) state = c.state[f];
+      }
+      sprite.visible = state !== ABSENT && f >= 0;
+      if (!sprite.visible) continue;
+      if (sprite.alpha !== alpha) sprite.alpha = alpha;
       // A body gone at the next frame stays where it was until then.
-      const t = c.state[j] === ABSENT ? 0 : a;
-      sprite.position.set(u(c.x[i] + (c.x[j] - c.x[i]) * t), u(c.y[i] + (c.y[j] - c.y[i]) * t));
-      const re = c.re[i] + (c.re[j] - c.re[i]) * t;
-      const im = c.im[i] + (c.im[j] - c.im[i]) * t;
+      const t = c.state[g] === ABSENT ? 0 : a;
+      sprite.position.set(u(c.x[f] + (c.x[g] - c.x[f]) * t), u(c.y[f] + (c.y[g] - c.y[f]) * t));
+      const re = c.re[f] + (c.re[g] - c.re[f]) * t;
+      const im = c.im[f] + (c.im[g] - c.im[f]) * t;
       sprite.rotation = Math.atan2(im, re);
-      const tint = state === ASLEEP ? ASLEEP_TINT : AWAKE_TINT;
+      const tint =
+        effects !== undefined && effects.flashing(slot, now) ? FLASH_TINT : state === ASLEEP ? ASLEEP_TINT : AWAKE_TINT;
       if (this.tints[slot] !== tint) {
         this.tints[slot] = tint;
         sprite.tint = tint;
       }
     }
+  }
+
+  /** Removes the scene from the stage and frees its sprites (a new level or a retry). */
+  destroy(): void {
+    this.world.destroy({ children: true });
   }
 
   /** Creates the sprites of the slots the buffer gained since (pebbles appear with the frames). */
