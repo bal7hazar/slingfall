@@ -37,8 +37,10 @@ jobs:
       - uses: software-mansion/setup-scarb@v1
       - run: scarb build --workspace
       - run: scarb --manifest-path "$REPLAY" build
-      - name: Execute the replay (empty level and inputs)
-        run: scarb --manifest-path "$REPLAY" execute --arguments 0,0 --print-program-output --print-resource-usage
+      - name: Execute the replay (one_block, one shot)
+        run: |
+          python3 tools/tracec/tracec.py args fixtures/levels/one_block.felts.json --shot=-600,-392 --out args.json
+          scarb --manifest-path "$REPLAY" execute --executable-name main --arguments-file args.json --print-program-output --print-resource-usage
 
   test:
     # One job per crate; the `steps` job checks the snapshot on the merged logs.

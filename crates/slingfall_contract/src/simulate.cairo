@@ -7,6 +7,8 @@ use slingfall_level::level::{Level, LevelTrait};
 use slingfall_level::outputs::Outputs;
 use crate::submit::errors;
 
+pub mod replay_hook;
+
 /// `to_address` of the message `simulate` sends: the message never reaches L1, it is a proof fact
 /// `submit` looks for (`verifier::Snip36Verifier`).
 pub const MARKER: felt252 = 'SLINGFALL';
@@ -37,8 +39,8 @@ pub impl StubSimulateHook of SimulateHook {
     }
 }
 
-/// The hook the contract's `simulate` calls.
-pub impl ActiveHook = StubSimulateHook;
+/// The hook the contract's `simulate` calls: the replay (lot G4).
+pub impl ActiveHook = replay_hook::ReplaySimulateHook;
 
 /// Deserialises the stored `level` felts and the `inputs` felts, validates the inputs against the
 /// level and runs the hook. Panics with `errors::SIMULATE_INPUTS` when the inputs felts are not
