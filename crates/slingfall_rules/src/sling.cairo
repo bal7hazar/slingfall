@@ -25,6 +25,14 @@ pub const PEBBLE_FRICTION: Fixed = Fixed { raw: 0x80000000 };
 pub const PEBBLE_RESTITUTION: Fixed = Fixed { raw: 858993459 };
 /// `user_data` of the pebble's collider: above every entity index (entities use their index).
 pub const PEBBLE_USER_DATA: u128 = 0x100000000;
+/// Linear damping of the pebble, 1 (`docs/DESIGN.md` D5: a pebble rolling on flat ground would
+/// never let the calm rule end the shot). D5's first choice, 0.5 / 2, still hit the tick cap on
+/// three of the six measured pulls; 1 / 4 ends all six by the calm rule (lot G3b, `README.md`).
+pub const PEBBLE_LINEAR_DAMPING: Fixed = Fixed { raw: 0x100000000 };
+/// Angular damping of the pebble, 4.
+pub const PEBBLE_ANGULAR_DAMPING: Fixed = Fixed { raw: 0x400000000 };
+/// The only projectile kind for now: the pebble.
+pub const KIND_PEBBLE: u8 = 0;
 
 /// Clamps a pull to the disk of radius `radius` (`docs/DESIGN.md` D3, `clampPull` of
 /// `client/src/aim/pull.ts`): kept when `px² + py² <= R²`; otherwise `s = ceil_isqrt(px² +
@@ -66,13 +74,19 @@ pub fn launch_velocity(px: i16, py: i16, launch_scale: Fixed) -> Vec2 {
 
 /// Spawns the pebble at `level.sling_anchor` (identity rotation, awake) with the launch velocity
 /// of `shot`'s clamped pull, and starts a new shot: `shot_tick` and the calm counter restart. The
-/// `delay` ticks are stepped by the caller before (`GameTrait::play_shot`).
+/// pebble carries [`PEBBLE_LINEAR_DAMPING`] and [`PEBBLE_ANGULAR_DAMPING`]. The `delay` ticks are
+/// stepped by the caller before (`GameTrait::play_shot`).
 ///
 /// # Panics
-/// `errors::PEBBLE` when a pebble is already in the world.
+/// `errors::PEBBLE` when a pebble is already in the world; `errors::PROJECTILE_KIND` when the
+/// level's projectile for this shot (`level.projectiles[game.shots_used]`) is not [`KIND_PEBBLE`]
+/// (abilities are deferred).
 pub fn launch(ref game: Game, level: @Level, shot: @Shot) {
     if game.pebble.is_some() {
         core::panic_with_felt252(errors::PEBBLE);
+    }
+    if *level.projectiles[game.shots_used.into()] != KIND_PEBBLE {
+        core::panic_with_felt252(errors::PROJECTILE_KIND);
     }
     let (px, py) = clamp_pull(*shot.pull_x, *shot.pull_y, *level.pull_radius);
     let pose = Pose2 {
@@ -82,6 +96,8 @@ pub fn launch(ref game: Game, level: @Level, shot: @Shot) {
     let body = RigidBodyBuilderTrait::dynamic()
         .position(pose)
         .linvel(launch_velocity(px, py, *level.launch_scale))
+        .linear_damping(PEBBLE_LINEAR_DAMPING)
+        .angular_damping(PEBBLE_ANGULAR_DAMPING)
         .build();
     let collider = ColliderBuilderTrait::ball(PEBBLE_RADIUS)
         .density(PEBBLE_DENSITY)

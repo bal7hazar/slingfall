@@ -32,6 +32,8 @@ pub mod errors {
     pub const HANDLE_ORDER: felt252 = 'rules: handle order';
     /// `launch` while a pebble is already in the world.
     pub const PEBBLE: felt252 = 'rules: pebble in flight';
+    /// `launch` of a shot whose `level.projectiles` kind is not 0 (pebble); abilities are deferred.
+    pub const PROJECTILE_KIND: felt252 = 'rules: projectile kind';
     /// `play_shot` after the level was won or every shot was used.
     pub const LEVEL_OVER: felt252 = 'rules: level over';
 }

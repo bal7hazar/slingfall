@@ -9,10 +9,14 @@ use slingfall_testing::opaque;
 use crate::world::fixtures::{CORES3_HASH, ONE_BLOCK_HASH, PILE10_HASH, cores3, one_block, pile10};
 use crate::world::{Game, GameState, GameTrait};
 
-/// The reference shot at pile10: first contact at shot tick 83, ends calm (see REPORT.md).
+/// The reference shot at pile10. With the pebble's damping (G3b) it falls short of the pile and
+/// ends calm at shot tick 241, nothing destroyed.
 const SHOT: Shot = Shot { pull_x: -600, pull_y: -392, delay: 0, ability_tick: 0 };
-/// Shot tick of the first contact of `SHOT` with pile10 (measured).
-const FIRST_CONTACT: u32 = 83;
+/// A pull that reaches pile10 with the damped pebble: it wins the level (clamped to the pull
+/// disk).
+const HIT: Shot = Shot { pull_x: -900, pull_y: -600, delay: 0, ability_tick: 0 };
+/// Shot tick of the first contact of `HIT` with pile10 (measured).
+const FIRST_CONTACT: u32 = 122;
 
 fn fixed(raw: i64) -> Fixed {
     Fixed { raw }
@@ -114,10 +118,8 @@ fn test_resting_pile10_takes_no_damage_over_120_ticks() {
 /// The same pile woken up at rest: the static load alone exceeds timber's 40 N threshold under
 /// the two inner bottom blocks (entities 2 and 3, about 41-43 N each), which lose hp until the
 /// calm rule puts the pile back to sleep (tick 20): hp 100 -> 81 and 82. Measured, not tuned
-/// (level design, lot G8). 22M steps: over the default snforge cap (see
-/// `test_pile10_shot_ends_calm_before_the_cap`).
+/// (level design, lot G8). 22M steps.
 #[test]
-#[ignore]
 fn test_awake_pile10_load_damage_is_the_inner_bottom_timber() {
     let level = pile10();
     let mut game = GameTrait::new(@level);
@@ -150,46 +152,67 @@ fn test_awake_pile10_load_damage_is_the_inner_bottom_timber() {
     assert_eq!(damaged, array![(2, 81), (3, 82)]);
 }
 
-/// The reference shot destroys a block well within the cap (CI-sized: stops at the first
-/// destruction).
+/// `HIT` destroys entity 1 well within the cap (CI-sized: stops at the first destruction).
 #[test]
-fn test_pile10_shot_destroys_a_block_within_the_cap() {
+fn test_pile10_hit_destroys_blocks_within_the_cap() {
     let level = pile10();
     let mut game = GameTrait::new(@level);
-    crate::sling::launch(ref game, @level, @SHOT);
+    crate::sling::launch(ref game, @level, @HIT);
     let mut destroyed = array![];
     while destroyed.is_empty() {
         let report = game.tick(@level);
         assert!(!report.shot_over);
         destroyed = report.destroyed;
     }
-    // The first contact tick itself: frost, the core and three timber blocks at once.
     assert_eq!(game.shot_tick, FIRST_CONTACT);
-    assert_eq!(destroyed, array![1, 2, 3, 8, 9, 10]);
+    assert_eq!(destroyed, array![1]);
 }
 
-/// The whole reference shot (43M steps: over the default snforge cap, run with
-/// `snforge test -p slingfall_rules --include-ignored --max-n-steps 200000000`): the calm rule
-/// ends it at shot tick 334, before the 360 cap; the level is won.
+/// The reference shot with the pebble's damping (D5, G3b): it falls short of the pile, so nothing
+/// is destroyed, and the calm rule (not the 360-tick cap) ends it at shot tick 241.
 #[test]
-#[ignore]
-fn test_pile10_shot_ends_calm_before_the_cap() {
+fn test_pile10_reference_shot_ends_calm_with_damping() {
     let level = pile10();
     let mut game = GameTrait::new(@level);
     let report = game.play_shot(@level, @SHOT);
-    println!("pile10 shot: {:?}, score {}", report, game.score);
     assert!(!report.capped);
-    assert_eq!(report.shot_ticks, 334);
-    assert_eq!(report.ticks, 334);
-    assert_eq!(report.destroyed, array![1, 2, 3, 8, 9, 10]);
-    assert!(report.won);
-    // Frost 2 × 100, timber 3 × 50, the core 1 000, two unused shots × 2 000.
-    assert_eq!(game.score, 5_350);
-    assert_eq!(game.shots_used, 1);
+    assert_eq!((report.shot_ticks, report.ticks), (241, 241));
+    assert_eq!(report.destroyed, array![]);
+    assert!(!report.won);
+    assert_eq!((game.score, game.shots_used, game.cores_left), (0, 1, 1));
     assert!(game.pebble.is_none());
     for entity in game.entities.span() {
-        if *entity.alive && *entity.kind != KIND_STATIC {
+        if *entity.kind != KIND_STATIC {
             assert!(game.world.body(*entity.body).unwrap().is_sleeping());
+        }
+    }
+}
+
+/// Six pulls, whole shots (about 130M steps): every one ends by the calm rule before the cap.
+/// `(pull_x, pull_y, shot ticks, destroyed, won)`; the pulls that reach the pile destroy blocks
+/// and win.
+#[test]
+fn test_pile10_pulls_end_calm_before_the_cap() {
+    let cases: Array<(i16, i16, u32, Array<usize>, bool)> = array![
+        (-600, -392, 241, array![], false), (-500, -300, 225, array![], false),
+        (-700, -450, 249, array![], false), (-800, -200, 233, array![], false),
+        (-400, -500, 233, array![], false),
+        (-900, -600, 250, array![1, 2, 3, 4, 8, 6, 9, 10], true),
+    ];
+    for (px, py, shot_ticks, destroyed, won) in cases {
+        let level = pile10();
+        let mut game = GameTrait::new(@level);
+        let report = game
+            .play_shot(@level, @Shot { pull_x: px, pull_y: py, delay: 0, ability_tick: 0 });
+        assert!(!report.capped);
+        assert_eq!(report.shot_ticks, shot_ticks);
+        assert_eq!(report.destroyed, destroyed);
+        assert_eq!(report.won, won);
+        assert!(game.pebble.is_none());
+        for entity in game.entities.span() {
+            if *entity.alive && *entity.kind != KIND_STATIC {
+                assert!(game.world.body(*entity.body).unwrap().is_sleeping());
+            }
         }
     }
 }
@@ -231,14 +254,13 @@ fn test_round_trip_mid_flight() {
     assert_round_trip(ref game, @level, 10);
 }
 
-/// Round trip during the impact (2 ticks after the first contact, frost already destroyed):
-/// 10 more ticks bit-exact, removals and the pebble's handle included (over the default cap).
+/// Round trip during the impact (2 ticks after the first contact of `HIT`, frost already
+/// destroyed): 10 more ticks bit-exact, removals and the pebble's handle included.
 #[test]
-#[ignore]
 fn test_round_trip_mid_impact() {
     let level = pile10();
     let mut game = GameTrait::new(@level);
-    crate::sling::launch(ref game, @level, @SHOT);
+    crate::sling::launch(ref game, @level, @HIT);
     while game.shot_tick != FIRST_CONTACT + 2 {
         let _ = game.tick(@level);
     }
@@ -319,8 +341,9 @@ fn test_pebble_at_25_mps_does_not_tunnel_through_a_half_metre_plank() {
         body.translation().x.raw,
         body.linvel().x.raw,
     );
-    // The pebble never passes the plank's front face by more than its radius.
-    assert!(max_x.raw < 0x600000000 - 0x40000000);
+    // The pebble's centre never reaches the plank's mid-plane (x = 6): with the damped pebble it
+    // sinks up to 5.78 m (measured, 0.03 m past the front face) and is pushed back out.
+    assert!(max_x.raw < 0x600000000);
     assert!(body.translation().x.raw < 0x600000000);
     assert!(body.linvel().x.raw <= 0);
 }
@@ -375,6 +398,39 @@ fn test_second_launch_panics() {
     let mut game = GameTrait::new(@level);
     crate::sling::launch(ref game, @level, @SHOT);
     crate::sling::launch(ref game, @level, @SHOT);
+}
+
+/// `level.projectiles[shots_used]` picks the kind of the launched shot: kind 0 is the pebble, and
+/// a launch reads the entry of its own shot index.
+#[test]
+fn test_launch_reads_the_projectile_of_the_shot_index() {
+    let mut level = pile10();
+    level.projectiles = array![0, 7, 0];
+    let mut game = GameTrait::new(@level);
+    crate::sling::launch(ref game, @level, @SHOT);
+    assert!(game.pebble.is_some());
+    let pebble = game.world.body(game.pebble.unwrap()).unwrap();
+    assert_eq!(pebble.linear_damping(), crate::sling::PEBBLE_LINEAR_DAMPING);
+    assert_eq!(pebble.angular_damping(), crate::sling::PEBBLE_ANGULAR_DAMPING);
+}
+
+#[test]
+#[should_panic(expected: ('rules: projectile kind',))]
+fn test_launch_of_a_non_pebble_kind_panics() {
+    let mut level = pile10();
+    level.projectiles = array![0, 7, 0];
+    let mut game = GameTrait::new(@level);
+    game.shots_used = 1;
+    crate::sling::launch(ref game, @level, @SHOT);
+}
+
+#[test]
+#[should_panic(expected: ('rules: projectile kind',))]
+fn test_play_shot_of_a_non_pebble_kind_panics() {
+    let mut level = pile10();
+    level.projectiles = array![1, 0, 0];
+    let mut game = GameTrait::new(@level);
+    let _ = game.play_shot(@level, @SHOT);
 }
 
 #[test]
@@ -439,11 +495,11 @@ fn flight() -> (Game, Level) {
     (game, opaque(level))
 }
 
-/// pile10 one tick before the first contact of `SHOT`.
+/// pile10 one tick before the first contact of `HIT`.
 fn impact() -> (Game, Level) {
     let level = pile10();
     let mut game = GameTrait::new(@level);
-    crate::sling::launch(ref game, @level, @SHOT);
+    crate::sling::launch(ref game, @level, @HIT);
     while game.shot_tick != FIRST_CONTACT - 1 {
         let _ = game.tick(@level);
     }

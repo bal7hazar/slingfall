@@ -28,5 +28,27 @@ Pre-slept start: rapier wakes the parent of every freshly inserted collider at t
 `GameTrait::new` runs one `dt = 0` step (nothing moves) and puts every dynamic body back to sleep at
 its stored pose (`world::settle`).
 
-Tests: `snforge test -p slingfall_rules`. Three tests exceed snforge's default step cap and are
-`#[ignore]`d: `snforge test -p slingfall_rules --ignored --max-n-steps 400000000`.
+The pebble: `sling::launch` reads `level.projectiles[game.shots_used]` (kind 0 = pebble; any other
+kind panics `errors::PROJECTILE_KIND`, `'rules: projectile kind'`: abilities are deferred, the
+field is never silently ignored) and builds the body with `PEBBLE_LINEAR_DAMPING = 1` and
+`PEBBLE_ANGULAR_DAMPING = 4` (D5), so a rolling pebble comes to rest and the calm rule ends the
+shot. The damping shortens the flight (drag over the whole flight): a pull that reached the pile without it
+can now fall short, so `launch_scale` and the level layouts are tuned against the damped pebble, and
+the client's aim arc (`client/src/aim/arc.ts`, drag-free) is only an upper bound of the range.
+
+## Note for level authors (G8): static load of a pile
+
+A pile woken up at rest is not stable under D6: the static load alone exceeds timber's 40 N
+contact-force threshold under the two inner bottom blocks of `pile10` (entities 2 and 3, about
+41-43 N each), so they lose hp (100 -> 81 and 82) until the calm rule puts the pile back to sleep
+(tick 20). It does not happen in a shot only because the structure starts, and stays, asleep (the
+`world::settle` step) until the pebble's contact wakes the touched island. Consequences: keep the
+static contact force of every supporting block below its material threshold (a wide base, slate
+or a lower stack under the same block), never rely on a block being "woken but harmless", and
+check a new level with the awake-at-rest probe of `world/tests.cairo`
+(`test_awake_pile10_load_damage_is_the_inner_bottom_timber`).
+
+## Tests
+
+`snforge test -p slingfall_rules` (the whole-shot tests run 20-40M Cairo steps each; the workspace
+`Scarb.toml` raises snforge's step cap to 400M).
