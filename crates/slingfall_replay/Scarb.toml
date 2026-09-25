@@ -26,7 +26,25 @@ snforge_std = "0.61.0"
 assert_macros = "2.19.4"
 slingfall_testing = { path = "../slingfall_testing" }
 
-[executable]
+# Four executables of the same package (`scarb execute --executable-name <name>`), plus the library
+# target the tests use.
+[lib]
+
+[[target.executable]]
+name = "main"
+function = "slingfall_replay::main::main"
+
+[[target.executable]]
+name = "main_trace"
+function = "slingfall_replay::trace::main_trace"
+
+[[target.executable]]
+name = "init"
+function = "slingfall_replay::chunk::init"
+
+[[target.executable]]
+name = "step_chunk"
+function = "slingfall_replay::chunk::step_chunk"
 
 [cairo]
 enable-gas = false
@@ -41,6 +59,10 @@ enable-gas = true
 
 [tool.scarb]
 allow-prebuilt-plugins = ["snforge_std"]
+
+# As the root workspace: whole-shot tests run 40-80M Cairo steps (the chained K = 1 run the most).
+[tool.snforge]
+max_n_steps = 400000000
 
 [tool.fmt]
 sort-module-level-items = true

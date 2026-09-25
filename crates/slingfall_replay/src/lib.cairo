@@ -10,16 +10,7 @@ pub mod trace;
 
 #[cfg(test)]
 mod tests {
-    use slingfall_testing::opaque;
-
     /// Empty probe: the fixed overhead snforge charges to any test in this crate.
     #[test]
     fn steps_baseline() {}
-
-    /// The executable entry point is callable; its outputs are empty until G4.
-    #[test]
-    fn test_main_stub_returns_no_outputs() {
-        let outputs = crate::main::main(opaque(array![]), opaque(array![]));
-        assert_eq!(outputs.len(), 0);
-    }
 }
