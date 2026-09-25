@@ -79,6 +79,17 @@ name = "slingfall_contract"
 version = "0.1.0"
 dependencies = [
  "fixed",
+ "slingfall_game",
+ "slingfall_level",
+ "slingfall_rules",
+ "slingfall_testing",
+ "snforge_std",
+]
+
+[[package]]
+name = "slingfall_game"
+version = "0.1.0"
+dependencies = [
  "slingfall_level",
  "slingfall_rules",
  "slingfall_testing",

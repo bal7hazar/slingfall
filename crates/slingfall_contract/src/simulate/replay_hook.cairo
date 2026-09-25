@@ -1,42 +1,20 @@
-//! The contract's replay (lot G4): the level logic of `slingfall_replay::main::play` with the
-//! noop observer, written against the rules the contract already depends on.
-//!
-//! `play` itself lives in the nested `slingfall_replay` package (an executable, outside the
-//! workspace), which this crate cannot depend on without a manifest change (orchestrator-owned):
-//! until the shared library split lands, this is the same loop through
-//! `GameTrait::play_shot` (which `play` matches step for step: `slingfall_replay`'s
-//! `steps_rules__pile10_reference` probe), and the test below pins it to `main`'s golden outputs.
+//! The contract's replay (lots G4, G4b): `slingfall_game::play::play` with the noop observer, the
+//! proof build's own level logic (the `main` executable of `slingfall_replay` calls the same
+//! function).
 
-use slingfall_level::inputs::{Inputs, InputsTrait};
+use slingfall_game::play::{NoopObserver, play};
+use slingfall_level::inputs::Inputs;
 use slingfall_level::level::Level;
 use slingfall_level::outputs::Outputs;
-use slingfall_rules::score;
-use slingfall_rules::world::GameTrait;
 use super::SimulateHook;
 
-/// `simulate`'s replay: build the world, play the shots in order, stop after the shot that wins
-/// the level; the D4 outputs. `level` and `inputs` are already validated (`super::run`).
+/// `simulate`'s replay: validate, build the world, play the shots in order, stop after the shot
+/// that wins the level; the D4 outputs. `level` and `inputs` are already validated by
+/// `super::run`; `play` validates them again (a few thousand steps against ~32M for a shot).
 pub impl ReplaySimulateHook of SimulateHook {
     fn simulate(level: @Level, inputs: @Inputs) -> Outputs {
-        let mut game = GameTrait::new(level);
-        for shot in inputs.shots.span() {
-            if score::won(@game) {
-                break;
-            }
-            let _ = game.play_shot(level, shot);
-        }
-        Outputs {
-            version: *level.version,
-            level_hash: game.level_hash,
-            seed: *level.seed,
-            player: *inputs.player,
-            inputs_hash: inputs.hash(),
-            score: game.score,
-            won: score::won(@game),
-            shots_used: game.shots_used,
-            ticks_run: game.tick,
-            final_state_hash: game.final_state_hash(),
-        }
+        let mut obs: NoopObserver = Default::default();
+        play(level, inputs, ref obs)
     }
 }
 
@@ -44,13 +22,14 @@ pub impl ReplaySimulateHook of SimulateHook {
 mod tests {
     use slingfall_level::hash::to_felts;
     use slingfall_level::inputs::{Inputs, Shot};
+    use slingfall_level::level::fixtures::{PILE10_HASH, pile10_felts};
     use slingfall_level::outputs::OutputsTrait;
-    use crate::submit::fixtures::{PILE10_HASH, PLAYER, pile10_felts};
+    use crate::submit::fixtures::PLAYER;
     use super::ReplaySimulateHook;
     use super::super::run;
 
     /// `slingfall_replay`'s `main` on pile10 with the reference shot (-600, -392), player
-    /// `'player'` (`crates/slingfall_replay/src/main/tests.cairo`, `reference_outputs`).
+    /// `'player'` (`slingfall_game::fixtures::reference_outputs`).
     #[test]
     fn test_simulate_pile10_reference_matches_replay_main() {
         let inputs = Inputs {

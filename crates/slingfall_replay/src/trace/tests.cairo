@@ -1,7 +1,7 @@
+use slingfall_game::fixtures::{reference_inputs, reference_outputs};
 use slingfall_level::hash::to_felts;
+use slingfall_level::level::fixtures::pile10_felts;
 use slingfall_testing::opaque;
-use crate::main::fixtures::pile10_felts;
-use crate::main::tests::{reference_inputs, reference_outputs};
 use super::{main_trace, push_i64, push_u32};
 
 fn i64_text(value: i64) -> ByteArray {

@@ -28,7 +28,12 @@ args.json` writes the arguments of `main` / `main_trace`; `tracec.py trace lines
 trace.json` turns the printed lines into trace format v1 (`client/README.md`).
 `fixtures/traces/pile10-reference.json` is `main_trace` on pile10 with the reference shot.
 
-## Level logic (`src/main.cairo`)
+## Level logic (`slingfall_game`, `crates/slingfall_game/src/play.cairo`)
+
+Lot G4b moved the logic below into the library crate `slingfall_game` (root workspace, snforge-tested
+with `snforge test -p slingfall_game`): `play`, `step_shot`, `Observer`, `NoopObserver`, `decode`,
+`outputs`, `errors` and the `ChunkState` logic (`chunk::{init_state, step_state}`). This package keeps the
+four executables and `TraceObserver`; the contract's `simulate` calls the same `play`.
 
 `play<O, +Observer<O>>(level: @Level, inputs: @Inputs, ref obs: O) -> Outputs`: `LevelTrait::validate`,
 `InputsTrait::validate`, `obs.on_level`, `GameTrait::new` (settle step included), then per shot
@@ -47,7 +52,7 @@ proof build costs what the rules cost (table below, +0.013 %). Events: `TraceObs
 (damage from `hp` changes, destroyed from `TickReport.destroyed`, score from the material of each
 destroyed body and the unused-shot bonus at `on_shot_end`) and prints them.
 
-Panic messages (`main::errors`, stable API): `replay: level` / `replay: inputs` (the argument is
+Panic messages (`slingfall_game::errors`, stable API): `replay: level` / `replay: inputs` (the argument is
 not exactly one `Level` / `Inputs`), `replay: state` (not exactly one `ChunkState` of version 1),
 `replay: shot` (`step_chunk`'s shot is not the one in progress, is past the inputs, or the level is
 over); then the level crate's `level: *` / `inputs: *` validation messages.
@@ -138,7 +143,7 @@ Chunked build: `init` 326,991 (pile10) / 191,837 (cores3); a `step_chunk` round 
 decode the state, the level and the inputs, restore and save the world, serialise) 136,301 on
 pile10, 82,705 on cores3. K = 60 on the pre-G3b reference shot: 6 chunks, +584k over `main`.
 
-snforge probes (`steps/slingfall_replay/*.snap`), pile10 reference shot: rules alone (`new` +
+snforge probes (`steps/slingfall_game/play.snap` for the first two, `steps/slingfall_replay/*.snap`), pile10 reference shot: rules alone (`new` +
 `play_shot` + hash) 32,129,896; `play` + `NoopObserver` 32,133,817 (**+0.012 %**, budget 1 %);
 `main` 32,134,146; `main_trace` 34,167,774 (+6.3 %). The trace costs ≈ 3.5-10k steps per tick,
 mostly the decimal formatting of the moving bodies: each body's pose text is cached while it does

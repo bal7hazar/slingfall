@@ -5,7 +5,7 @@ The Starknet contract `Slingfall` (`docs/DESIGN.md` D9), the only crate that dep
 | module | contents |
 |---|---|
 | `registry` | `LevelMeta`, `Record`, `Entry`; `improves` (a won attempt beats any lost one, then the higher score; ties keep the record); `insert` (top-10 leaderboard of won attempts, ties keep the earlier row) |
-| `simulate` | `MARKER`; `SimulateHook { fn simulate(level: @Level, inputs: @Inputs) -> Outputs }`, `StubSimulateHook` (identity fields only, no physics) and the alias `ActiveHook` that lot G4 points at the rules' replay; `run` (decode, `InputsTrait::validate`, hook) |
+| `simulate` | `MARKER`; `SimulateHook { fn simulate(level: @Level, inputs: @Inputs) -> Outputs }`, `StubSimulateHook` (identity fields only, no physics) and the alias `ActiveHook` = `replay_hook::ReplaySimulateHook`, `slingfall_game::play::play` with the `NoopObserver` (the `main` executable's logic, lot G4b); `run` (decode, `InputsTrait::validate`, hook) |
 | `submit` | the contract: `ISlingfall` (`register_level`, `set_level_active`, `level`, `level_data`, `simulate`, `submit`, `best`, `leaderboard`), `ISlingfallAdmin` (`admin`, `set_admin`, `set_virtual_os_hash`, `set_verifier`, `set_attestation_key` and their reads); events `LevelRegistered`, `LevelActiveSet`, `LevelValidated`; `submit::errors` (panic messages) |
 | `verifier` | `Verifier<T> { fn check(ref self, claim: Outputs, evidence: Span<felt252>) -> bool }`; `Snip36Verifier` (`tx_info.proof_facts`: program hash at `PROGRAM_HASH_INDEX` equal to the admin's `virtual_os_hash`, and `message_hash(this, MARKER, outputs felts)` among the following facts); `StubVerifier` (`evidence = [r, s]`, Stark ECDSA over `attestation_hash = poseidon(outputs felts)`); `VerifierKind` |
 

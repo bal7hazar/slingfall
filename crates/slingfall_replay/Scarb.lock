@@ -75,6 +75,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "slingfall_game"
+version = "0.1.0"
+dependencies = [
+ "slingfall_level",
+ "slingfall_rules",
+]
+
+[[package]]
 name = "slingfall_level"
 version = "0.1.0"
 dependencies = [
@@ -90,6 +98,7 @@ dependencies = [
  "fixed",
  "glam",
  "rapier2d",
+ "slingfall_game",
  "slingfall_level",
  "slingfall_rules",
  "slingfall_testing",

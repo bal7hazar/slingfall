@@ -3,6 +3,7 @@
 
 use slingfall_level::hash::to_felts;
 use slingfall_level::inputs::{Inputs, InputsTrait, Shot};
+use slingfall_level::level::fixtures::{ONE_BLOCK_HASH, PILE10_HASH, one_block_felts, pile10_felts};
 use slingfall_level::outputs::{Outputs, OutputsTrait};
 use snforge_std::signature::KeyPairTrait;
 use snforge_std::signature::stark_curve::{StarkCurveKeyPairImpl, StarkCurveSignerImpl};
@@ -16,10 +17,7 @@ use starknet::ContractAddress;
 use crate::registry::{LEADERBOARD_SIZE, LevelMeta, Record};
 use crate::simulate::MARKER;
 use crate::verifier::{VerifierKind, attestation_hash, message_hash};
-use super::fixtures::{
-    ATTESTATION_KEY, GOLDEN_R, GOLDEN_S, ONE_BLOCK_HASH, PILE10_HASH, PLAYER, SECRET, golden_claim,
-    one_block_felts, pile10_felts,
-};
+use super::fixtures::{ATTESTATION_KEY, GOLDEN_R, GOLDEN_S, PLAYER, SECRET, golden_claim};
 use super::{
     ISlingfallAdminDispatcher, ISlingfallAdminDispatcherTrait, ISlingfallAdminSafeDispatcher,
     ISlingfallAdminSafeDispatcherTrait, ISlingfallDispatcher, ISlingfallDispatcherTrait,
