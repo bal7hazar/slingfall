@@ -4,4 +4,48 @@ body {
   height: 100%;
   overflow: hidden;
   background: #1b1d23;
+  color: #e6e8ee;
+  font: 14px/1.4 system-ui, sans-serif;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+}
+
+.hud {
+  position: fixed;
+  top: 10px;
+  left: 14px;
+  display: flex;
+  gap: 18px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.controls {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(20, 22, 27, 0.85);
+}
+
+.controls button {
+  width: 72px;
+  padding: 4px 0;
+}
+
+.controls input[type='range'] {
+  flex: 1;
+}
+
+.hint {
+  opacity: 0.6;
 }
