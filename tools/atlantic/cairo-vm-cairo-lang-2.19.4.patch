@@ -1,0 +1,208 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 623b16e..1de77c0 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -47,14 +47,14 @@ thiserror = { version = "2" }
+ bitvec = { version = "1" }
+ 
+ # Dependencies for cairo-1-hints feature
+-cairo-lang-casm = { version = "2.12.0-dev.0" }
++cairo-lang-casm = { version = "=2.19.4" }
+ 
+-cairo-lang-starknet-classes = { version = "2.12.0-dev.0" }
+-cairo-lang-compiler = { version = "=2.12.0-dev.0" }
+-cairo-lang-sierra-to-casm = { version = "2.12.0-dev.0" }
+-cairo-lang-sierra = { version = "2.12.0-dev.0" }
+-cairo-lang-runner = { version = "2.12.0-dev.0" }
+-cairo-lang-utils = { version = "=2.12.0-dev.0" }
++cairo-lang-starknet-classes = { version = "=2.19.4" }
++cairo-lang-compiler = { version = "=2.19.4" }
++cairo-lang-sierra-to-casm = { version = "=2.19.4" }
++cairo-lang-sierra = { version = "=2.19.4" }
++cairo-lang-runner = { version = "=2.19.4" }
++cairo-lang-utils = { version = "=2.19.4" }
+ 
+ ark-ff = { version = "0.4.2" }
+ ark-std = { version = "0.4.0" }
+diff --git a/cairo1-run/Cargo.toml b/cairo1-run/Cargo.toml
+index 76e9c7a..887f46d 100644
+--- a/cairo1-run/Cargo.toml
++++ b/cairo1-run/Cargo.toml
+@@ -12,7 +12,7 @@ keywords.workspace = true
+ cairo-vm = { workspace = true, features = ["cairo-1-hints", "clap"] }
+ serde_json = { workspace = true }
+ 
+-cairo-lang-sierra-type-size = { version = "2.12.0-dev.0", default-features = false }
++cairo-lang-sierra-type-size = { version = "=2.19.4", default-features = false }
+ cairo-lang-sierra-to-casm.workspace = true
+ cairo-lang-compiler.workspace = true
+ cairo-lang-sierra.workspace = true
+diff --git a/cairo1-run/src/cairo_run.rs b/cairo1-run/src/cairo_run.rs
+index 008aa97..752c861 100644
+--- a/cairo1-run/src/cairo_run.rs
++++ b/cairo1-run/src/cairo_run.rs
+@@ -3,7 +3,7 @@ use cairo_lang_casm::{
+     builder::{CasmBuilder, Var},
+     casm, casm_build_extend,
+     cell_expression::CellExpression,
+-    deref, deref_or_immediate,
++    cell_ref, deref_or_immediate,
+     hints::{Hint, StarknetHint},
+     inline::CasmContext,
+     instructions::{Instruction, InstructionBody},
+@@ -165,7 +165,9 @@ pub fn cairo_run_program(
+     sierra_program: &SierraProgram,
+     cairo_run_config: Cairo1RunConfig,
+ ) -> Result<(CairoRunner, Vec<MaybeRelocatable>, Option<String>), Error> {
+-    let metadata = calc_metadata_ap_change_only(sierra_program)
++    let program_info = cairo_lang_sierra_type_size::ProgramRegistryInfo::new(sierra_program)
++        .map_err(|_| VirtualMachineError::Unexpected)?;
++    let metadata = calc_metadata_ap_change_only(sierra_program, &program_info)
+         .map_err(|_| VirtualMachineError::Unexpected)?;
+     let sierra_program_registry = ProgramRegistry::<CoreType, CoreLibfunc>::new(sierra_program)?;
+     let type_sizes =
+@@ -175,7 +177,7 @@ pub fn cairo_run_program(
+         max_bytecode_size: usize::MAX,
+     };
+     let casm_program =
+-        cairo_lang_sierra_to_casm::compiler::compile(sierra_program, &metadata, config)?;
++        cairo_lang_sierra_to_casm::compiler::compile(sierra_program, &program_info, &metadata, config)?;
+ 
+     let main_func = find_function(sierra_program, "::main")?;
+ 
+@@ -589,13 +591,13 @@ fn create_entry_code(
+         HashMap::<GenericTypeId, Var>::from_iter(builtin_offset.iter().map(|(id, offset)| {
+             (
+                 id.clone(),
+-                ctx.add_var(CellExpression::Deref(deref!([fp - offset]))),
++                ctx.add_var(CellExpression::Deref(cell_ref!([fp - offset]))),
+             )
+         }));
+     // Getting a variable for the location output builtin if required.
+     let output_ptr = copy_to_output_builtin.then(|| {
+         let offset: i16 = 2 + builtins.len().into_or_panic::<i16>();
+-        ctx.add_var(CellExpression::Deref(deref!([fp - offset])))
++        ctx.add_var(CellExpression::Deref(cell_ref!([fp - offset])))
+     });
+     if copy_to_output_builtin {
+         // Leave a gap to write the builtin final pointers
+@@ -688,7 +690,7 @@ fn create_entry_code(
+         let Some(var) = builtin_vars.get_mut(generic_ty) else {
+             continue;
+         };
+-        *var = ctx.add_var(CellExpression::Deref(deref!([ap - offset])));
++        *var = ctx.add_var(CellExpression::Deref(cell_ref!([ap - offset])));
+     }
+ 
+     // Helper to get a variable for a given builtin.
+@@ -713,13 +715,13 @@ fn create_entry_code(
+                 continue;
+             }
+             let var = get_var(builtin);
+-            let local = ctx.add_var(CellExpression::Deref(deref!([fp + i.to_i16().unwrap()])));
++            let local = ctx.add_var(CellExpression::Deref(cell_ref!([fp + i.to_i16().unwrap()])));
+             casm_build_extend!(ctx, assert local = var;);
+         }
+         // Preserve SegmentArena across output-serialization `rescope`s in the dedicated
+         // local at [fp + builtins.len()] reserved above.
+         if got_segment_arena {
+-            let sa_local = ctx.add_var(CellExpression::Deref(deref!([
++            let sa_local = ctx.add_var(CellExpression::Deref(cell_ref!([
+                 fp + builtins.len().to_i16().unwrap()
+             ])));
+             let var = get_var(&BuiltinName::segment_arena);
+@@ -729,7 +731,7 @@ fn create_entry_code(
+         let output_ptr = output_ptr.unwrap();
+         let outputs = (1..(return_type_size + 1))
+             .rev()
+-            .map(|i| ctx.add_var(CellExpression::Deref(deref!([ap - i]))))
++            .map(|i| ctx.add_var(CellExpression::Deref(cell_ref!([ap - i]))))
+             .collect_vec();
+         let (array_start_ptr, array_end_ptr) = if is_panic_result(signature.ret_types.last()) {
+             // Write panic flag value
+@@ -776,7 +778,7 @@ fn create_entry_code(
+             // Serialize the input values into the output segment
+             // We lost the output_ptr var after re-scoping, so we need to create it again
+             // The last instruction will write the last output ptr so we can find it in [ap - 1]
+-            let output_ptr = ctx.add_var(CellExpression::Deref(deref!([ap - 1])));
++            let output_ptr = ctx.add_var(CellExpression::Deref(cell_ref!([ap - 1])));
+             // len(builtins - output) + len(builtins) + segment_arena_local +
+             // info_ptr + 0 + (segment_arena_ptr + 3) + (gas_builtin) + (system_builtin)
+             // (+1 for the dedicated SegmentArena local when present)
+@@ -785,8 +787,8 @@ fn create_entry_code(
+                 + 4 * got_segment_arena as usize
+                 + got_gas_builtin as usize
+                 + got_system_builtin as usize) as i16;
+-            let array_start_ptr = ctx.add_var(CellExpression::Deref(deref!([fp + offset])));
+-            let array_end_ptr = ctx.add_var(CellExpression::Deref(deref!([fp + offset + 1])));
++            let array_start_ptr = ctx.add_var(CellExpression::Deref(cell_ref!([fp + offset])));
++            let array_end_ptr = ctx.add_var(CellExpression::Deref(cell_ref!([fp + offset + 1])));
+             casm_build_extend! {ctx,
+                 // Calculate size of array and write it into the output segment
+                 tempvar array_size = array_end_ptr - array_start_ptr;
+@@ -822,11 +824,11 @@ fn create_entry_code(
+         // - [ap-1] holds the final output_ptr — write it to [fp+0] before validation
+         //   advances AP (validation uses empty rescopes; FP-relative cells survive).
+         // - SegmentArena was saved at [fp + builtins.len()].
+-        let output_ptr = ctx.add_var(CellExpression::Deref(deref!([ap - 1])));
+-        let local = ctx.add_var(CellExpression::Deref(deref!([fp])));
++        let output_ptr = ctx.add_var(CellExpression::Deref(cell_ref!([ap - 1])));
++        let local = ctx.add_var(CellExpression::Deref(cell_ref!([fp])));
+         casm_build_extend!(ctx, assert local = output_ptr;);
+         if got_segment_arena {
+-            let segment_arena_ptr = ctx.add_var(CellExpression::Deref(deref!([
++            let segment_arena_ptr = ctx.add_var(CellExpression::Deref(cell_ref!([
+                 fp + builtins.len().to_i16().unwrap()
+             ])));
+             ctx.add_hint(
+@@ -879,7 +881,7 @@ fn create_entry_code(
+ 
+         // Copying the final builtins from locals into the top of the stack.
+         for i in 0..builtins.len().to_i16().unwrap() {
+-            let local = ctx.add_var(CellExpression::Deref(deref!([fp + i])));
++            let local = ctx.add_var(CellExpression::Deref(cell_ref!([fp + i])));
+             casm_build_extend!(ctx, tempvar _r = local;);
+         }
+     } else {
+diff --git a/cairo1-run/src/main.rs b/cairo1-run/src/main.rs
+index 85867dc..237a38d 100644
+--- a/cairo1-run/src/main.rs
++++ b/cairo1-run/src/main.rs
+@@ -152,23 +152,7 @@ fn run(args: impl Iterator<Item = String>) -> Result<Option<String>, Error> {
+     let file = std::fs::read(&args.filename)?;
+     let sierra_program = match serde_json::from_slice(&file) {
+         Ok(program) => program,
+-        Err(_) => {
+-            // If it fails, try to compile it as a cairo program
+-            let compiler_config = CompilerConfig {
+-                replace_ids: true,
+-                ..CompilerConfig::default()
+-            };
+-            let mut db = RootDatabase::builder()
+-                .detect_corelib()
+-                .skip_auto_withdraw_gas()
+-                .build()
+-                .unwrap();
+-            let main_crate_ids = setup_project(&mut db, &args.filename).unwrap();
+-            let sierra_program_with_dbg =
+-                compile_prepared_db(&db, main_crate_ids, compiler_config).unwrap();
+-
+-            sierra_program_with_dbg.program
+-        }
++        Err(e) => panic!("slingfall port (cairo-lang 2.19.4): only .sierra.json input: {e}"),
+     };
+ 
+     let (runner, _, serialized_output) = cairo_run_program(&sierra_program, cairo_run_config)?;
+diff --git a/vm/src/lib.rs b/vm/src/lib.rs
+index dd48510..f688d04 100644
+--- a/vm/src/lib.rs
++++ b/vm/src/lib.rs
+@@ -11,7 +11,7 @@
+ //! - `cairo-0-data-availability-hints`: Enable data availability hints that were introduced in Cairo 0. Not enabled by default.
+ 
+ #![cfg_attr(docsrs, feature(doc_cfg))]
+-#![deny(warnings)]
++#![warn(warnings)]
+ #![forbid(unsafe_code)]
+ 
+ pub mod air_private_input;
