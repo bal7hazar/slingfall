@@ -1,0 +1,50 @@
+diff --git a/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs b/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs
+index 6d49b736..bd083b00 100644
+--- a/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs
++++ b/stwo_cairo_prover/crates/dev_utils/src/vm_utils.rs
+@@ -16,7 +16,7 @@ use cairo_vm::Felt252;
+ use clap::ValueEnum;
+ use serde_json::from_reader;
+ use stwo_cairo_adapter::adapter::adapt;
+-use stwo_cairo_adapter::ProverInput;
++use stwo_cairo_adapter::{ProverInput, PublicSegmentContext};
+ 
+ #[derive(Clone, Debug, ValueEnum)]
+ pub enum ProgramType {
+@@ -39,9 +39,17 @@ pub fn run_and_adapt(
+         ..Default::default()
+     };
+ 
++    // E1L patch: a standalone executable declares only the builtins it uses; `adapt` assumes the
++    // bootloader's 11, which makes the verifier read program memory as the ECDSA segment pointers.
++    let mut standalone_builtins = None;
+     let (program, mut hints, exec_scopes) = match program_type {
+         ProgramType::Executable => {
+             let executable: Executable = from_reader(File::open(program_path)?)?;
++            standalone_builtins = executable
++                .entrypoints
++                .iter()
++                .find(|e| matches!(e.kind, EntryPointKind::Standalone))
++                .map(|e| e.builtins.clone());
+ 
+             let args = if let Some(args) = args {
+                 let args_biguint: Vec<BigUintAsHex> = from_reader(File::open(args)?)?;
+@@ -76,12 +84,16 @@ pub fn run_and_adapt(
+         }
+     };
+ 
+-    adapt(&cairo_run_program_with_initial_scope(
++    let mut input = adapt(&cairo_run_program_with_initial_scope(
+         &program,
+         &cairo_run_config,
+         hints.as_mut(),
+         exec_scopes,
+-    )?)
++    )?)?;
++    if let Some(builtins) = standalone_builtins {
++        input.public_segment_context = PublicSegmentContext::new(&builtins);
++    }
++    Ok(input)
+ }
+ 
+ fn get_program_and_hints_from_executable(

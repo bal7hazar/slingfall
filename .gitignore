@@ -10,3 +10,7 @@ client/dist/
 BRIEF.md
 REPORT.md
 LAST_MESSAGE.md
+
+# P1 vendored prover build
+tools/prove/vendor/
+tools/prove/out/

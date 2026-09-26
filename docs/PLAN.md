@@ -1,6 +1,6 @@
 # Execution plan
 
-Status: **v1.17, 2026-09-26** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged; v1.2: G2 #3 merged, Pose2 swap, wave 2 G3 + G7 launched; v1.3: G1c #4 merged, wave 1 complete; v1.4: G7 #5 merged; v1.5: G3 #6 merged, wave 3 G3b + G4 launched; v1.6: G3b #7 merged (spent-pebble rule); v1.7: G4 #8 merged, milestone M4, wave 4 launched; v1.8: G6b #9 merged (live client); v1.9: G4b #10 merged, class-size blocker found, G7b launched; v1.10: G5 #11 merged, G8 + G4c launched; v1.11: G7b #12 merged: CASM 5.3x the limit, two-class layout decided, Stone + Integrity fallback until rapier CS; v1.12: G4c #13 merged, G7c launched; v1.13: G7c #14 merged (two-class contract); v1.14: G8 #15 merged (5 levels, tooling); v1.15: G8b #16 merged (legacy levels retuned); v1.16: B1 #17 merged (alpha.2: reference shot 10.7M steps); v1.17: H1 #18 merged; waiting on E3 (Atlantic account) and rapier alpha.3) (owner of this file: the `slingfall` orchestrator session).
+Status: **v1.18, 2026-09-26** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged; v1.2: G2 #3 merged, Pose2 swap, wave 2 G3 + G7 launched; v1.3: G1c #4 merged, wave 1 complete; v1.4: G7 #5 merged; v1.5: G3 #6 merged, wave 3 G3b + G4 launched; v1.6: G3b #7 merged (spent-pebble rule); v1.7: G4 #8 merged, milestone M4, wave 4 launched; v1.8: G6b #9 merged (live client); v1.9: G4b #10 merged, class-size blocker found, G7b launched; v1.10: G5 #11 merged, G8 + G4c launched; v1.11: G7b #12 merged: CASM 5.3x the limit, two-class layout decided, Stone + Integrity fallback until rapier CS; v1.12: G4c #13 merged, G7c launched; v1.13: G7c #14 merged (two-class contract); v1.14: G8 #15 merged (5 levels, tooling); v1.15: G8b #16 merged (legacy levels retuned); v1.16: B1 #17 merged (alpha.2: reference shot 10.7M steps); v1.17: H1 #18 merged; v1.18: local proving works (research 05), attested MVP: P1 + G9 launched) (owner of this file: the `slingfall` orchestrator session).
 Programme context: `/home/claude/projects/pm/PLAN.md` phase D. Design: `docs/DESIGN.md`.
 
 ## Target
@@ -34,7 +34,9 @@ orchestrator before each wave.
 | 4 | G6b ✅ #9 | client live mode: G1c worker runs `step_chunk` per shot, slow-motion impact presentation, score UI | Opus | G1c, G4, G6 |
 | 4 | G7b ✅ #12 | **class size**: the `Slingfall` class is 201 974 Sierra felts / 11.7 MB vs Starknet's 81 920 / 4.09 MB: decompose (registry, level, rules, one step, simulate), measure the levers (reachable shape pairs, inline policy, two-class layout, scarb inlining strategy), numbers for rapier | Opus | G4b |
 | 4 | G7c ✅ #14 | two-class contract: `SlingfallSim` (simulate) called by `Slingfall` through `library_call_syscall`; the D9 message from `Slingfall`'s context; goldens unchanged (+0.02 % steps) | Sonnet | G7b |
-| 5 | E3 | **Stone + Integrity on the standalone executable** (Atlantic, free on Sepolia): prove `main` on the pile10 reference, verify through Integrity's fact registry, read the fact from a test contract; the MVP's proof path while the class-size gap is open; needs an Atlantic account (owner) | Opus | G4, G5 |
+| 5 | P1 | `tools/prove/`: stwo-cairo `run_and_prove` (rev 467d5c6 + builtin-list patch, `canonical_small`), `prove.py` whole level or chunked, `verify.py`, measurements, `docs/proving.md`, CI `prove` job | Opus | research 05 |
+| 5 | G9 | end-to-end on a local devnet: deploy scripts, attestation service (verify + ECDSA over `poseidon(outputs)`, the contract's `StubVerifier`), client submission (get-starknet / Cartridge), `deploy/e2e.sh`; Sepolia script for the owner | Opus | G7c |
+| 5 | E3 | **Stone + Integrity on the standalone executable** (Atlantic, free on Sepolia): the trustless verifier replacing the attestation; needs an Atlantic account (owner) | Opus | P1, G9 |
 | 5 | E2 | SNIP-36 round trip on Sepolia (blocked by the class size until rapier CS1 / CS2): `simulate` proven with `snip36 prove virtual-os`, `submit` consuming `proof_facts`; needs a funded Sepolia account and a ≥ 32 GB prover box (owner) | Opus | G7, G4 |
 | 5 | G9 | client submission flow: Cartridge Controller / get-starknet, prove request (local helper or service), `submit` transaction, validation status reads | Opus | E2, G6b |
 
@@ -48,7 +50,7 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 | Cairo steps per tick, pile10 (alpha.2) | – | flight 16.9k, impact 652k (alpha.1: 56.6k / 1.02M; G0-era estimate 333k average) |
 | `WorldState` round trip (pile10) | – | 1 864 felts, 52k steps (rapier #131) |
 | browser, 4e7-step shot, chunked | ≤ 10 s | 12-14 s (Firefox, loaded VPS) |
-| proven transaction | ≤ 1.1B L2 gas ≈ 9M steps | – |
+| proven transaction | ≤ 1.1B L2 gas ≈ 9M steps | SNIP-36 path closed (class size); local Stwo proof: RSS ≈ 2.6 GiB + 1.5 GiB per M steps, 1 tick 31 s / 2.68 GiB, 5.1M steps 9.3 GiB (research 05) |
 | class size (Sierra / CASM felts, bytes) | ≤ 81 920 / ≤ 81 920 / ≤ 4 089 446 | registry class (`SplitCore`) 6 800 / 14 246 / 342k: OK; simulation class 196 801 / **433 601** / 11.4M: 5.3x on CASM; rapier CS1 / CS2 must cut ≥ 5.3x (2.2x from never-run code, 2.4x from the reachable step) |
 
 ## Escalations sent
