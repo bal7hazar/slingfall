@@ -6,16 +6,20 @@
 // shows *settled* (docs/DESIGN.md D9, two tiers).
 import type { RpcProvider } from 'starknet';
 import { requestAttestation } from './attest.ts';
-import type { ChainConfig } from './config.ts';
+import { explorerLink, type ChainConfig } from './config.ts';
 import { describeJob, requestProof, settleLabel, waitCheap, waitSettleable } from './prove.ts';
-import { SlingfallContract, feltHex, levelValidatedEvents, receiptGas, runArgs, type ChainWriter } from './slingfall.ts';
+import {
+  SlingfallContract,
+  VERIFIER,
+  levelValidatedEvents,
+  playerValidations,
+  receiptGas,
+  runArgs,
+  shortFelt as short,
+  type ChainWriter,
+} from './slingfall.ts';
 import { submitLevel, type Receipt, type SubmissionStep } from './submission.ts';
 import { WALLET_LABELS, connectWallet, provider, walletKinds, type WalletKind } from './wallet.ts';
-
-const short = (felt: string) => {
-  const h = feltHex(felt);
-  return h.length > 14 ? `${h.slice(0, 8)}…${h.slice(-4)}` : h;
-};
 
 function make<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}): HTMLElementTagNameMap[K] {
   return Object.assign(document.createElement(tag), props);
@@ -31,9 +35,12 @@ export class SubmitPanel {
   private readonly tier = make('p', { className: 'submit-tier' });
   private readonly settle = make('button', { type: 'button', textContent: 'Settle', hidden: true });
   private readonly board = make('ol', { className: 'submit-board' });
+  private readonly links = make('p', { className: 'submit-links' });
   private readonly config: ChainConfig;
   private readonly rpc: RpcProvider;
   private readonly contract: SlingfallContract;
+  /** `VERIFIER` of the deployment, once read: `satellite` accepts no attestation, only a settled proof. */
+  private verifier: number | null = null;
   private account: ChainWriter | null = null;
   private outputsFor: ((player: string) => Promise<string[]>) | null = null;
   private inputsFor: ((player: string) => string[]) | null = null;
@@ -50,12 +57,56 @@ export class SubmitPanel {
     for (const kind of walletKinds(config)) this.wallet.add(new Option(WALLET_LABELS[kind], kind));
     const row = make('div', { className: 'submit-row' });
     row.append(this.wallet, this.connect);
-    this.root.append(make('h3', { textContent: 'Submit on Starknet' }), row, this.proof, this.send, this.status, this.tier, this.settle, this.board);
+    this.root.append(make('h3', { textContent: 'Submit on Starknet' }), row, this.proof, this.send, this.status, this.tier, this.settle, this.board, this.links);
+    this.showContractLink();
+    void this.contract.verifier().then(
+      (kind) => {
+        this.verifier = kind;
+        this.labelSend();
+      },
+      () => {}, // an unreachable RPC shows at the first read of the flow
+    );
     this.root.hidden = true;
     parent.append(this.root);
     this.connect.addEventListener('click', () => void this.doConnect());
     this.send.addEventListener('click', () => void this.doSubmit());
     this.settle.addEventListener('click', () => void this.doSettle());
+  }
+
+  /** On a Satellite deployment the attested `submit` is refused: the one path is proof, then `submit_settled`. */
+  private get settledOnly(): boolean {
+    return this.verifier === VERIFIER.satellite;
+  }
+
+  private labelSend(): void {
+    this.send.textContent = this.settledOnly ? 'Prove (settled)' : 'Submit';
+    this.proof.hidden = this.settledOnly;
+  }
+
+  /** A link element, or plain text without an explorer. */
+  private link(text: string, url: string | null): Node {
+    return url ? make('a', { href: url, target: '_blank', rel: 'noopener', textContent: text }) : document.createTextNode(text);
+  }
+
+  private showContractLink(transactions: { transactionHash: string; blockNumber: number | null }[] = []): void {
+    const parts: Node[] = [document.createTextNode('Contract '), this.link(short(this.config.address), explorerLink(this.config, 'contract', this.config.address))];
+    if (transactions.length > 0) {
+      parts.push(document.createTextNode(' · your LevelValidated: '));
+      transactions.forEach((tx, i) => {
+        if (i > 0) parts.push(document.createTextNode(', '));
+        parts.push(this.link(short(tx.transactionHash), explorerLink(this.config, 'tx', tx.transactionHash)));
+      });
+    }
+    this.links.replaceChildren(...parts);
+  }
+
+  /** The player's `LevelValidated` transactions from the RPC's event index; silent when the node refuses. */
+  private async showValidations(player: string): Promise<void> {
+    try {
+      this.showContractLink(await playerValidations(this.rpc, this.config.address, player));
+    } catch (e) {
+      console.warn('LevelValidated events unavailable', e);
+    }
   }
 
   /**
@@ -98,6 +149,7 @@ export class SubmitPanel {
     try {
       this.account = await connectWallet(this.wallet.value as WalletKind, this.config, this.rpc);
       this.say(`Connected ${short(this.account.address)}`);
+      void this.showValidations(this.account.address);
     } catch (e) {
       this.say(`Wallet: ${e instanceof Error ? e.message : e}`);
     }
@@ -109,6 +161,7 @@ export class SubmitPanel {
     const account = this.account;
     const outputsFor = this.outputsFor;
     if (account === null || outputsFor === null) return;
+    if (this.settledOnly) return this.doProve(account, outputsFor);
     this.busy = true;
     this.refresh();
     const proofPath = this.proof.value.trim();
@@ -137,6 +190,7 @@ export class SubmitPanel {
           `Your best: ${best.score} (${best.won ? 'won' : 'lost'}, block ${best.block}).`,
       );
       this.showBoard(result.leaderboard, account.address);
+      void this.showValidations(account.address);
       this.outputsFor = null; // one attested submission per attempt (the nullifier refuses a second)
       if (result.validated.settled) {
         this.tier.textContent = 'Settled';
@@ -148,6 +202,29 @@ export class SubmitPanel {
     } catch (e) {
       console.error(e);
       this.say(`Submit failed: ${e instanceof Error ? e.message : e}`);
+    }
+    this.busy = false;
+    this.refresh();
+  }
+
+  /** Satellite deployment: no attestation; the prover service proves the attempt, then `Settle`. */
+  private async doProve(account: ChainWriter, outputsFor: (player: string) => Promise<string[]>): Promise<void> {
+    if (!this.config.proveUrl) {
+      this.say('This deployment accepts settled proofs only: run a prover service and set VITE_PROVE_URL (docs/testers.md)');
+      return;
+    }
+    this.busy = true;
+    this.refresh();
+    try {
+      const outputs = await outputsFor(account.address);
+      const inputs = this.inputsFor?.(account.address);
+      if (!inputs) throw new Error('no inputs for this attempt');
+      this.outputsFor = null; // one proof request per attempt (the job id makes a repeat idempotent anyway)
+      this.say(`Proof requested for ${short(account.address)}; this takes about 1.5 h, keep this page open`);
+      void this.proveAndOffer(outputs[1], outputs, inputs);
+    } catch (e) {
+      console.error(e);
+      this.say(`Prove failed: ${e instanceof Error ? e.message : e}`);
     }
     this.busy = false;
     this.refresh();
@@ -168,7 +245,7 @@ export class SubmitPanel {
     if (!url) return;
     const round = this.round;
     const show = (text: string) => {
-      if (round === this.round) this.tier.textContent = `Provisional (attested) · ${text}`;
+      if (round === this.round) this.tier.textContent = `${this.settledOnly ? 'Proving' : 'Provisional (attested)'} · ${text}`;
     };
     try {
       const job = await requestProof(url, levelHash, inputs);
@@ -214,6 +291,7 @@ export class SubmitPanel {
       if (!validated?.settled) throw new Error(`submit_settled ${hash}: no settled LevelValidated event`);
       const gas = receiptGas(receipt);
       this.tier.textContent = `Settled in ${hash} (L2 gas ${gas.l2Gas.toLocaleString()})`;
+      void this.showValidations(account.address);
       this.pending = null;
       this.settle.hidden = true;
       this.showBoard(await this.contract.leaderboard(validated.levelHash), account.address);

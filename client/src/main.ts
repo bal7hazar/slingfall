@@ -1,9 +1,9 @@
 import { Application } from 'pixi.js';
 import './style.css';
 import type { Pull } from './aim/pull';
-import { chainConfig } from './chain/config';
+import { chainConfig, explorerLink } from './chain/config';
 import { SubmitPanel } from './chain/panel';
-import { inputsFelts } from './chain/slingfall';
+import { inputsFelts, shortFelt } from './chain/slingfall';
 import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
 import { Hud, hudAt } from './render/hud';
@@ -16,7 +16,8 @@ import { VmClient } from './vm/index';
 
 /** Levels served from `public/levels/` (copies of `fixtures/levels/`). */
 const LEVELS = ['pile10', 'cores3', 'tower', 'bridge', 'twin', 'one_block'];
-const TRACE_URL = '/traces/pile10.json';
+const BASE = import.meta.env.BASE_URL;
+const TRACE_URL = `${BASE}traces/pile10.json`;
 const CONTROLS_HEIGHT = 44;
 const INSETS = { top: 0, bottom: CONTROLS_HEIGHT };
 /** The outputs a proof binds the player to (highlighted). */
@@ -43,6 +44,7 @@ const ui = {
   play: element<HTMLButtonElement>('#play'),
   scrub: element<HTMLInputElement>('#scrub'),
   hint: element('#hint'),
+  chainInfo: element('#chain-info'),
 };
 
 /** `?level=<name>` picks the level; `?autoshot=px,py;px,py` releases those pulls (headless checks). */
@@ -72,6 +74,17 @@ async function main(): Promise<void> {
   // The Submit step (lot G9) when a deployed contract is configured (docs/e2e.md).
   const config = chainConfig();
   const submit = config ? new SubmitPanel(ui.result, config) : null;
+  /** The network, the contract (Voyager) and the on-chain hash of the level being played. */
+  const showChainInfo = (levelHash: string) => {
+    if (config === null) return;
+    const contractUrl = explorerLink(config, 'contract', config.address);
+    const contract = contractUrl
+      ? Object.assign(document.createElement('a'), { href: contractUrl, target: '_blank', rel: 'noopener', textContent: shortFelt(config.address), title: config.address })
+      : shortFelt(config.address);
+    const hash = Object.assign(document.createElement('span'), { textContent: shortFelt(levelHash), title: levelHash });
+    ui.chainInfo.replaceChildren(`${config.network} · contract `, contract, ' · level hash ', hash);
+    ui.chainInfo.hidden = false;
+  };
   const playback = new Playback(() => view?.stage.buffer.frameCount ?? 0);
   const rate = new ArrivalRate();
   let view: View | null = null;
@@ -254,7 +267,8 @@ async function main(): Promise<void> {
   const open = async (name: string) => {
     ui.level.disabled = ui.retry.disabled = true;
     ui.hint.textContent = `Loading ${name}…`;
-    const doc = (await (await fetch(`/levels/${name}.felts.json`)).json()) as { felts: string[] };
+    const doc = (await (await fetch(`${BASE}levels/${name}.felts.json`)).json()) as { felts: string[]; level_hash: string };
+    showChainInfo(doc.level_hash);
     const t = performance.now();
     session = await LevelSession.open(vm, { felts: doc.felts });
     console.log(`level ${name}: init in ${(performance.now() - t).toFixed(0)} ms, ${session.traceLevel.bodies.length} bodies`);

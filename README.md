@@ -19,6 +19,22 @@ Working name. Original mechanics and assets: a *pebble* is launched at structure
 Status: bootstrapping (2026-09-25). Plan: `docs/PLAN.md`. Decisions: `docs/DESIGN.md`. The
 research behind them: `docs/research/`. Rules for every agent: `AGENTS.md`.
 
+## Try it
+
+The contract is deployed on Starknet Sepolia
+([`0x4b645f…0ae2`](https://sepolia.voyager.online/contract/0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2),
+six levels, `deploy/sepolia.json`). Play in your browser, the Cairo replay runs in wasm:
+
+```sh
+client/vm/scripts/build.sh                 # once: the wasm runner (Rust)
+cd client && npm ci && npm run dev:sepolia
+```
+
+Connect Braavos / Argent X (on Sepolia) or Cartridge, finish a level, then prove and settle it
+(about 1.5 h, needs a prover service). The full walk-through, what each status means and what
+still needs a browser check: [`docs/testers.md`](docs/testers.md). Nothing has been run in a browser
+by the executors yet.
+
 ## Commands
 
 Toolchain: scarb 2.19.4 and snforge 0.61.0 (`.tool-versions`, asdf), Python 3, Node 24. On the

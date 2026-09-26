@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:sepolia": "vite --mode sepolia",
     "build": "tsc && vite build",
+    "build:sepolia": "tsc && vite build --mode sepolia",
+    "smoke:sepolia": "node scripts/smoke-sepolia.mjs",
     "preview": "vite preview",
     "lint": "eslint . && tsc --noEmit",
     "test": "vitest run"

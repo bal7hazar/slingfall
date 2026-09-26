@@ -32,7 +32,15 @@ function vmAssets(): Plugin {
   };
 }
 
+/** `VITE_BASE=/slingfall/` serves the app from a sub-path (GitHub Pages project sites); default `/`. */
+function base(): string {
+  const raw = process.env.VITE_BASE ?? '';
+  if (raw === '') return '/';
+  return `/${raw.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/');
+}
+
 export default defineConfig({
+  base: base(),
   plugins: [vmAssets()],
   worker: { format: 'es' },
 });

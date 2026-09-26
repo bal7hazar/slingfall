@@ -160,3 +160,18 @@ canvas {
 .submit-board li.mine {
   color: #9fd8e8;
 }
+
+.chain-info {
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  max-width: 46vw;
+  text-align: right;
+  font: 12px/1.5 ui-monospace, monospace;
+  opacity: 0.85;
+}
+
+.chain-info a,
+.submit a {
+  color: #9fd8e8;
+}
