@@ -1,6 +1,8 @@
 //! Fixtures of the contract tests: the golden claim, key and signature of the verifier tests. The
 //! fixture levels are `slingfall_level::level::fixtures`.
 
+use slingfall_level::hash::to_felts;
+use slingfall_level::inputs::{Inputs, Shot};
 use slingfall_level::level::fixtures::PILE10_HASH;
 use slingfall_level::outputs::Outputs;
 
@@ -39,4 +41,24 @@ pub fn golden_claim() -> Outputs {
         ticks_run: 431,
         final_state_hash: 0x33,
     }
+}
+
+/// The G4b golden shot on pile10 (`slingfall_game::fixtures::reference_outputs`'s inputs): the
+/// reference pull of the `main` executable, player `PLAYER`.
+pub fn reference_inputs() -> Array<felt252> {
+    to_felts(
+        @Inputs {
+            player: PLAYER,
+            shots: array![Shot { pull_x: -600, pull_y: -392, delay: 0, ability_tick: 0 }],
+        },
+    )
+}
+
+/// The felts `main` (and so `simulate`) returns for `reference_inputs()` on pile10.
+pub fn reference_outputs() -> Array<felt252> {
+    array![
+        1, PILE10_HASH, 0, PLAYER,
+        0x31b10e77b97a88153b1e9d781ecddece54061fe1cf88e6a3660eee99fda4f3b, 5350, 1, 1, 191,
+        0x2ff3945fee21a4cc7f9447a645a65108dd2a7e697f0c06e75ef0475bbef13e9,
+    ]
 }

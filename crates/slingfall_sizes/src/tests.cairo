@@ -1,8 +1,9 @@
-//! The fixtures deploy and run: the real `simulate` (`SizeE_Simulate`) and the two-class layout
-//! (`SplitCore` library-calling `SplitSim`) return the reference outputs of pile10 (the contract
-//! golden, `slingfall_contract::simulate::replay_hook`). The two tests do the same work but for the
-//! library call: their Cairo steps give the cost of the split (`REPORT.md` of lot G7b). Named
-//! `test_*`, not `steps_*`: this crate is not in the CI test matrix and has no step snapshot.
+//! The one-class fixture deploys and runs: the real `simulate` in the registry class
+//! (`SizeE_Simulate`) returns the reference outputs of pile10 (the contract golden,
+//! `slingfall_contract::simulate::replay_hook`). Its Cairo steps are the single-class golden the
+//! two-class contract is compared with (`slingfall_contract`'s `steps_simulate__pile10_reference`,
+//! `REPORT.md` of lot G7c). Named `test_*`, not `steps_*`: this crate is not in the CI test matrix
+//! and has no step snapshot.
 
 use slingfall_level::hash::to_felts;
 use slingfall_level::inputs::{Inputs, Shot};
@@ -46,13 +47,5 @@ fn register_and_simulate(address: ContractAddress) -> Array<felt252> {
 fn test_simulate_reference__one_class() {
     let class = declare("SizeE_Simulate").unwrap().contract_class();
     let (address, _) = class.deploy(@array![ADMIN]).unwrap();
-    assert_eq!(register_and_simulate(address), reference_outputs());
-}
-
-#[test]
-fn test_simulate_reference__split() {
-    let sim = declare("SplitSim").unwrap().contract_class();
-    let class = declare("SplitCore").unwrap().contract_class();
-    let (address, _) = class.deploy(@array![ADMIN, (*sim.class_hash).into()]).unwrap();
     assert_eq!(register_and_simulate(address), reference_outputs());
 }

@@ -36,6 +36,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: software-mansion/setup-scarb@v1
       - run: scarb build --workspace
+      - name: Registry class within the Starknet class limits
+        run: python3 tools/classsize/classsize.py check --no-build
       - run: scarb --manifest-path "$REPLAY" build
       - name: Execute the replay (one_block, one shot)
         run: |

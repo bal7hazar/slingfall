@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Class size of the Slingfall contract and of its layered fixtures (crates/slingfall_sizes, lot
-G7b) against the Starknet limits, and where the bytes go.
+"""Class size of the Slingfall contract (registry class `Slingfall` and simulation class
+`SlingfallSim`, lot G7c) and of its layered fixtures (crates/slingfall_sizes, lot G7b) against the
+Starknet limits, and where the bytes go.
 
 usage:
+  tools/classsize/classsize.py check [--no-build]
+      the CI gate: build `slingfall_contract` and fail (exit 1) when the registry class `Slingfall`
+      exceeds a limit (Sierra felts, CASM felts, class bytes, CASM class bytes). The CASM figures
+      need `starknet-sierra-compile` on PATH; without it they are skipped with a note (scarb
+      builds `slingfall_contract` as Sierra only). `SlingfallSim`'s figures are printed and never
+      fail the check (known 5.3x over the CASM limit until rapier-cairo's cuts land).
   tools/classsize/classsize.py [table] [--no-build]
       build `slingfall_contract` and `slingfall_sizes` (dev profile) and print the size table of
       every class in target/dev.
@@ -54,11 +61,15 @@ LIMITS = {
     "casm_bytes": 4089446,
 }
 
-# Fixture order of the table (the layers (a)-(e) of the brief, then the split pair).
+# Fixture order of the table (the layers (a)-(e) of the brief, then the two real classes).
 ORDER = [
     "SizeA_Registry", "SizeB_Decode", "SizeC_World", "SizeC2_GameNew", "SizeD_OneStep",
-    "SizeD2_OneTick", "SizeE_Simulate", "Slingfall", "SplitCore", "SplitSim",
+    "SizeD2_OneTick", "SizeE_Simulate", "Slingfall", "SlingfallSim",
 ]
+
+# `check`: the class that must stay declarable, and the one that is only reported.
+REGISTRY_CLASS = "Slingfall"
+SIM_CLASS = "SlingfallSim"
 
 HOOKS = {
     "replay": "slingfall_contract::simulate::replay_hook::ReplaySimulateHook",
@@ -94,10 +105,11 @@ def casm_of(sierra_path):
     return json.loads(p.stdout)
 
 
-def measure(target):
-    """-> {contract_name: {metric: int | None}} from every starknet_artifacts.json in `target`."""
+def measure(target, package="*"):
+    """-> {contract_name: {metric: int | None}} from the starknet_artifacts.json of `package` (every
+    package by default) in `target`."""
     res = {}
-    for artifacts_file in sorted(target.glob("*.starknet_artifacts.json")):
+    for artifacts_file in sorted(target.glob(f"{package}.starknet_artifacts.json")):
         for c in json.loads(artifacts_file.read_text())["contracts"]:
             sierra_path = target / c["artifacts"]["sierra"]
             sierra = json.loads(sierra_path.read_text())
@@ -147,6 +159,31 @@ def table(build):
         for package in PACKAGES:
             scarb(ROOT, ["build", "-p", package])
     print_table(measure(ROOT / "target" / "dev"), "Classes of target/dev (dev profile)")
+
+
+def check(build):
+    """Exit status 1 when the registry class is over a limit; the simulation class is reported."""
+    if build:
+        scarb(ROOT, ["build", "-p", "slingfall_contract"])
+    rows = measure(ROOT / "target" / "dev", "slingfall_contract")
+    for name in (REGISTRY_CLASS, SIM_CLASS):
+        if name not in rows:
+            sys.exit(f"classsize check: class `{name}` not found in target/dev")
+    print_table({n: rows[n] for n in (REGISTRY_CLASS, SIM_CLASS)}, "Classes of slingfall_contract")
+    registry = rows[REGISTRY_CLASS]
+    over = [f"{m}: {registry[m]:,} > {LIMITS[m]:,}" for m in LIMITS
+            if registry[m] is not None and registry[m] > LIMITS[m]]
+    if registry["casm_felts"] is None:
+        print(f"\nnote: `{REGISTRY_CLASS}` CASM not checked (`starknet-sierra-compile` not on PATH)")
+    sim = rows[SIM_CLASS]
+    print(f"\n`{SIM_CLASS}` (reported, not checked): {fmt(sim['sierra_felts'])} Sierra felts "
+          f"({ratio(sim['sierra_felts'], 'sierra_felts')}x), {fmt(sim['casm_felts'])} CASM felts "
+          f"({ratio(sim['casm_felts'], 'casm_felts')}x), {fmt(sim['sierra_bytes'])} class bytes "
+          f"({ratio(sim['sierra_bytes'], 'sierra_bytes')}x)")
+    if over:
+        sys.exit(f"classsize check FAILED, `{REGISTRY_CLASS}` over the Starknet limits: "
+                 + "; ".join(over))
+    print(f"\nclasssize check ok: `{REGISTRY_CLASS}` is within the Starknet limits")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -325,8 +362,8 @@ def attribution_build(hook, strategy, dump):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", nargs="?", default="table", choices=["table", "attribution", "strategies"])
-    ap.add_argument("--no-build", action="store_true", help="table: measure target/dev as it is")
+    ap.add_argument("cmd", nargs="?", default="table", choices=["table", "check", "attribution", "strategies"])
+    ap.add_argument("--no-build", action="store_true", help="table, check: measure target/dev as it is")
     ap.add_argument("--hook", default="replay", help="attribution: replay, stub or a hooks impl")
     ap.add_argument("--depth", type=int, default=2, help="attribution: module path segments")
     ap.add_argument("--top", type=int, default=25, help="attribution: heaviest functions shown")
@@ -339,6 +376,8 @@ def main():
     a = ap.parse_args()
     if a.cmd == "table":
         table(not a.no_build)
+    elif a.cmd == "check":
+        check(not a.no_build)
     elif a.cmd == "strategies":
         lines = [f"inlining-strategy = {strategy_toml(s)}" for s in a.strategy or []] + a.cairo
         strategies(lines or ['inlining-strategy = "default"', 'inlining-strategy = "avoid"'])

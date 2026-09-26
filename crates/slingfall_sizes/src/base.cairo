@@ -31,7 +31,7 @@ pub mod BaseComponent {
         StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait,
     };
     use starknet::{
-        ContractAddress, get_block_number, get_block_timestamp, get_caller_address,
+        ClassHash, ContractAddress, get_block_number, get_block_timestamp, get_caller_address,
         get_contract_address, get_execution_info,
     };
 
@@ -39,6 +39,7 @@ pub mod BaseComponent {
     pub struct Storage {
         admin: ContractAddress,
         virtual_os_hash: felt252,
+        sim_class_hash: ClassHash,
         verifier: VerifierKind,
         attestation_key: felt252,
         levels: Map<felt252, LevelMeta>,
@@ -202,6 +203,10 @@ pub mod BaseComponent {
             self.virtual_os_hash.read()
         }
 
+        fn sim_class_hash(self: @ComponentState<TContractState>) -> ClassHash {
+            self.sim_class_hash.read()
+        }
+
         fn verifier(self: @ComponentState<TContractState>) -> VerifierKind {
             self.verifier.read()
         }
@@ -219,6 +224,11 @@ pub mod BaseComponent {
         fn set_virtual_os_hash(ref self: ComponentState<TContractState>, virtual_os_hash: felt252) {
             self.assert_admin();
             self.virtual_os_hash.write(virtual_os_hash);
+        }
+
+        fn set_sim_class_hash(ref self: ComponentState<TContractState>, sim_class_hash: ClassHash) {
+            self.assert_admin();
+            self.sim_class_hash.write(sim_class_hash);
         }
 
         fn set_verifier(ref self: ComponentState<TContractState>, verifier: VerifierKind) {

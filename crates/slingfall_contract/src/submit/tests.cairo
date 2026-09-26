@@ -1,6 +1,7 @@
 //! Contract tests of `Slingfall`: deployed in snforge, called through the (safe) dispatchers,
 //! `snforge_std` cheatcodes for the caller, the block, the proof facts, events and L1 messages.
 
+use core::num::traits::Zero;
 use slingfall_level::hash::to_felts;
 use slingfall_level::inputs::{Inputs, InputsTrait, Shot};
 use slingfall_level::level::fixtures::{ONE_BLOCK_HASH, PILE10_HASH, one_block_felts, pile10_felts};
@@ -13,11 +14,14 @@ use snforge_std::{
     start_cheat_block_number, start_cheat_block_timestamp, start_cheat_caller_address,
     start_cheat_proof_facts,
 };
-use starknet::ContractAddress;
+use starknet::{ClassHash, ContractAddress};
 use crate::registry::{LEADERBOARD_SIZE, LevelMeta, Record};
 use crate::simulate::MARKER;
 use crate::verifier::{VerifierKind, attestation_hash, message_hash};
-use super::fixtures::{ATTESTATION_KEY, GOLDEN_R, GOLDEN_S, PLAYER, SECRET, golden_claim};
+use super::fixtures::{
+    ATTESTATION_KEY, GOLDEN_R, GOLDEN_S, PLAYER, SECRET, golden_claim, reference_inputs,
+    reference_outputs,
+};
 use super::{
     ISlingfallAdminDispatcher, ISlingfallAdminDispatcherTrait, ISlingfallAdminSafeDispatcher,
     ISlingfallAdminSafeDispatcherTrait, ISlingfallDispatcher, ISlingfallDispatcherTrait,
@@ -28,6 +32,10 @@ const ADMIN: felt252 = 'admin';
 const AUTHOR: felt252 = 'author';
 const OTHER: felt252 = 'other';
 const VIRTUAL_OS_HASH: felt252 = 0x53f6c9fc;
+
+fn other_class() -> ClassHash {
+    0x5117.try_into().unwrap()
+}
 
 fn address(value: felt252) -> ContractAddress {
     value.try_into().unwrap()
@@ -50,6 +58,19 @@ fn deploy() -> Setup {
         safe: ISlingfallSafeDispatcher { contract_address: address },
         admin: ISlingfallAdminDispatcher { contract_address: address },
     }
+}
+
+/// Declares the `SlingfallSim` class (the simulation class `simulate` library-calls).
+fn sim_class_hash() -> ClassHash {
+    *declare("SlingfallSim").unwrap().contract_class().class_hash
+}
+
+/// `deploy()` with `sim_class_hash` set by the admin, the caller left to `ADMIN`.
+fn deploy_with_sim() -> Setup {
+    let setup = deploy();
+    as_caller(setup, ADMIN);
+    setup.admin.set_sim_class_hash(sim_class_hash());
+    setup
 }
 
 /// Makes `caller` the caller of every following call to the contract.
@@ -326,6 +347,9 @@ fn test_leaderboard_keeps_the_top_ten() {
 #[feature("safe_dispatcher")]
 fn test_simulate_sends_the_outputs_message() {
     let setup = setup_stub();
+    as_caller(setup, ADMIN);
+    setup.admin.set_sim_class_hash(sim_class_hash());
+    as_caller(setup, PLAYER);
     let inputs = Inputs {
         player: PLAYER,
         shots: array![Shot { pull_x: -300, pull_y: 120, delay: 0, ability_tick: 0 }],
@@ -343,6 +367,33 @@ fn test_simulate_sends_the_outputs_message() {
     assert_eq!(panic_of(setup.safe.simulate(PILE10_HASH, array![PLAYER])), 'simulate: inputs');
 }
 
+/// G4b golden: `simulate(pile10, reference)` through the library call returns `main`'s felts, and
+/// the message is sent from `Slingfall`'s context.
+#[test]
+fn test_simulate_pile10_reference_through_the_library_call() {
+    let setup = deploy_with_sim();
+    as_caller(setup, AUTHOR);
+    setup.game.register_level(pile10_felts());
+    let mut messages = spy_messages_to_l1();
+    let outputs = setup.game.simulate(PILE10_HASH, reference_inputs());
+    assert_eq!(outputs.to_felts(), reference_outputs());
+    let message = MessageToL1 {
+        to_address: MARKER.try_into().unwrap(), payload: reference_outputs(),
+    };
+    messages.assert_sent(@array![(setup.address, message)]);
+}
+
+#[test]
+#[feature("safe_dispatcher")]
+fn test_simulate_needs_the_sim_class() {
+    let setup = deploy();
+    setup.game.register_level(pile10_felts());
+    assert_eq!(setup.admin.sim_class_hash(), Zero::zero());
+    assert_eq!(panic_of(setup.safe.simulate(PILE10_HASH, reference_inputs())), 'simulate: class');
+    // An unknown level is still reported first.
+    assert_eq!(panic_of(setup.safe.simulate(0x1234, reference_inputs())), 'simulate: level');
+}
+
 #[test]
 #[feature("safe_dispatcher")]
 fn test_admin() {
@@ -354,10 +405,12 @@ fn test_admin() {
     as_caller(setup, OTHER);
     assert_eq!(panic_of(safe.set_admin(address(OTHER))), 'admin: caller');
     assert_eq!(panic_of(safe.set_virtual_os_hash(1)), 'admin: caller');
+    assert_eq!(panic_of(safe.set_sim_class_hash(other_class())), 'admin: caller');
     assert_eq!(panic_of(safe.set_verifier(VerifierKind::Stub)), 'admin: caller');
     assert_eq!(panic_of(safe.set_attestation_key(1)), 'admin: caller');
     as_caller(setup, ADMIN);
     setup.admin.set_virtual_os_hash(VIRTUAL_OS_HASH);
+    setup.admin.set_sim_class_hash(other_class());
     setup.admin.set_verifier(VerifierKind::Stub);
     setup.admin.set_attestation_key(ATTESTATION_KEY);
     assert_eq!(panic_of(safe.set_admin(address(0))), 'admin: zero');
@@ -369,6 +422,7 @@ fn test_admin() {
         (address(OTHER), VerifierKind::Stub, ATTESTATION_KEY),
     );
     assert_eq!(setup.admin.virtual_os_hash(), VIRTUAL_OS_HASH);
+    assert_eq!(setup.admin.sim_class_hash(), other_class());
     // The former admin is neither admin nor author of a level registered by the new one.
     setup.game.register_level(one_block_felts());
     as_caller(setup, ADMIN);
@@ -410,4 +464,25 @@ fn steps_register_level__deploy() {
 fn steps_register_level__pile10() {
     let setup = deploy();
     setup.game.register_level(pile10_felts());
+}
+
+/// Setup of `steps_simulate__pile10_reference` without the simulation: subtract it to get
+/// `simulate` alone (the library call included).
+#[test]
+fn steps_simulate__setup() {
+    let setup = deploy_with_sim();
+    as_caller(setup, AUTHOR);
+    setup.game.register_level(pile10_felts());
+    let _ = reference_inputs();
+}
+
+/// `simulate(pile10, reference)` through the library call to `SlingfallSim`, level read from
+/// storage, message sent: the single-class figure is the same test on `slingfall_sizes`'s
+/// `SizeE_Simulate` (`test_simulate_reference__one_class`).
+#[test]
+fn steps_simulate__pile10_reference() {
+    let setup = deploy_with_sim();
+    as_caller(setup, AUTHOR);
+    setup.game.register_level(pile10_felts());
+    setup.game.simulate(PILE10_HASH, reference_inputs());
 }

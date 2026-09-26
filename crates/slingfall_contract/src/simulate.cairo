@@ -7,6 +7,7 @@ use slingfall_level::level::{Level, LevelTrait};
 use slingfall_level::outputs::Outputs;
 use crate::submit::errors;
 
+pub mod class;
 pub mod replay_hook;
 
 /// `to_address` of the message `simulate` sends: the message never reaches L1, it is a proof fact

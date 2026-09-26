@@ -4,7 +4,7 @@
 //! admin. No upgradeability yet.
 
 use slingfall_level::outputs::Outputs;
-use starknet::ContractAddress;
+use starknet::{ClassHash, ContractAddress};
 use crate::registry::{LevelMeta, Record};
 use crate::verifier::VerifierKind;
 
@@ -27,8 +27,9 @@ pub trait ISlingfall<TState> {
     fn level(self: @TState, level_hash: felt252) -> LevelMeta;
     /// The level's `Serde` felts (empty when unknown).
     fn level_data(self: @TState, level_hash: felt252) -> Array<felt252>;
-    /// Replays `inputs` (the `Serde` felts of an `Inputs`) on a registered level and sends the
-    /// outputs felts to `simulate::MARKER` as an L2 to L1 message. Meant for the virtual OS.
+    /// Replays `inputs` (the `Serde` felts of an `Inputs`) on a registered level through a library
+    /// call to the `SlingfallSim` class (`sim_class_hash`) and sends the outputs felts to
+    /// `simulate::MARKER` as an L2 to L1 message from this contract. Meant for the virtual OS.
     fn simulate(ref self: TState, level_hash: felt252, inputs: Array<felt252>) -> Outputs;
     /// Records a replay's `outputs` (the 10 felts of D4) once `evidence` convinces the active
     /// verifier.
@@ -44,12 +45,16 @@ pub trait ISlingfall<TState> {
 pub trait ISlingfallAdmin<TState> {
     fn admin(self: @TState) -> ContractAddress;
     fn virtual_os_hash(self: @TState) -> felt252;
+    fn sim_class_hash(self: @TState) -> ClassHash;
     fn verifier(self: @TState) -> VerifierKind;
     fn attestation_key(self: @TState) -> felt252;
     fn set_admin(ref self: TState, admin: ContractAddress);
     /// The virtual-OS program hash the SNIP-36 proof facts must carry (versioned per Starknet
     /// release).
     fn set_virtual_os_hash(ref self: TState, virtual_os_hash: felt252);
+    /// The class hash of `SlingfallSim`, the class `simulate` library-calls (zero: `simulate`
+    /// panics `errors::SIMULATE_CLASS`).
+    fn set_sim_class_hash(ref self: TState, sim_class_hash: ClassHash);
     fn set_verifier(ref self: TState, verifier: VerifierKind);
     /// Stark-curve public key of the `StubVerifier` attestations.
     fn set_attestation_key(ref self: TState, attestation_key: felt252);
@@ -67,11 +72,12 @@ pub mod Slingfall {
     };
     use starknet::syscalls::send_message_to_l1_syscall;
     use starknet::{
-        ContractAddress, SyscallResultTrait, get_block_number, get_block_timestamp,
+        ClassHash, ContractAddress, SyscallResultTrait, get_block_number, get_block_timestamp,
         get_caller_address, get_contract_address, get_execution_info,
     };
     use crate::registry::{Entry, LevelMeta, Record, improves, insert};
-    use crate::simulate::{ActiveHook, MARKER, run};
+    use crate::simulate::MARKER;
+    use crate::simulate::class::{ISlingfallSimDispatcherTrait, ISlingfallSimLibraryDispatcher};
     use crate::verifier::{Snip36Verifier, StubVerifier, Verifier, VerifierKind};
     use super::errors;
 
@@ -79,6 +85,8 @@ pub mod Slingfall {
     struct Storage {
         admin: ContractAddress,
         virtual_os_hash: felt252,
+        /// The class hash of `SlingfallSim` (`simulate` library-calls it).
+        sim_class_hash: ClassHash,
         verifier: VerifierKind,
         attestation_key: felt252,
         levels: Map<felt252, LevelMeta>,
@@ -191,7 +199,9 @@ pub mod Slingfall {
         ) -> Outputs {
             let level = read_level(@self, level_hash);
             assert(!level.is_empty(), errors::SIMULATE_LEVEL);
-            let outputs = run::<ActiveHook>(level.span(), inputs.span());
+            let class_hash = self.sim_class_hash.read();
+            assert(class_hash.is_non_zero(), errors::SIMULATE_CLASS);
+            let outputs = ISlingfallSimLibraryDispatcher { class_hash }.simulate(level, inputs);
             send_message_to_l1_syscall(MARKER, outputs.to_felts().span()).unwrap_syscall();
             outputs
         }
@@ -245,6 +255,10 @@ pub mod Slingfall {
             self.virtual_os_hash.read()
         }
 
+        fn sim_class_hash(self: @ContractState) -> ClassHash {
+            self.sim_class_hash.read()
+        }
+
         fn verifier(self: @ContractState) -> VerifierKind {
             self.verifier.read()
         }
@@ -262,6 +276,11 @@ pub mod Slingfall {
         fn set_virtual_os_hash(ref self: ContractState, virtual_os_hash: felt252) {
             assert_admin(@self);
             self.virtual_os_hash.write(virtual_os_hash);
+        }
+
+        fn set_sim_class_hash(ref self: ContractState, sim_class_hash: ClassHash) {
+            assert_admin(@self);
+            self.sim_class_hash.write(sim_class_hash);
         }
 
         fn set_verifier(ref self: ContractState, verifier: VerifierKind) {
