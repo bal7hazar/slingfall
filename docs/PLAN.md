@@ -43,7 +43,7 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 
 | quantity | target | measured |
 |---|---|---|
-| Cairo steps per shot | ≤ 3e7 (interim ≤ 1e8 until rapier's BT lands) | **after G8b (rapier alpha.1): pile10 reference 20.7M (107 ticks), pile10 3 shots 38.1M, cores3 reference 22.8M, bridge 19.1M, tower 42.4M (above), twin 2 x ~24M**; a miss 2.5-7M; flight tick 56k, impact tick 1.02M (before rapier BT1); pile12 (12 boxes + ball, 120 ticks): 40.0M (`docs/research/04`); rapier G0 (#133): 10-block level, 300 ticks, 60 Hz x4 = 204M, x1 substep 103M, 30 Hz x4 = 79M / 150 ticks; a settled structure never re-sleeps in 300 ticks, so the calm rule (D5) is essential |
+| Cairo steps per shot | ≤ 3e7 (interim ≤ 1e8 until rapier's BT lands) | **after B1 (rapier alpha.2, BT1 + BT2): pile10 reference 10.7M (107 ticks), pile10 3 shots 18.4M, cores3 reference 13.5M, bridge 11.2M, tower 27.6M, twin 2 x ~13M (26.8M, 306 ticks)**; a miss 1.7-2.8M; flight tick 17k, impact tick 652k (game probes, net of setup); before (alpha.1, G8b): pile10 reference 20.7M, pile10 3 shots 38.1M, cores3 reference 22.8M, bridge 19.1M, tower 42.4M, twin 47.6M, flight tick 56k, impact tick 1.02M; pile12 (12 boxes + ball, 120 ticks): 40.0M (`docs/research/04`); rapier G0 (#133): 10-block level, 300 ticks, 60 Hz x4 = 204M, x1 substep 103M, 30 Hz x4 = 79M / 150 ticks; a settled structure never re-sleeps in 300 ticks, so the calm rule (D5) is essential |
 | Cairo steps per tick, 13 bodies | – | 333k average, 540k during impact |
 | `WorldState` round trip (pile10) | – | 1 864 felts, 52k steps (rapier #131) |
 | browser, 4e7-step shot, chunked | ≤ 10 s | 12-14 s (Firefox, loaded VPS) |

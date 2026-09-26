@@ -25,6 +25,6 @@ mod tests {
         let params: IntegrationParameters = Default::default();
         let world = WorldTrait::new(gravity, params);
         assert_eq!(world.gravity.y.raw, -0xa00000000);
-        assert_eq!(WORLD_STATE_VERSION, 1);
+        assert_eq!(WORLD_STATE_VERSION, 2);
     }
 }
