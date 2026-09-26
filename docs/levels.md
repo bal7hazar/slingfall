@@ -87,6 +87,33 @@ and 6 GB each), which is more than the `golden` job's budget. The goldens of all
 `one_block` are checked by the `golden` job's `golden.py run --check` (one matrix leg per level,
 G8b).
 
+## Simulation setting: substeps and tick rate (lot S1)
+
+The game runs at 60 Hz with `num_solver_iterations = 4` (rapier's "substeps"; D1). Lot S1 measured
+x2, x1 and 30 Hz x4 on the six levels and **kept the default**: no level, golden or executable
+changed ("numeric change: MINOR" for the game applies the day a setting is adopted; not this lot).
+The two constants live in `crates/slingfall_rules/src/world.cairo` (`SOLVER_ITERATIONS`,
+`TICK_DT_RAW`); the manifests declare no Scarb feature, so the other settings are built by the
+tools in a scratch copy of the workspace:
+
+```sh
+python3 tools/levelc/rules.py --substeps 2 fixtures/levels/*.json            # levelc check --rules, x2
+python3 tools/levelc/rules.py --hz 30 --no-build fixtures/levels/tower.json  # 30 Hz x4 (after a build)
+python3 tools/golden/matrix.py --substeps 2 --out /tmp/x2.json               # reference shots + arc
+python3 tools/golden/matrix.py table /tmp/x4.json /tmp/x2.json               # markdown rows
+SLINGFALL_SUBSTEPS=2 python3 tools/golden/golden.py run --check              # any golden tool, same env
+```
+
+`snforge test -p slingfall_rules jitter` prints the 300-tick jitter probe of the six levels
+(`world/jitter.cairo`). A reference shot is not portable across settings: the same pull gives a
+different collapse (results in `docs/briefs/s1-substeps.md`). A switch is a retune of the levels
+(re-settle, re-pick the pulls), not a constant.
+
+**Flight arc.** rapier integrates a free flight as `k` Euler steps of `dt / k` per tick (gravity
+included in each), so at x4 the pebble sits 0.375 g dt^2 = 1.02 mm per tick *above* the single-step
+arc of `client/src/aim/arc.ts` (8 cm at the first contact, 12 cm on the longest flight); x1 is
+bit-identical to `arc.ts`. `arc.ts` is exact at x1 only.
+
 ## Materials
 
 Tuned on the three new levels and, in G8b, applied unchanged to `pile10` and `cores3` (`materials` of each level; `Material`'s layout is unchanged). D12's
