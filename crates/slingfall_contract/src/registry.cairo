@@ -27,6 +27,8 @@ pub struct Record {
     pub inputs_hash: felt252,
     /// Block number of the submission.
     pub block: u64,
+    /// Validated by the Satellite fact (`submit_settled`), else provisional (an attestation).
+    pub settled: bool,
 }
 
 /// One leaderboard row.
@@ -98,9 +100,11 @@ mod tests {
 
     #[test]
     fn test_improves() {
-        let lost_100 = Record { score: 100, won: false, inputs_hash: 0, block: 0 };
-        let won_100 = Record { score: 100, won: true, inputs_hash: 0, block: 0 };
-        let none: Record = Record { score: 0, won: false, inputs_hash: 0, block: 0 };
+        let lost_100 = Record { score: 100, won: false, inputs_hash: 0, block: 0, settled: false };
+        let won_100 = Record { score: 100, won: true, inputs_hash: 0, block: 0, settled: false };
+        let none: Record = Record {
+            score: 0, won: false, inputs_hash: 0, block: 0, settled: false,
+        };
         // (record, won, score, expected).
         let cases: Array<(Record, bool, u32, bool)> = array![
             (none, false, 0, false), (none, false, 1, true), (none, true, 0, true),

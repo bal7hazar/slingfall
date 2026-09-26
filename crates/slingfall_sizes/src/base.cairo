@@ -166,7 +166,14 @@ pub mod BaseComponent {
             let Outputs { inputs_hash, score, won, .. } = claim;
             let key = (player, level_hash);
             if improves(@self.best.read(key), won, score) {
-                self.best.write(key, Record { score, won, inputs_hash, block: get_block_number() });
+                self
+                    .best
+                    .write(
+                        key,
+                        Record {
+                            score, won, inputs_hash, block: get_block_number(), settled: false,
+                        },
+                    );
                 if won {
                     self.update_board(level_hash, player, score);
                 }
@@ -272,6 +279,8 @@ pub mod BaseComponent {
                     let mut verifier = StubVerifier { public_key: self.attestation_key.read() };
                     verifier.check(claim, evidence)
                 },
+                // The settled tier (lot E3b) is not part of the size fixtures.
+                VerifierKind::Satellite => false,
             }
         }
 

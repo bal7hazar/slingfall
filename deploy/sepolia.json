@@ -1,0 +1,151 @@
+{
+  "network": "sepolia",
+  "chain_id": "0x534e5f5345504f4c4941",
+  "class_hash": "0x46bff3841120701543560f801b66ad9f9eb35dd73484d2cf0422be533442e5f",
+  "address": "0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2",
+  "admin": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+  "verifier": "Satellite",
+  "attestation_key": null,
+  "satellite": {
+    "child_program_hash": "0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99",
+    "atlantic_bootloader_hash": "0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09",
+    "sharp_bootloader_hash": "0x5ab580b04e3532b6b18f81cfa654a05e29dd8e2352d88df1e765a84072db07",
+    "satellite_address": "0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e"
+  },
+  "fake_satellite_class_hash": null,
+  "levels": {
+    "bridge": "0x763c45c9d0f28975bc2d25b6068f9f119379b873224fb0c66f88fd2af16d5dd",
+    "cores3": "0x1f899335c51fb84fe7222c0dae3d7340ac9bb0a861e5a73af50e8308ba7b833",
+    "one_block": "0x5c2facd32b8c47ffd8909d04d73808bbf5967f1bb3a4ae762d2637fbe9e0431",
+    "pile10": "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+    "tower": "0xde9b6c6b0716c89e8f40c652912a8951a900b4f12ac8e129f8d44f06ff8782",
+    "twin": "0x39f8a8153c8af137f12e5bf0a707aaf7496fc1cbd4bb611720af3112aebcdbd"
+  },
+  "transactions": {
+    "declare Slingfall": "0xcf763ae497ede3a8f32ae62b0802daa505bf444abe23300afca346d82ae0e9",
+    "deploy Slingfall": "0x355adbf1d1661e144d10ac3d42a14e4ff9cf3c865c21b106cd2f15f84b34073",
+    "configure": "0x1c2b781dc6c88ddba8806a3f0235bb8fc21197ce998f658d337c7ba0a7a854f",
+    "register_level bridge": "0x359e4814b0ba643e0dde32c18169eb131ccf088d126770612cb6884cee0a54e",
+    "register_level cores3": "0x25eeeebe82e0331279407874c88e49782ee6c998f045c1828a7baa478cc9f65",
+    "register_level one_block": "0x558936913f2e6f8babe55bd8a91c053009b1888da52e5863147c7bc276ae954",
+    "register_level pile10": "0x457c6954172d75183ee20c9a41be1bb7d1d1d56eb704a36c9a1fd7b10c43851",
+    "register_level tower": "0x263f021ce66238b538f984a97ef4945fdd6d9a72ac1e02310f8c2445d0ff08",
+    "register_level twin": "0x2a5818807659001d40352f0f7bf6fa1207ffe6e96c54fd04220419f4d8b5f22",
+    "submit_settled": "0x636874a6904bee1882e14b65663080bef78525bc8ea906bcea02e1576fc50eb"
+  },
+  "gas": {
+    "declare Slingfall": {
+      "l1Gas": 0,
+      "l1DataGas": 192,
+      "l2Gas": 1095126835,
+      "fee": "22896229759661833656",
+      "unit": "FRI"
+    },
+    "deploy Slingfall": {
+      "l1Gas": 0,
+      "l1DataGas": 320,
+      "l2Gas": 1966795,
+      "fee": "41826795851279480",
+      "unit": "FRI"
+    },
+    "configure": {
+      "l1Gas": 0,
+      "l1DataGas": 672,
+      "l2Gas": 3899635,
+      "fee": "82991466139306456",
+      "unit": "FRI"
+    },
+    "register_level bridge": {
+      "l1Gas": 0,
+      "l1DataGas": 12096,
+      "l2Gas": 70462618,
+      "fee": "1499501249124260560",
+      "unit": "FRI"
+    },
+    "register_level cores3": {
+      "l1Gas": 0,
+      "l1DataGas": 10944,
+      "l2Gas": 63936402,
+      "fee": "1360566954290961744",
+      "unit": "FRI"
+    },
+    "register_level one_block": {
+      "l1Gas": 0,
+      "l1DataGas": 6528,
+      "l2Gas": 37749822,
+      "fee": "803422201897366320",
+      "unit": "FRI"
+    },
+    "register_level pile10": {
+      "l1Gas": 0,
+      "l1DataGas": 12384,
+      "l2Gas": 71913559,
+      "fee": "1530437350129792024",
+      "unit": "FRI"
+    },
+    "register_level tower": {
+      "l1Gas": 0,
+      "l1DataGas": 12192,
+      "l2Gas": 70904618,
+      "fee": "1508936347500500816",
+      "unit": "FRI"
+    },
+    "register_level twin": {
+      "l1Gas": 0,
+      "l1DataGas": 13632,
+      "l2Gas": 79272027,
+      "fee": "1686995836257376440",
+      "unit": "FRI"
+    },
+    "submit_settled": {
+      "l1Gas": 0,
+      "l1DataGas": 1056,
+      "l2Gas": 18819885,
+      "fee": "398993341856416029",
+      "unit": "FRI"
+    }
+  },
+  "settled_submit": {
+    "job": "bcbdf222b4585dc0821f5b88135a3026",
+    "atlantic_query": "01M3ESEE4N7T8AWBF6YTZ1Z8ZM",
+    "level": "pile10",
+    "integrity_fact_hash": "0x5c02aa91c84c8327369262330dfe47a1082feb2b256df3ea445a7f2aa99caf5",
+    "sharp_fact_hash": "0xced287cec5913129f3dbf6fa4fe74b70315d473203d40e62dd137c88af3fb5d6",
+    "satellite": {
+      "satellite": "0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e",
+      "isCairoFactValid": false,
+      "isKeccakVerifiedFactHashValid": true
+    },
+    "transaction_hash": "0x636874a6904bee1882e14b65663080bef78525bc8ea906bcea02e1576fc50eb",
+    "level_validated": [
+      {
+        "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+        "levelHash": "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+        "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+        "score": 5200,
+        "won": true,
+        "settled": true
+      }
+    ],
+    "gas": {
+      "l1Gas": 0,
+      "l1DataGas": 1056,
+      "l2Gas": 18819885,
+      "fee": "398993341856416029",
+      "unit": "FRI"
+    },
+    "best": {
+      "score": 5200,
+      "won": true,
+      "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+      "block": 15668002,
+      "settled": true
+    },
+    "leaderboard": [
+      {
+        "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+        "score": 5200
+      }
+    ]
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "case": "pile10-reference-sepolia",
+  "level": "pile10",
+  "shots": [
+    [
+      -604,
+      -392,
+      0
+    ]
+  ],
+  "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+  "note": "E3b: pile10-reference proven for the Sepolia deployment's account (deploy/sepolia.json admin), c1main on rapier2d alpha.3",
+  "job": {
+    "id": "bcbdf222b4585dc0821f5b88135a3026",
+    "store": "services/prove/out",
+    "result": "PROOF_VERIFICATION_ON_L2",
+    "created_at": "2026-09-26T11:59:16Z"
+  },
+  "inputs": [
+    "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+    "0x1",
+    "0x800000000000010fffffffffffffffffffffffffffffffffffffffffffffda5",
+    "0x800000000000010fffffffffffffffffffffffffffffffffffffffffffffe79",
+    "0x0",
+    "0x0"
+  ],
+  "outputs": [
+    "0x1",
+    "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+    "0x0",
+    "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+    "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+    "0x1450",
+    "0x1",
+    "0x1",
+    "0x6b",
+    "0x135df25e65cc5905398c07fc0fb89cb47ee2360a8704793595e82dd6cfbb255"
+  ],
+  "run": {
+    "steps": 8784517,
+    "pie_bytes": 42516875,
+    "run_seconds": 113.0,
+    "child_program_hash": "0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99",
+    "integrity_fact_hash": "0x5c02aa91c84c8327369262330dfe47a1082feb2b256df3ea445a7f2aa99caf5",
+    "sharp_fact_hash": "0xced287cec5913129f3dbf6fa4fe74b70315d473203d40e62dd137c88af3fb5d6"
+  },
+  "atlantic": {
+    "query_id": "01M3ESEE4N7T8AWBF6YTZ1Z8ZM",
+    "declaredJobSize": "L",
+    "dedupId": "slingfall-bcbdf222b4585dc0821f5b88135a3026",
+    "status": "DONE",
+    "jobSize": "S",
+    "integrityFactHash": "0x5c02aa91c84c8327369262330dfe47a1082feb2b256df3ea445a7f2aa99caf5",
+    "sharpFactHash": "0xced287cec5913129f3dbf6fa4fe74b70315d473203d40e62dd137c88af3fb5d6",
+    "transactionId": "01M3ESHDVY3FDKN595AYHR7P42",
+    "createdAt": "2026-09-26T12:01:12.153Z",
+    "completedAt": "2026-09-26T13:07:07.484Z",
+    "totalSeconds": 3955.3,
+    "stages": [
+      {
+        "job": "TRACE_AND_METADATA_GENERATION",
+        "status": "COMPLETED",
+        "createdAt": "2026-09-26T12:01:12.185Z",
+        "completedAt": "2026-09-26T12:02:48.214Z",
+        "seconds": 96.0
+      },
+      {
+        "job": "PROOF_GENERATION_AND_VERIFICATION",
+        "status": "COMPLETED",
+        "createdAt": "2026-09-26T12:02:48.366Z",
+        "completedAt": "2026-09-26T13:02:38.147Z",
+        "seconds": 3589.8
+      },
+      {
+        "job": "BRIDGE_FACT_HASH",
+        "status": "COMPLETED",
+        "createdAt": "2026-09-26T13:02:38.187Z",
+        "completedAt": "2026-09-26T13:07:07.412Z",
+        "seconds": 269.2
+      }
+    ]
+  },
+  "resume": "python3 services/prove/prove_service.py status bcbdf222b4585dc0821f5b88135a3026 --watch --interval 300 && deploy/sepolia.sh settle bcbdf222b4585dc0821f5b88135a3026",
+  "starknet": {
+    "job": "bcbdf222b4585dc0821f5b88135a3026",
+    "atlantic_query": "01M3ESEE4N7T8AWBF6YTZ1Z8ZM",
+    "level": "pile10",
+    "integrity_fact_hash": "0x5c02aa91c84c8327369262330dfe47a1082feb2b256df3ea445a7f2aa99caf5",
+    "sharp_fact_hash": "0xced287cec5913129f3dbf6fa4fe74b70315d473203d40e62dd137c88af3fb5d6",
+    "satellite": {
+      "satellite": "0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e",
+      "isCairoFactValid": false,
+      "isKeccakVerifiedFactHashValid": true
+    },
+    "transaction_hash": "0x636874a6904bee1882e14b65663080bef78525bc8ea906bcea02e1576fc50eb",
+    "level_validated": [
+      {
+        "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+        "levelHash": "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+        "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+        "score": 5200,
+        "won": true,
+        "settled": true
+      }
+    ],
+    "gas": {
+      "l1Gas": 0,
+      "l1DataGas": 1056,
+      "l2Gas": 18819885,
+      "fee": "398993341856416029",
+      "unit": "FRI"
+    },
+    "best": {
+      "score": 5200,
+      "won": true,
+      "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+      "block": 15668002,
+      "settled": true
+    },
+    "leaderboard": [
+      {
+        "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+        "score": 5200
+      }
+    ]
+  }
+}

@@ -407,8 +407,9 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
    'output', 'range_check', 'bitwise', 'poseidon', data…])` over the felts of the compiled program.
    The committed runs (rapier2d alpha.2, 454 101 felts): `CHILD_PROGRAM_HASH =
    0x128791df23988bef1c8aef3be7ce36ad68278d19878369e5fb7ed2515d5b053` (Atlantic's `child_program_hash`,
-   recomputed locally by `atlantic.py program-hash`). `c1main` on alpha.3 (B2, 459 803 felts, not proven
-   yet): `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` (local). It changes with any
+   recomputed locally by `atlantic.py program-hash`). `c1main` on alpha.3 (B2, 459 803 felts):
+   `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` (Atlantic's, E3b's Sepolia run; the
+   `child_program_hash` of the Sepolia deployment). It changes with any
    change to the game, the engine, `c1main` or the Cairo compiler: pin it per release.
 3. **Bootloader output** (Atlantic's bootloader, `ATLANTIC_BOOTLOADER_PROGRAM_HASH =
    0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09`, a 728-felt program):
@@ -426,61 +427,93 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
    `PROGRAM_HASH = SHARP_BOOTLOADER_PROGRAM_HASH` and `output_hash` the Poseidon of the doubly
    bootloaded output.
 
-### Contract side (E3b): `IntegrityVerifier::check(outputs, evidence)`
+### Contract side (E3b): `SatelliteVerifier`
 
-Constants: `CHILD_PROGRAM_HASH` (step 2, pinned per release of the proven program),
-`ATLANTIC_BOOTLOADER_PROGRAM_HASH`, `SHARP_BOOTLOADER_PROGRAM_HASH`, `PEDERSEN_0_0`, the Satellite address
-(Sepolia above; mainnet `0x01ba7d4b5707f8878c22fb335763abfc26c2ae157c434d597f6416fe6a79bf2e`, from
-Integrity's `lib_utils.cairo`).
+Implemented in `crates/slingfall_contract/src/verifier.cairo` (lot E3b). Constants in storage, admin-set
+through `ISlingfallSatellite::set_satellite_config(SatelliteConfig { child_program_hash,
+atlantic_bootloader_hash, sharp_bootloader_hash, satellite_address })` (any zero field rejects
+everything); `PEDERSEN_0_0` is a code constant. Satellite addresses: Sepolia
+`0x00421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e`, mainnet
+`0x01ba7d4b5707f8878c22fb335763abfc26c2ae157c434d597f6416fe6a79bf2e` (Integrity's `lib_utils.cairo`).
 
-1. Inputs: `outputs` (the 10 felts of `Outputs`), `level` felts and `inputs` felts (calldata, D9 "full
-   inputs go in calldata"); `evidence` is empty on this lane (the fact is recomputed, nothing to trust
-   from the caller).
-2. Bind: `level_hash == poseidon_hash_span(level)`, `inputs_hash == poseidon_hash_span(inputs)` (the
-   contract already does this for the nullifier) and `outputs.player == caller`.
-3. Recompute `args = [len(level), level…, len(inputs), inputs…]`, `task = [0, 10, outputs…, len(args),
-   args…]`, `output = [0, PEDERSEN_0_0, 1, len(task) + 2, CHILD_PROGRAM_HASH, task…]`, then
-   `fact = poseidon(SHARP_BOOTLOADER_PROGRAM_HASH, poseidon_hash_span([1, len(output) + 2,
-   ATLANTIC_BOOTLOADER_PROGRAM_HASH, output…]))` (Integrity's `calculate_bootloaded_fact_hash`).
-4. Check: `ISatellite.get_all_verifications_for_fact_hash(fact, is_mocked = false)` has an element with
-   `security_bits >= 96`, **and** its `verifier_config` is `'translated'` ×4 (the only kind Atlantic
-   produces now) or, if Stone verifications come back one day, the expected Integrity settings
-   (`recursive_with_poseidon` / `keccak_160_lsb` / `stone6` / `strict`, verifier config hash from
-   `get_verifier_config_hash`). Simpler equivalent: `isCairoFactValid(fact, false)` (the Satellite
-   requires 96 bits for FactRegistry facts and accepts translated ones). Interface (Integrity package
-   `IFactRegistryWithMocking`):
-   `get_all_verifications_for_fact_hash(fact_hash: felt252, is_mocked: bool) -> Span<VerificationListElement>`,
-   `VerificationListElement { verification_hash, security_bits: u32, verifier_config:
-   VerifierConfiguration { layout, hasher, stone_version, memory_verification } }`.
-5. Cost: one Poseidon over ≈ `len(level) + len(inputs) + 20` felts (≈ 110 for one_block, ≈ 180 for
-   pile10) plus one contract call; no proof bytes in calldata.
+1. Calldata: `submit_settled(outputs, args)`, `args` = `c1main`'s argument `[len(level), level…,
+   len(inputs), inputs…]` (what `tracec.py args` writes; also the `evidence` of `submit` when
+   `verifier = Satellite`). Nothing else is trusted from the caller.
+2. Bind: nothing to recompute. The proven program decodes `args` (exactly one level, one `Inputs`,
+   nothing left) and computes `level_hash`, `player` and `inputs_hash` into the outputs, and the fact
+   commits to outputs and `args` together; the contract checks the registry (`level_hash` registered
+   and active), `outputs.player == caller` and the nullifier, as for `submit`.
+3. Recompute `task = [0, 10, outputs…, len(args), args…]`, `output = [0, PEDERSEN_0_0, 1, len(task) + 2,
+   child_program_hash, task…]` (`atlantic_output`), then `fact = poseidon(sharp_bootloader,
+   poseidon_hash_span([1, len(output) + 2, atlantic_bootloader, output…]))` (`integrity_fact`).
+4. Check `Satellite.isCairoFactValid(fact, false)` (the translated fact, 96 bits); if false, the
+   bridged keccak fact: `sharp = keccak_be(atlantic_bootloader ‖ keccak_be(output))` over 32-byte
+   big-endian words (`sharp_fact`; `keccak_u256s_be_inputs` returns little-endian digests, reversed)
+   and `Satellite.isKeccakVerifiedFactHashValid(sharp)`. The keccak read is today's path (below); it
+   rests on the same SHARP verification as the translated fact, before translation.
+5. Tiers: nullifiers are `NONE → ATTESTED → SETTLED` or `NONE → SETTLED` (`attempt(level_hash, player,
+   inputs_hash)` reads it); `Record.settled` and `LevelValidated.settled` carry the tier; settling an
+   attested attempt that is the player's best record marks it settled, anything else is refused
+   (`'submit: nullifier'`).
+
+Golden vectors: the two E3a runs (`crates/slingfall_contract/src/submit/fixtures.cairo`, from
+`fixtures/proofs/atlantic/*.json`): both facts of both runs are recomputed bit for bit
+(`test_atlantic_facts_are_the_e3a_facts`), and the deployed contract accepts them against a fake
+Satellite that knows exactly those facts (`submit/tests/settled.cairo`).
 
 **What is on-chain today (2026-09-26).** Only the bridged keccak fact: `isKeccakVerifiedFactHashValid(
-sharp_fact)` is `true` on the Satellite for both runs. The two `PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION`
-queries stalled after trace generation (no proof job created within 2.5 h / 50 min), so no translated
-Poseidon fact has been observed. Until translation works, E3b's check is the **keccak path**: recompute
-`out` as in step 3, `sharp_fact = keccak_u256s_be(ATLANTIC_BOOTLOADER_PROGRAM_HASH, keccak_u256s_be(out))`
-(byte-reversed as the Satellite's `get_fact_hashes` does: big-endian digests), then require
-`Satellite.isKeccakVerifiedFactHashValid(sharp_fact)`. It costs one Keccak over `len(out)` 32-byte words
-(≈ 100-175) instead of the Poseidon. Anyone may also call the Satellite's permissionless
-`translateFactHash(ATLANTIC_BOOTLOADER_PROGRAM_HASH, out, false)` to register the Poseidon fact from the
-keccak one (a transaction; not sent in E3a).
+sharp_fact)` is `true` on the Satellite for both E3a runs. The two E3a
+`PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION` queries were still stuck after trace generation 2.5 h
+later (`01M3EMT5TPVX00M8TC1K6HS841`, created 10:40Z: `IN_PROGRESS`, step `TRACE_AND_METADATA_GENERATION`, at 13:12Z),
+so the prover service submits `PROOF_VERIFICATION_ON_L2` by default and `SatelliteVerifier` accepts the
+keccak fact. Anyone may call the Satellite's permissionless `translateFactHash(
+ATLANTIC_BOOTLOADER_PROGRAM_HASH, out, false)` to register the Poseidon fact from the keccak one (a
+transaction; not sent by E3a or E3b), after which the cheaper Poseidon path applies.
 
 Trust: the fact rests on Ethereum's SHARP verifier plus Herodotus's L1 → L2 bridge and Satellite owner
 (the Satellite is upgradeable), not on an on-chain Starknet verification of the proof.
 
+### Settled submit
+
+Cost of `submit_settled(pile10 reference)` (`args` = 154 felts):
+
+| path | snforge (Cairo steps, over setup) | starknet-devnet L2 gas | vs attested `submit` (5,649,600) |
+|---|---|---|---|
+| translated fact (`isCairoFactValid`) | 23,860 | 4,453,840 (upgrade) | 0.79x |
+| keccak fact only (`isKeccakVerifiedFactHashValid`) | 56,817 | 11,973,840 (upgrade) | 2.12x |
+
+The level felts come in calldata: reading the 146 felts of pile10 from the registry costs ≈ 3.9M L2
+gas (snforge probe of `level_data`), calldata ≈ 5k L2 gas per felt. The keccak path spends 42 Keccak
+rounds (5,504 bytes of output, then the 64-byte outer hash) plus the byte reversals of 172 words;
+it is over the 2x budget until the translated fact is available.
+
+Sepolia (2026-09-26, `deploy/sepolia.json`, `fixtures/proofs/atlantic/pile10-reference-sepolia.json`):
+`Slingfall` `0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2` (class
+`0x46bff3841120701543560f801b66ad9f9eb35dd73484d2cf0422be533442e5f`), `verifier = Satellite`.
+`pile10-reference` proven for the deployment account by the prover service: Atlantic query
+`01M3ESEE4N7T8AWBF6YTZ1Z8ZM` (declared L, trace 96 s, SHARP 3 590 s, bridge 269 s: 66 min), keccak fact
+`0xced287ce…3fb5d6` on the Satellite (the translated `0x5c02aa91…9caf5` is not), Atlantic's facts equal
+to the service's. `submit_settled` `0x636874a6904bee1882e14b65663080bef78525bc8ea906bcea02e1576fc50eb`:
+18,819,885 L2 gas, 1,056 L1 data gas, 0.399 STRK (a first settlement on the keccak path, Braavos
+account; a first record and leaderboard row); `best` = `{5200, won, settled}`, the leaderboard lists
+the account. The whole deployment (declare 22.9 STRK, deploy, configure, six levels, the submit):
+31.81 STRK.
+
 ### Client / service flow
 
-1. The client plays the level with the browser VM (same Cairo) and gets the 10 outputs.
-2. A **prover service** (ours; it holds the Atlantic API key, never the browser) receives `(level id,
-   inputs)`, re-runs `cairo1-run` on `c1main` (5-10 s), checks the outputs, submits the PIE with
-   `result = PROOF_VERIFICATION_ON_L2` (`…_WITH_TRANSLATION` once it completes), `declaredJobSize = M` (L for ≥ 9M-step runs),
-   `dedupId` = hash of the inputs (idempotent retries), and polls `GET /atlantic-query/{id}` until `DONE`.
-3. Latency on Sepolia: trace generation 40-60 s, SHARP proof + L1 verification ≈ 1.5 h, bridge ≈ 4 min.
-   The service returns `integrityFactHash` (the client can recompute it offline with the formula above)
-   and the query id; the client polls `check-fact` (a view call) until the Satellite knows the fact.
-4. The player sends `submit(level, inputs, outputs)` from their wallet; the contract recomputes and
-   checks the fact (above). Nothing Atlantic-specific is signed by the player.
+1. The client plays the level with the browser VM (same Cairo) and gets the 10 outputs; it submits
+   them attested (`submit(outputs, [r, s])`, provisional) where an attestation service exists.
+2. The **prover service** (`services/prove/prove_service.py`; it holds the Atlantic API key, never the
+   browser) receives `POST /prove {level, inputs}`, runs `cairo1-run` on `c1main` (≈ 2 min for pile10
+   plus ≈ 90 s of Python Pedersen for the program hash, cached per Sierra), checks the outputs, computes
+   both facts, submits the PIE with `result = PROOF_VERIFICATION_ON_L2` (`--result` also takes
+   `…_WITH_TRANSLATION`), `declaredJobSize` M (run steps + 3.6M bootloader ≤ 8M) else L, `dedupId` =
+   the job id (`sha256(level_hash, inputs, c1main Sierra, result)`: retries are idempotent). Jobs live
+   on disk (`services/prove/out/<id>/job.json`).
+3. Latency on Sepolia: trace generation 40-100 s, SHARP proof + L1 verification ≈ 1.5 h, bridge ≈ 4
+   min. `GET /status/<id>` answers Atlantic's stages and the Satellite's two reads (`settleable`).
+4. The player sends `submit_settled(outputs, args)` from their wallet ("Settle on Starknet"); the
+   contract recomputes and checks the fact (above). Nothing Atlantic-specific is signed by the player.
 
 ### Runs, latency, cost
 

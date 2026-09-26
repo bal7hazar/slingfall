@@ -1,5 +1,5 @@
 // The `Slingfall` contract as the client and `deploy/slingfall.ts` use it (docs/DESIGN.md D9):
-// calldata of `submit`, reads of `best` / `leaderboard`, the `LevelValidated` event and the gas of
+// calldata of `submit` / `submit_settled`, reads of `best` / `leaderboard`, the `LevelValidated` event and the gas of
 // a receipt. Felts by hand (the ABI is small and its layout is API): no ABI file to keep in sync.
 // No DOM; Node runs this file as is (type stripping), so imports carry their `.ts` extension.
 import { hash, num, type Call } from 'starknet';
@@ -9,7 +9,7 @@ export const N_OUTPUTS = 10;
 /** Index of `player` in the outputs felts. */
 export const OUTPUT_PLAYER = 3;
 /** `VerifierKind` variants (their `Serde` index). */
-export const VERIFIER = { snip36: 0, stub: 1 } as const;
+export const VERIFIER = { snip36: 0, stub: 1, satellite: 2 } as const;
 
 /** What reads need: `RpcProvider` / `Account` in the app, a fake in the tests. */
 export interface ChainReader {
@@ -28,6 +28,8 @@ export interface BestRecord {
   won: boolean;
   inputsHash: string;
   block: number;
+  /** Validated by the Satellite fact (else provisional: an attestation). */
+  settled: boolean;
 }
 
 export interface LeaderboardRow {
@@ -42,6 +44,7 @@ export interface LevelValidated {
   inputsHash: string;
   score: number;
   won: boolean;
+  settled: boolean;
 }
 
 /** Gas of a transaction (RPC 0.8+ `execution_resources`) and its fee. */
@@ -72,14 +75,44 @@ export function submitCall(contract: string, outputs: readonly string[], evidenc
   return { contractAddress: contract, entrypoint: 'submit', calldata: submitCalldata(outputs, evidence) };
 }
 
+/** `submit_settled(outputs, args)`: the layout of `submit`, `c1main`'s argument in place of the evidence. */
+export function submitSettledCall(contract: string, outputs: readonly string[], args: readonly string[]): Call {
+  return { contractAddress: contract, entrypoint: 'submit_settled', calldata: submitCalldata(outputs, args) };
+}
+
+/** A shot as the replay takes it (D3). */
+export interface ShotFelts {
+  pull_x: number;
+  pull_y: number;
+  delay?: number;
+}
+
+/** `Serde` felts of `Inputs { player, shots }` (`ability_tick = 0`; negative = P - x). */
+export function inputsFelts(player: string, shots: readonly ShotFelts[]): string[] {
+  const P = 2n ** 251n + 17n * 2n ** 192n + 1n;
+  const felt = (v: number) => hex(((BigInt(v) % P) + P) % P);
+  return [feltHex(player), hex(shots.length), ...shots.flatMap((s) => [felt(s.pull_x), felt(s.pull_y), hex(s.delay ?? 0), '0x0'])];
+}
+
+/** `c1main`'s argument, the evidence of `submit_settled`: `[len(level), level..., len(inputs), inputs...]`. */
+export function runArgs(level: readonly string[], inputs: readonly string[]): string[] {
+  return [hex(level.length), ...level.map(feltHex), hex(inputs.length), ...inputs.map(feltHex)];
+}
+
 /** `register_level(level: Array<felt252>)` of a level's `Serde` felts. */
 export function registerLevelCall(contract: string, felts: readonly string[]): Call {
   return { contractAddress: contract, entrypoint: 'register_level', calldata: [hex(felts.length), ...felts.map(feltHex)] };
 }
 
 export function decodeRecord(felts: readonly string[]): BestRecord {
-  if (felts.length !== 4) throw new Error(`best: ${felts.length} felts, expected 4`);
-  return { score: Number(BigInt(felts[0])), won: BigInt(felts[1]) === 1n, inputsHash: hex(felts[2]), block: Number(BigInt(felts[3])) };
+  if (felts.length !== 5) throw new Error(`best: ${felts.length} felts, expected 5`);
+  return {
+    score: Number(BigInt(felts[0])),
+    won: BigInt(felts[1]) === 1n,
+    inputsHash: hex(felts[2]),
+    block: Number(BigInt(felts[3])),
+    settled: BigInt(felts[4]) === 1n,
+  };
 }
 
 /** `Array<(ContractAddress, u32)>`: a length, then `(player, score)` pairs. */
@@ -108,6 +141,7 @@ export function levelValidatedEvents(receipt: { events?: readonly RawEvent[] }, 
       inputsHash: hex(e.data[0]),
       score: Number(BigInt(e.data[1])),
       won: BigInt(e.data[2]) === 1n,
+      settled: BigInt(e.data[3] ?? 0) === 1n,
     }));
 }
 
@@ -147,6 +181,12 @@ export class SlingfallContract {
     return decodeRecord(await this.reader.callContract({ contractAddress: this.address, entrypoint: 'best', calldata: [feltHex(player), feltHex(levelHash)] }));
   }
 
+  /** The registered level's `Serde` felts (empty when unknown). */
+  async levelData(levelHash: string): Promise<string[]> {
+    const felts = await this.reader.callContract({ contractAddress: this.address, entrypoint: 'level_data', calldata: [feltHex(levelHash)] });
+    return felts.slice(1).map(feltHex);
+  }
+
   async leaderboard(levelHash: string): Promise<LeaderboardRow[]> {
     return decodeLeaderboard(await this.reader.callContract({ contractAddress: this.address, entrypoint: 'leaderboard', calldata: [feltHex(levelHash)] }));
   }
@@ -157,6 +197,15 @@ export class SlingfallContract {
       throw new Error(`outputs player ${feltHex(outputs[OUTPUT_PLAYER])} is not the account ${feltHex(account.address)}`);
     }
     const { transaction_hash } = await account.execute(submitCall(this.address, outputs, evidence));
+    return transaction_hash;
+  }
+
+  /** Sends `submit_settled(outputs, args)` from `account` (the run's fact must be on the Satellite). */
+  async submitSettled(account: ChainWriter, outputs: readonly string[], args: readonly string[]): Promise<string> {
+    if (BigInt(outputs[OUTPUT_PLAYER]) !== BigInt(account.address)) {
+      throw new Error(`outputs player ${feltHex(outputs[OUTPUT_PLAYER])} is not the account ${feltHex(account.address)}`);
+    }
+    const { transaction_hash } = await account.execute(submitSettledCall(this.address, outputs, args));
     return transaction_hash;
   }
 }
