@@ -407,8 +407,9 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
    'output', 'range_check', 'bitwise', 'poseidon', data…])` over the felts of the compiled program.
    The committed runs (rapier2d alpha.2, 454 101 felts): `CHILD_PROGRAM_HASH =
    0x128791df23988bef1c8aef3be7ce36ad68278d19878369e5fb7ed2515d5b053` (Atlantic's `child_program_hash`,
-   recomputed locally by `atlantic.py program-hash`). `c1main` on alpha.3 (B2, 459 803 felts, not proven
-   yet): `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` (local). It changes with any
+   recomputed locally by `atlantic.py program-hash`). `c1main` on alpha.3 (B2, 459 803 felts):
+   `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` (Atlantic's, E3b's Sepolia run; the
+   `child_program_hash` of the Sepolia deployment). It changes with any
    change to the game, the engine, `c1main` or the Cairo compiler: pin it per release.
 3. **Bootloader output** (Atlantic's bootloader, `ATLANTIC_BOOTLOADER_PROGRAM_HASH =
    0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09`, a 728-felt program):
@@ -486,7 +487,17 @@ gas (snforge probe of `level_data`), calldata ≈ 5k L2 gas per felt. The keccak
 rounds (5,504 bytes of output, then the 64-byte outer hash) plus the byte reversals of 172 words;
 it is over the 2x budget until the translated fact is available.
 
-Sepolia transcript: `deploy/sepolia.json` (every transaction hash and fee) and the lot's `REPORT.md`.
+Sepolia (2026-09-26, `deploy/sepolia.json`, `fixtures/proofs/atlantic/pile10-reference-sepolia.json`):
+`Slingfall` `0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2` (class
+`0x46bff3841120701543560f801b66ad9f9eb35dd73484d2cf0422be533442e5f`), `verifier = Satellite`.
+`pile10-reference` proven for the deployment account by the prover service: Atlantic query
+`01M3ESEE4N7T8AWBF6YTZ1Z8ZM` (declared L, trace 96 s, SHARP 3 590 s, bridge 269 s: 66 min), keccak fact
+`0xced287ce…3fb5d6` on the Satellite (the translated `0x5c02aa91…9caf5` is not), Atlantic's facts equal
+to the service's. `submit_settled` `0x636874a6904bee1882e14b65663080bef78525bc8ea906bcea02e1576fc50eb`:
+18,819,885 L2 gas, 1,056 L1 data gas, 0.399 STRK (a first settlement on the keccak path, Braavos
+account; a first record and leaderboard row); `best` = `{5200, won, settled}`, the leaderboard lists
+the account. The whole deployment (declare 22.9 STRK, deploy, configure, six levels, the submit):
+31.81 STRK.
 
 ### Client / service flow
 

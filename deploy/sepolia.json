@@ -30,7 +30,8 @@
     "register_level one_block": "0x558936913f2e6f8babe55bd8a91c053009b1888da52e5863147c7bc276ae954",
     "register_level pile10": "0x457c6954172d75183ee20c9a41be1bb7d1d1d56eb704a36c9a1fd7b10c43851",
     "register_level tower": "0x263f021ce66238b538f984a97ef4945fdd6d9a72ac1e02310f8c2445d0ff08",
-    "register_level twin": "0x2a5818807659001d40352f0f7bf6fa1207ffe6e96c54fd04220419f4d8b5f22"
+    "register_level twin": "0x2a5818807659001d40352f0f7bf6fa1207ffe6e96c54fd04220419f4d8b5f22",
+    "submit_settled": "0x636874a6904bee1882e14b65663080bef78525bc8ea906bcea02e1576fc50eb"
   },
   "gas": {
     "declare Slingfall": {
@@ -95,6 +96,56 @@
       "l2Gas": 79272027,
       "fee": "1686995836257376440",
       "unit": "FRI"
+    },
+    "submit_settled": {
+      "l1Gas": 0,
+      "l1DataGas": 1056,
+      "l2Gas": 18819885,
+      "fee": "398993341856416029",
+      "unit": "FRI"
     }
+  },
+  "settled_submit": {
+    "job": "bcbdf222b4585dc0821f5b88135a3026",
+    "atlantic_query": "01M3ESEE4N7T8AWBF6YTZ1Z8ZM",
+    "level": "pile10",
+    "integrity_fact_hash": "0x5c02aa91c84c8327369262330dfe47a1082feb2b256df3ea445a7f2aa99caf5",
+    "sharp_fact_hash": "0xced287cec5913129f3dbf6fa4fe74b70315d473203d40e62dd137c88af3fb5d6",
+    "satellite": {
+      "satellite": "0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e",
+      "isCairoFactValid": false,
+      "isKeccakVerifiedFactHashValid": true
+    },
+    "transaction_hash": "0x636874a6904bee1882e14b65663080bef78525bc8ea906bcea02e1576fc50eb",
+    "level_validated": [
+      {
+        "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+        "levelHash": "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+        "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+        "score": 5200,
+        "won": true,
+        "settled": true
+      }
+    ],
+    "gas": {
+      "l1Gas": 0,
+      "l1DataGas": 1056,
+      "l2Gas": 18819885,
+      "fee": "398993341856416029",
+      "unit": "FRI"
+    },
+    "best": {
+      "score": 5200,
+      "won": true,
+      "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+      "block": 15668002,
+      "settled": true
+    },
+    "leaderboard": [
+      {
+        "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+        "score": 5200
+      }
+    ]
   }
 }
