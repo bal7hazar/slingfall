@@ -1,8 +1,7 @@
-# Build of the deploy class, and what the scripts write for a local run.
+# Build of the deploy class, and what the scripts write for a local run (the Sepolia deployment's
+# deploy/sepolia.json and deploy/sepolia.env are committed: addresses and hashes only).
 contract/target/
 out/
 devnet.json
 devnet.env
-sepolia.json
-sepolia.env
 .devnet/

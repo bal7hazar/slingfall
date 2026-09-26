@@ -1,0 +1,53 @@
+{
+  "case": "pile10-reference-sepolia",
+  "level": "pile10",
+  "shots": [
+    [
+      -604,
+      -392,
+      0
+    ]
+  ],
+  "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+  "note": "E3b: pile10-reference proven for the Sepolia deployment's account (deploy/sepolia.json admin), c1main on rapier2d alpha.3",
+  "job": {
+    "id": "bcbdf222b4585dc0821f5b88135a3026",
+    "store": "services/prove/out",
+    "result": "PROOF_VERIFICATION_ON_L2",
+    "created_at": "2026-09-26T11:59:16Z"
+  },
+  "inputs": [
+    "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+    "0x1",
+    "0x800000000000010fffffffffffffffffffffffffffffffffffffffffffffda5",
+    "0x800000000000010fffffffffffffffffffffffffffffffffffffffffffffe79",
+    "0x0",
+    "0x0"
+  ],
+  "outputs": [
+    "0x1",
+    "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+    "0x0",
+    "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+    "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+    "0x1450",
+    "0x1",
+    "0x1",
+    "0x6b",
+    "0x135df25e65cc5905398c07fc0fb89cb47ee2360a8704793595e82dd6cfbb255"
+  ],
+  "run": {
+    "steps": 8784517,
+    "pie_bytes": 42516875,
+    "run_seconds": 113.0,
+    "child_program_hash": "0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99",
+    "integrity_fact_hash": "0x5c02aa91c84c8327369262330dfe47a1082feb2b256df3ea445a7f2aa99caf5",
+    "sharp_fact_hash": "0xced287cec5913129f3dbf6fa4fe74b70315d473203d40e62dd137c88af3fb5d6"
+  },
+  "atlantic": {
+    "query_id": "01M3ESEE4N7T8AWBF6YTZ1Z8ZM",
+    "declaredJobSize": "L",
+    "dedupId": "slingfall-bcbdf222b4585dc0821f5b88135a3026"
+  },
+  "resume": "python3 services/prove/prove_service.py status bcbdf222b4585dc0821f5b88135a3026 --watch --interval 300 && deploy/sepolia.sh settle bcbdf222b4585dc0821f5b88135a3026"
+}

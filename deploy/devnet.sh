@@ -8,7 +8,8 @@
 #
 # The devnet runs `--seed 0` (deterministic prefunded accounts); account #0 is the admin. `deploy`
 # declares `Slingfall` (not `SlingfallSim`), deploys it, sets `verifier = Stub` and the attestation
-# key, registers the six fixture levels and writes:
+# key, deploys a `FakeSatellite` (deploy/contract: true for the facts it is told) as the
+# `SatelliteVerifier`'s Satellite, registers the six fixture levels and writes:
 #   deploy/devnet.json   network, RPC, class hash, address, admin, attestation key, level hashes, gas
 #   deploy/devnet.env    VITE_* variables of the client (docs/e2e.md), with the devnet account
 #
@@ -92,7 +93,7 @@ deploy() {
   local pubkey
   pubkey="$(python3 "$ROOT/services/attest/attest.py" pubkey --key "$ATTEST_KEY")"
   node "$ROOT/deploy/slingfall.ts" deploy --devnet --rpc "$RPC" --network devnet \
-    --attestation-key "$pubkey" --out "$OUT"
+    --attestation-key "$pubkey" --fake-satellite --out "$OUT"
   # The client's configuration: the devnet account signs in the page (dev only).
   node "$ROOT/deploy/slingfall.ts" account --rpc "$RPC" --with-key >"$RUN/account-${PORT}.json"
   python3 - "$RUN/account-${PORT}.json" "$OUT" >"$ENV_OUT" <<'EOF'

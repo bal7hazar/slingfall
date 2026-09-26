@@ -6,7 +6,12 @@
 #   -> POST /attest to attest.py -> submit(outputs, [r, s]) from that account
 #   -> LevelValidated emitted, best(player, pile10) = the score, the leaderboard lists the player
 #   -> the same submit again is rejected with 'submit: nullifier'
+#   -> the settled tier, mocked (lot E3b): the run's Atlantic fact (tools/atlantic/encoding.py) is
+#      registered on the devnet's FakeSatellite, submit_settled(outputs, args) upgrades the attempt
+#      (LevelValidated settled, best().settled), a second submit_settled is rejected
 #
+# E2E_SETTLE=keccak registers only the bridged keccak fact (the path Sepolia takes while
+# Atlantic's translation stalls), else only the translated Poseidon fact.
 #   deploy/e2e.sh [--keep]     --keep leaves the devnet running (deploy/devnet.sh down stops it)
 #
 # The attestation service runs `--no-verify` (no proof in this check) unless E2E_PROOF names a
@@ -50,7 +55,9 @@ PLAYER="$(cli account)"
 step "contract $(json "$CONFIG" 'd["address"]'), pile10 $LEVEL, player $PLAYER"
 
 step "replay $CASE for the player (scarb execute main)"
-python3 "$ROOT/deploy/outputs.py" --case "$CASE" --player "$PLAYER" --out "$OUT/outputs.json"
+CHILD_HASH="$(json "$CONFIG" 'd["satellite"]["child_program_hash"]')"
+python3 "$ROOT/deploy/outputs.py" --case "$CASE" --player "$PLAYER" --child-hash "$CHILD_HASH" \
+  --out "$OUT/outputs.json"
 SCORE="$(json "$OUT/outputs.json" 'int(d["outputs"][5], 16)')"
 WON="$(json "$OUT/outputs.json" 'int(d["outputs"][6], 16)')"
 
@@ -95,7 +102,7 @@ python3 - "$OUT/best.json" "$OUT/leaderboard.json" "$PLAYER" "$SCORE" "$WON" <<'
 import json, sys
 best, board = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
 player, score, won = int(sys.argv[3], 16), int(sys.argv[4]), sys.argv[5] == "1"
-assert best["score"] == score and best["won"] == won and best["block"] > 0, best
+assert best["score"] == score and best["won"] == won and best["block"] > 0 and not best["settled"], best
 if won:
     assert [(int(r["player"], 16), r["score"]) for r in board] == [(player, score)], board
 print(f"e2e: best {best}; leaderboard {board}", file=sys.stderr)
@@ -105,5 +112,32 @@ step "second submit (same outputs) must be rejected"
 cli submit --devnet --config "$CONFIG" --outputs "$OUT/outputs.json" --signature "$SIGNATURE" \
   --expect-panic 'submit: nullifier' >"$OUT/resubmit.json"
 cat "$OUT/resubmit.json" >&2
+
+step "settle (mocked Satellite, ${E2E_SETTLE:-poseidon} fact)"
+python3 -c "import json, sys; json.dump(json.load(open(sys.argv[1]))['args'], open(sys.argv[2], 'w'))" \
+  "$OUT/outputs.json" "$OUT/args.json"
+cli submit-settled --devnet --config "$CONFIG" --outputs "$OUT/outputs.json" --args "$OUT/args.json" \
+  --expect-panic 'submit: proof' >"$OUT/settle-unknown.json"
+step "no fact yet: $(cat "$OUT/settle-unknown.json")"
+if [ "${E2E_SETTLE:-poseidon}" = keccak ]; then
+  cli fake-fact --devnet --config "$CONFIG" --keccak "$(json "$OUT/outputs.json" 'd["facts"]["sharp_fact_hash"]')"
+else
+  cli fake-fact --devnet --config "$CONFIG" --fact "$(json "$OUT/outputs.json" 'd["facts"]["integrity_fact_hash"]')"
+fi
+cli submit-settled --devnet --config "$CONFIG" --outputs "$OUT/outputs.json" --args "$OUT/args.json" >"$OUT/settle.json"
+cli best --config "$CONFIG" --player "$PLAYER" --level "$LEVEL" >"$OUT/best-settled.json"
+python3 - "$OUT/settle.json" "$OUT/submit.json" "$OUT/best-settled.json" "$SCORE" <<'EOF'
+import json, sys
+settle, submit, best = (json.load(open(p)) for p in sys.argv[1:4])
+[event] = settle["level_validated"]
+assert event["settled"] and event["score"] == int(sys.argv[4]), event
+assert best["settled"] and best["score"] == int(sys.argv[4]), best
+attested, settled = submit["gas"]["l2Gas"], settle["gas"]["l2Gas"]
+print(f"e2e: settled; submit_settled l2_gas {settled:,} = {settled / attested:.2f}x the attested submit "
+      f"({attested:,}); fee {int(settle['gas']['fee']):,} {settle['gas']['unit']}", file=sys.stderr)
+EOF
+cli submit-settled --devnet --config "$CONFIG" --outputs "$OUT/outputs.json" --args "$OUT/args.json" \
+  --expect-panic 'submit: nullifier' >"$OUT/resettle.json"
+cat "$OUT/resettle.json" >&2
 
 step "OK"

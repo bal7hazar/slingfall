@@ -3,8 +3,11 @@
 //
 //   node deploy/slingfall.ts class-hash
 //   node deploy/slingfall.ts account [--with-key]                      (devnet: account #0)
-//   node deploy/slingfall.ts deploy --attestation-key HEX --out FILE [--network NAME]
+//   node deploy/slingfall.ts deploy --out FILE [--network NAME] [--verifier stub|satellite]
+//        [--attestation-key HEX] [--satellite HEX | --fake-satellite] [--child-hash HEX]
 //   node deploy/slingfall.ts submit --config FILE --outputs FILE --signature R,S [--expect-panic MSG]
+//   node deploy/slingfall.ts submit-settled --config FILE --outputs FILE --args FILE [--expect-panic MSG]
+//   node deploy/slingfall.ts fake-fact --config FILE [--fact HEX] [--keccak HEX]   (devnet)
 //   node deploy/slingfall.ts best --config FILE --player HEX --level HASH
 //   node deploy/slingfall.ts leaderboard --config FILE --level HASH
 //
@@ -13,9 +16,17 @@
 // devnet's predeployed account #0 (`devnet_getPredeployedAccounts`, `--seed 0`).
 //
 // `deploy` declares the class (built with its CASM by `deploy/contract/Scarb.toml`), deploys it
-// with the account as admin, sets `verifier = Stub` and the attestation key, registers the six
-// fixture levels (`fixtures/levels/*.felts.json`, checking each `LevelRegistered` hash) and writes
-// the addresses, class hash, level hashes and the gas of each transaction to `--out`.
+// with the account as admin, sets the verifier (`--verifier`, default `stub`), the attestation key
+// (when given) and the constants of `SatelliteVerifier` (`--child-hash`, default the pinned
+// `c1main` of rapier2d alpha.3; the two bootloaders; the Satellite: `--satellite`, default
+// Herodotus's on Sepolia, or `--fake-satellite`: declares and deploys the devnet's
+// `FakeSatellite`), registers the six fixture levels (`fixtures/levels/*.felts.json`, checking
+// each `LevelRegistered` hash) and writes the addresses, class hashes, level hashes, transaction
+// hashes and the gas of each transaction to `--out`.
+//
+// `submit-settled` sends `submit_settled(outputs, args)`: `--args` is `c1main`'s argument, a JSON
+// array of felts (`tracec.py args`) or a prover-service job (`{"level_hash", "inputs"}`).
+// `fake-fact` registers facts on the devnet's `FakeSatellite`.
 // `SlingfallSim` is not declared: over the CASM limit (docs/DESIGN.md D11), `simulate` is unused
 // on the Stub path.
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -36,6 +47,13 @@ import type { Receipt } from '../client/src/chain/submission.ts';
 
 const root = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url));
 const ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_Slingfall';
+const FAKE_ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_FakeSatellite';
+// `docs/proving.md` "Fact formula": the pinned `c1main` (rapier2d alpha.3, local hash, proven by
+// E3b), Atlantic's bootloader, Integrity's SHARP bootloader, Herodotus's Satellite on Sepolia.
+const CHILD_PROGRAM_HASH = '0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99';
+const ATLANTIC_BOOTLOADER_HASH = '0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09';
+const SHARP_BOOTLOADER_HASH = '0x5ab580b04e3532b6b18f81cfa654a05e29dd8e2352d88df1e765a84072db07';
+const SATELLITE_SEPOLIA = '0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e';
 const LEVELS = 'fixtures/levels';
 const LEVEL_REGISTERED = hash.getSelectorFromName('LevelRegistered');
 
@@ -47,6 +65,13 @@ const { values: opt, positionals } = parseArgs({
     'with-key': { type: 'boolean', default: false },
     network: { type: 'string', default: 'devnet' },
     'attestation-key': { type: 'string' },
+    verifier: { type: 'string', default: 'stub' },
+    satellite: { type: 'string', default: SATELLITE_SEPOLIA },
+    'fake-satellite': { type: 'boolean', default: false },
+    'child-hash': { type: 'string', default: CHILD_PROGRAM_HASH },
+    args: { type: 'string' },
+    fact: { type: 'string' },
+    keccak: { type: 'string' },
     out: { type: 'string' },
     config: { type: 'string' },
     outputs: { type: 'string' },
@@ -65,7 +90,8 @@ function need(name: keyof typeof opt): string {
 
 const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
 const log = (text: string) => console.error(text);
-const rpc = new RpcProvider({ nodeUrl: opt.rpc });
+// Public Sepolia nodes answer 403 without a User-Agent.
+const rpc = new RpcProvider({ nodeUrl: opt.rpc, headers: { 'User-Agent': 'slingfall/1.0' } });
 
 async function devnetAccount0(): Promise<{ address: string; private_key: string }> {
   const response = await fetch(opt.rpc!, {
@@ -105,42 +131,75 @@ function levels(): { name: string; levelHash: string; felts: string[] }[] {
     });
 }
 
-function classFiles(): { contract: unknown; casm: unknown } {
+function classFiles(artifacts = ARTIFACTS): { contract: unknown; casm: unknown } {
   try {
-    return { contract: readJson(root(`${ARTIFACTS}.contract_class.json`)), casm: readJson(root(`${ARTIFACTS}.compiled_contract_class.json`)) };
+    return { contract: readJson(root(`${artifacts}.contract_class.json`)), casm: readJson(root(`${artifacts}.compiled_contract_class.json`)) };
   } catch {
     throw new Error(`no class artifacts: scarb --manifest-path deploy/contract/Scarb.toml build`);
   }
 }
 
-async function cmdDeploy(): Promise<void> {
-  const attestationKey = feltHex(need('attestation-key'));
-  const out = need('out');
-  const admin = await account();
-  const { contract, casm } = classFiles();
-  const gas: Record<string, TxGas> = {};
-
+/** Declares (if needed) and deploys a class; records the gas and transaction hashes. */
+async function declareAndDeploy(
+  admin: Account,
+  artifacts: string,
+  constructorCalldata: string[],
+  label: string,
+  gas: Record<string, TxGas>,
+  txs: Record<string, string>,
+): Promise<{ classHash: string; address: string }> {
+  const { contract, casm } = classFiles(artifacts);
   const declared = await admin.declareIfNot({ contract: contract as never, casm: casm as never });
   const classHash = feltHex(declared.class_hash);
   if (declared.transaction_hash) {
-    gas.declare = receiptGas(await receipt(declared.transaction_hash));
-    log(gasLine(`declared ${classHash}`, gas.declare));
+    gas[`declare ${label}`] = receiptGas(await receipt(declared.transaction_hash));
+    txs[`declare ${label}`] = declared.transaction_hash;
+    log(gasLine(`declared ${label} ${classHash}`, gas[`declare ${label}`]));
   } else {
-    log(`class ${classHash} already declared`);
+    log(`class ${label} ${classHash} already declared`);
   }
-
-  const deployed = await admin.deployContract({ classHash, constructorCalldata: [admin.address], unique: false, salt: '0x0' });
+  const deployed = await admin.deployContract({ classHash, constructorCalldata, unique: false, salt: '0x0' });
   const address = feltHex(deployed.contract_address);
-  gas.deploy = receiptGas(await receipt(deployed.transaction_hash));
-  log(gasLine(`deployed ${address}`, gas.deploy));
+  gas[`deploy ${label}`] = receiptGas(await receipt(deployed.transaction_hash));
+  txs[`deploy ${label}`] = deployed.transaction_hash;
+  log(gasLine(`deployed ${label} ${address}`, gas[`deploy ${label}`]));
+  return { classHash, address };
+}
+
+async function cmdDeploy(): Promise<void> {
+  const out = need('out');
+  const verifier = opt.verifier as keyof typeof VERIFIER;
+  if (verifier !== 'stub' && verifier !== 'satellite') throw new Error(`--verifier: stub or satellite, not ${opt.verifier}`);
+  const attestationKey = opt['attestation-key'] ? feltHex(opt['attestation-key']) : null;
+  if (verifier === 'stub' && attestationKey === null) throw new Error('--attestation-key is required with --verifier stub');
+  const admin = await account();
+  const gas: Record<string, TxGas> = {};
+  const txs: Record<string, string> = {};
+
+  const { classHash, address } = await declareAndDeploy(admin, ARTIFACTS, [admin.address], 'Slingfall', gas, txs);
+  let satellite = feltHex(need('satellite'));
+  let fakeClassHash: string | null = null;
+  if (opt['fake-satellite']) {
+    const fake = await declareAndDeploy(admin, FAKE_ARTIFACTS, [admin.address], 'FakeSatellite', gas, txs);
+    satellite = fake.address;
+    fakeClassHash = fake.classHash;
+  }
+  const satelliteConfig = {
+    child_program_hash: feltHex(need('child-hash')),
+    atlantic_bootloader_hash: ATLANTIC_BOOTLOADER_HASH,
+    sharp_bootloader_hash: SHARP_BOOTLOADER_HASH,
+    satellite_address: satellite,
+  };
 
   const configure: Call[] = [
-    { contractAddress: address, entrypoint: 'set_verifier', calldata: [String(VERIFIER.stub)] },
-    { contractAddress: address, entrypoint: 'set_attestation_key', calldata: [attestationKey] },
+    { contractAddress: address, entrypoint: 'set_verifier', calldata: [String(VERIFIER[verifier])] },
+    { contractAddress: address, entrypoint: 'set_satellite_config', calldata: Object.values(satelliteConfig) },
   ];
+  if (attestationKey !== null) configure.push({ contractAddress: address, entrypoint: 'set_attestation_key', calldata: [attestationKey] });
   const configured = await admin.execute(configure);
   gas.configure = receiptGas(await receipt(configured.transaction_hash));
-  log(gasLine('verifier = Stub, attestation key set', gas.configure));
+  txs.configure = configured.transaction_hash;
+  log(gasLine(`verifier = ${verifier}, satellite ${satellite}${attestationKey ? ', attestation key' : ''} set`, gas.configure));
 
   const registered: Record<string, string> = {};
   for (const level of levels()) {
@@ -152,38 +211,46 @@ async function cmdDeploy(): Promise<void> {
     }
     registered[level.name] = level.levelHash;
     gas[`register_level ${level.name}`] = receiptGas(r);
+    txs[`register_level ${level.name}`] = tx.transaction_hash;
     log(gasLine(`registered ${level.name} ${level.levelHash}`, gas[`register_level ${level.name}`]));
   }
 
   const doc = {
     network: opt.network,
-    rpc_url: opt.rpc,
+    rpc_url: opt.network === 'devnet' ? opt.rpc : undefined,
     chain_id: await rpc.getChainId(),
     class_hash: classHash,
     address,
     admin: feltHex(admin.address),
-    verifier: 'Stub',
+    verifier: verifier === 'stub' ? 'Stub' : 'Satellite',
     attestation_key: attestationKey,
+    satellite: satelliteConfig,
+    fake_satellite_class_hash: fakeClassHash,
     levels: registered,
+    transactions: txs,
     gas,
   };
   writeFileSync(out, `${JSON.stringify(doc, null, 2)}\n`);
   log(`wrote ${out}`);
 }
 
-async function cmdSubmit(): Promise<void> {
-  const config = readJson(need('config')) as { address: string };
-  const outputsDoc = readJson(need('outputs'));
-  const outputs: string[] = (Array.isArray(outputsDoc) ? outputsDoc : outputsDoc.outputs).map(feltHex);
-  const signature = need('signature').split(',').map(feltHex);
-  const player = await account();
-  const contract = new SlingfallContract(config.address, rpc);
+/** `--args`: a JSON array of felts, or a prover-service job (`level_hash`, `inputs`). */
+function runArgs(path: string): string[] {
+  const doc = readJson(path);
+  if (Array.isArray(doc)) return doc.map(feltHex);
+  const level = levels().find((l) => BigInt(l.levelHash) === BigInt(doc.level_hash));
+  if (!level) throw new Error(`--args: level ${doc.level_hash} is not a fixture level`);
+  return [feltHex(level.felts.length), ...level.felts.map(feltHex), feltHex(doc.inputs.length), ...doc.inputs.map(feltHex)];
+}
+
+/** Sends a submission, handles `--expect-panic`, prints the receipt's `LevelValidated` and gas. */
+async function sendSubmission(label: string, send: () => Promise<string>, contractAddress: string): Promise<void> {
   const expected = opt['expect-panic'];
   let transactionHash: string;
   try {
-    transactionHash = await contract.submit(player, outputs, signature);
+    transactionHash = await send();
   } catch (e) {
-    // The fee estimate of a reverting `submit` fails before anything is sent.
+    // The fee estimate of a reverting submission fails before anything is sent.
     if (expected && mentionsPanic(e, expected)) {
       console.log(JSON.stringify({ rejected: expected }));
       return;
@@ -196,14 +263,53 @@ async function cmdSubmit(): Promise<void> {
       console.log(JSON.stringify({ rejected: expected, transaction_hash: transactionHash }));
       return;
     }
-    throw new Error(`submit reverted: ${r.revert_reason}`);
+    throw new Error(`${label} reverted: ${r.revert_reason}`);
   }
-  if (expected) throw new Error(`submit was accepted, expected '${expected}' (${transactionHash})`);
-  const validated = levelValidatedEvents(r, config.address);
+  if (expected) throw new Error(`${label} was accepted, expected '${expected}' (${transactionHash})`);
+  const validated = levelValidatedEvents(r, contractAddress);
   const gas = receiptGas(r);
-  log(gasLine(`submit ${transactionHash}`, gas));
+  log(gasLine(`${label} ${transactionHash}`, gas));
   console.log(JSON.stringify({ transaction_hash: transactionHash, level_validated: validated, gas }, null, 2));
-  if (validated.length !== 1) throw new Error(`submit ${transactionHash}: ${validated.length} LevelValidated events`);
+  if (validated.length !== 1) throw new Error(`${label} ${transactionHash}: ${validated.length} LevelValidated events`);
+}
+
+function readOutputs(): string[] {
+  const outputsDoc = readJson(need('outputs'));
+  return (Array.isArray(outputsDoc) ? outputsDoc : outputsDoc.outputs).map(feltHex);
+}
+
+async function cmdSubmitSettled(): Promise<void> {
+  const config = readJson(need('config')) as { address: string };
+  const outputs = readOutputs();
+  const args = runArgs(need('args'));
+  const player = await account();
+  const contract = new SlingfallContract(config.address, rpc);
+  await sendSubmission('submit_settled', () => contract.submitSettled(player, outputs, args), config.address);
+}
+
+async function cmdFakeFact(): Promise<void> {
+  const config = readJson(need('config')) as { satellite: { satellite_address: string } };
+  const satellite = config.satellite.satellite_address;
+  const calls: Call[] = [];
+  if (opt.fact) calls.push({ contractAddress: satellite, entrypoint: 'register', calldata: [feltHex(opt.fact)] });
+  if (opt.keccak) {
+    const k = BigInt(opt.keccak);
+    calls.push({ contractAddress: satellite, entrypoint: 'register_keccak', calldata: [feltHex(k & ((1n << 128n) - 1n)), feltHex(k >> 128n)] });
+  }
+  if (calls.length === 0) throw new Error('fake-fact: --fact and / or --keccak');
+  const admin = await account();
+  const tx = await admin.execute(calls);
+  await receipt(tx.transaction_hash);
+  log(`fake satellite ${satellite}: registered ${[opt.fact, opt.keccak && `keccak ${opt.keccak}`].filter(Boolean).join(', ')}`);
+}
+
+async function cmdSubmit(): Promise<void> {
+  const config = readJson(need('config')) as { address: string };
+  const outputs = readOutputs();
+  const signature = need('signature').split(',').map(feltHex);
+  const player = await account();
+  const contract = new SlingfallContract(config.address, rpc);
+  await sendSubmission('submit', () => contract.submit(player, outputs, signature), config.address);
 }
 
 async function main(): Promise<void> {
@@ -222,6 +328,10 @@ async function main(): Promise<void> {
       return cmdDeploy();
     case 'submit':
       return cmdSubmit();
+    case 'submit-settled':
+      return cmdSubmitSettled();
+    case 'fake-fact':
+      return cmdFakeFact();
     case 'best': {
       const config = readJson(need('config')) as { address: string };
       const best = await new SlingfallContract(config.address, rpc).best(need('player'), need('level'));
@@ -234,7 +344,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      throw new Error('usage: node deploy/slingfall.ts class-hash | account | deploy | submit | best | leaderboard (see the header)');
+      throw new Error('usage: node deploy/slingfall.ts class-hash | account | deploy | submit | submit-settled | fake-fact | best | leaderboard (see the header)');
   }
 }
 
