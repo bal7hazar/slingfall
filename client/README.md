@@ -17,7 +17,12 @@ npm run dev           # dev server on http://localhost:5173
 npm run lint          # ESLint + tsc --noEmit
 npm test              # Vitest, once
 npm run build         # type-check and bundle into dist/, with dist/vm/ (below)
+npm run dev:sepolia   # dev server against the Sepolia deployment (.env.sepolia, docs/testers.md)
+npm run build:sepolia # the same build for Sepolia; `npm run smoke:sepolia` checks its entry script
 ```
+
+`VITE_BASE=/sub/path/` serves the built app from a sub-path (GitHub Pages: `/slingfall/`); every
+fetched URL goes through Vite's `base` (`import.meta.env.BASE_URL`).
 
 Live mode needs the wasm runner: `vm/scripts/build.sh` once (Rust, ~2 min; `vm/README.md`). The
 replay executables are committed (`vm/fixtures/replay/`, `vm/scripts/fetch-executables.sh`).
@@ -44,6 +49,11 @@ its prefunded account), give the proof path if the local prover made one, and su
 recomputes the outputs for the wallet's address, gets `[r, s]` from the attestation service,
 sends `submit(outputs, [r, s])` through the wallet and shows the transaction hash, its gas, the
 player's best and the leaderboard. Without the variables the section (and starknet.js) is left out.
+`VITE_NETWORK=sepolia` (`.env.sepolia`, lot C1) hides the devnet account, defaults the RPC to the public
+Sepolia node (`VITE_STARKNET_RPC_URL`, else `VITE_RPC_URL`), links the contract and the player's
+`LevelValidated` transactions on Voyager Sepolia and shows the on-chain level hash; when the contract's
+`verifier()` is `Satellite` the button is **Prove (settled)** (proof, then **Settle**) instead of the attested
+**Submit**.
 **Play/Pause** (or Space) and the slider scrub the level so far. `?autoshot=px,py;px,py` releases
 those pulls by itself (headless checks). The console logs each shot's figures (release to first
 frame, ticks, steps, seconds, chunks, wasm) and the outputs.

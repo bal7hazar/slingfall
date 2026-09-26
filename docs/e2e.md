@@ -156,7 +156,26 @@ deploy/sepolia.sh settle <job-id>           # submit_settled, best, leaderboard 
 
 `SLINGFALL_VERIFIER=stub SLINGFALL_ATTESTATION_KEY=<public key>` deploys the attested tier instead
 (the attestation service runs on the proving machine with `--verify-cmd`, never `--no-verify`,
-behind TLS). The client: set `VITE_RPC_URL`, `VITE_PROVE_URL` (and `VITE_ATTEST_URL`) in
-`deploy/sepolia.env`, then build it with those variables. `sncast --profile sepolia --url
+behind TLS). `sncast --profile sepolia --url
 "$STARKNET_RPC_URL" call --contract-address <address> --function best --calldata <player>
 <level_hash>` reads a record by hand (`deploy/snfoundry.toml`).
+
+### The client on Sepolia (lot C1)
+
+`client/.env.sepolia` holds the client's public Sepolia values (`VITE_NETWORK=sepolia`,
+`VITE_SLINGFALL_ADDRESS` of `deploy/sepolia.json`, `VITE_STARKNET_RPC_URL` the public RPC,
+`VITE_PROVE_URL` and `VITE_ATTEST_URL` empty); `deploy/sepolia.env.example` lists them for your own
+build (`VITE_RPC_URL`, the name `deploy/devnet.sh` writes, still works; `VITE_STARKNET_RPC_URL` wins).
+
+```sh
+cd client
+npm run dev:sepolia      # Vite dev server, mode sepolia
+npm run build:sepolia    # dist/ for Sepolia; node scripts/smoke-sepolia.mjs checks its entry script
+```
+
+On Sepolia the wallet list is Cartridge Controller and get-starknet (the devnet account is hidden), the
+page links the contract and the player's `LevelValidated` transactions on Voyager Sepolia and shows the
+on-chain hash of the level. Because the deployed verifier is `Satellite` (read with `verifier()`), the
+panel's button is **Prove (settled)**: no attestation, the prover service (`VITE_PROVE_URL`) proves the
+attempt and **Settle** sends `submit_settled`. Playing, the two tiers, the statuses and the known limits
+(nothing here has been run in a browser): [`testers.md`](testers.md).

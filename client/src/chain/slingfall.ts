@@ -177,6 +177,12 @@ export class SlingfallContract {
     this.reader = reader;
   }
 
+  /** The deployed verifier (`VERIFIER`): Sepolia runs `satellite`, where only a settled proof is accepted. */
+  async verifier(): Promise<number> {
+    const [kind] = await this.reader.callContract({ contractAddress: this.address, entrypoint: 'verifier', calldata: [] });
+    return Number(BigInt(kind));
+  }
+
   async best(player: string, levelHash: string): Promise<BestRecord> {
     return decodeRecord(await this.reader.callContract({ contractAddress: this.address, entrypoint: 'best', calldata: [feltHex(player), feltHex(levelHash)] }));
   }
@@ -208,4 +214,47 @@ export class SlingfallContract {
     const { transaction_hash } = await account.execute(submitSettledCall(this.address, outputs, args));
     return transaction_hash;
   }
+}
+
+/** A felt as a short `0xabcdef01…1234` for display (full felt when it is short). */
+export function shortFelt(felt: string): string {
+  const h = feltHex(felt);
+  return h.length > 14 ? `${h.slice(0, 8)}…${h.slice(-4)}` : h;
+}
+
+/** What `playerValidations` needs of an `RpcProvider`. */
+export interface EventReader {
+  getEvents(filter: {
+    address: string;
+    keys: string[][];
+    from_block: { block_number: number };
+    to_block: 'latest';
+    chunk_size: number;
+    continuation_token?: string;
+  }): Promise<{ events: { transaction_hash: string; block_number?: number }[]; continuation_token?: string }>;
+}
+
+/** The transactions in which `contract` emitted `LevelValidated` for `player`, oldest first (`pages` chunks at most). */
+export async function playerValidations(
+  reader: EventReader,
+  contract: string,
+  player: string,
+  pages = 4,
+): Promise<{ transactionHash: string; blockNumber: number | null }[]> {
+  const found: { transactionHash: string; blockNumber: number | null }[] = [];
+  let token: string | undefined;
+  for (let page = 0; page < pages; page++) {
+    const chunk = await reader.getEvents({
+      address: contract,
+      keys: [[LEVEL_VALIDATED], [feltHex(player)]],
+      from_block: { block_number: 0 },
+      to_block: 'latest',
+      chunk_size: 50,
+      ...(token ? { continuation_token: token } : {}),
+    });
+    for (const e of chunk.events) found.push({ transactionHash: e.transaction_hash, blockNumber: e.block_number ?? null });
+    token = chunk.continuation_token;
+    if (!token) break;
+  }
+  return found;
 }

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -107,6 +108,62 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - name: client-build-sepolia
+        # The Sepolia build (client/.env.sepolia); its entry script must carry deploy/sepolia.json's address.
+        run: |
+          npm run build:sepolia
+          node scripts/smoke-sepolia.mjs
+
+  pages:
+    # The hosted client (docs/testers.md "Hosted build"): by hand only (Actions > CI > Run workflow),
+    # never on push or pull request. The owner enables Pages (Settings > Pages > Source: GitHub
+    # Actions); until then the deploy step fails and nothing is published. The wasm runner is built
+    # here as in `vm` (the hosted page runs the Cairo replay in the browser); the optional
+    # repository variable SLINGFALL_PROVE_URL (a public prover service, with CORS) is inlined.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            client/vm/vendor
+            client/vm/tools
+            client/vm/runner/target
+          key: vm-${{ hashFiles('client/vm/runner/Cargo.lock', 'client/vm/runner/rust-toolchain.toml', 'client/vm/runner/cairo-vm-reserve.patch') }}
+          restore-keys: vm-
+      - name: Build the wasm runner
+        run: client/vm/scripts/build.sh
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: actions/configure-pages@v5
+      - name: Build the client for Sepolia
+        working-directory: client
+        env:
+          # The project site lives under /<repository>/.
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_PROVE_URL: ${{ vars.SLINGFALL_PROVE_URL }}
+        run: |
+          npm ci
+          npm run build:sepolia
+          node scripts/smoke-sepolia.mjs dist "$VITE_BASE"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
 
   vm:
     # cairo-vm wasm worker (client/vm/README.md): runner unit tests, wasm build, then the client

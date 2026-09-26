@@ -20,23 +20,26 @@ export interface WorkerPort {
   terminate(): void;
 }
 
+/** Where the app is served (`base` of `vite.config.ts`: `/`, or `/<repo>/` on GitHub Pages); `/` under Node. */
+const BASE: string = import.meta.env?.BASE_URL ?? '/';
+
 /**
  * The slingfall replay (lot G4) as the app serves it: `npm run dev` from the client root,
  * `npm run build` copies both directories into `dist/vm/` (`vite.config.ts`). The wasm exists
  * once `client/vm/scripts/build.sh` has run; the executables are committed.
  */
 export const DEFAULT_LOAD: LoadRequest = {
-  pkgUrl: '/vm/pkg/slingfall_vm_runner.js',
-  executableUrl: '/vm/fixtures/replay/step_chunk.executable.json',
-  initExecutableUrl: '/vm/fixtures/replay/init.executable.json',
-  outputsExecutableUrl: '/vm/fixtures/replay/outputs.executable.json',
+  pkgUrl: `${BASE}vm/pkg/slingfall_vm_runner.js`,
+  executableUrl: `${BASE}vm/fixtures/replay/step_chunk.executable.json`,
+  initExecutableUrl: `${BASE}vm/fixtures/replay/init.executable.json`,
+  outputsExecutableUrl: `${BASE}vm/fixtures/replay/outputs.executable.json`,
   program: 'slingfall',
 };
 
 /** The ball_drop stand-in of lot G1c. */
 export const BALL_DROP_LOAD: LoadRequest = {
-  pkgUrl: '/vm/pkg/slingfall_vm_runner.js',
-  executableUrl: '/vm/fixtures/ball_drop.executable.json',
+  pkgUrl: `${BASE}vm/pkg/slingfall_vm_runner.js`,
+  executableUrl: `${BASE}vm/fixtures/ball_drop.executable.json`,
   program: 'ball_drop',
 };
 
