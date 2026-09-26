@@ -3,9 +3,11 @@
 `docs/proving.md` "Atlantic + Integrity"). Python 3 standard library; reuses `tools/atlantic`.
 
     prove_service.py serve [--host H] [--port N] [--store DIR] [--result R] [--no-submit]
+                           [--no-translate] [--translate-grace SECONDS]
     prove_service.py prove (--level NAME|HASH) (--inputs FELT,... | --player FELT --shot PX,PY[,D]...)
                            [--store DIR] [--result R] [--no-submit] [--watch [--interval S]]
     prove_service.py status <job-id> [--store DIR] [--watch [--interval S]] [--no-chain]
+    prove_service.py translate <job-id> [--store DIR] [--dry-run]
 
 `serve`: HTTP on `--host:--port` (default 127.0.0.1:8549).
 
@@ -16,9 +18,21 @@
   the PIE to Atlantic (`declaredJobSize` by the run's steps, `dedupId` = the job id). One PIE at a
   time.
 * `GET /status/<id>`: the job, Atlantic's status and stages, and the Satellite's answer for its
-  facts (`isCairoFactValid` / `isKeccakVerifiedFactHashValid`): `"settleable": true` once
-  `submit_settled(outputs, inputs)` would pass.
+  facts (`isCairoFactValid` / `isKeccakVerifiedFactHashValid`): `"settleable_poseidon"` (the
+  translated fact: the cheap `submit_settled`), `"settleable_keccak"` (the bridged keccak fact
+  only: the dearer one) and `"settleable"` (either: `submit_settled(outputs, inputs)` would pass),
+  and `"translation"`: what the service does about the Poseidon fact (below).
 * `GET /health`.
+
+Translation (lot E3c). Atlantic's `PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION` stalled (E3a, E3b),
+so the queries ask for `PROOF_VERIFICATION_ON_L2`, which ends with the keccak fact bridged to the
+Satellite. When Atlantic's status is `DONE` and the translated (Poseidon) fact is still absent
+after `TRANSLATE_GRACE` seconds (default 600; env or `--translate-grace`), a background thread
+of `serve` calls the Satellite's permissionless `translateFactHash` itself (`atlantic.translate`,
+one transaction from the account of the environment: `STARKNET_ACCOUNT_ADDRESS` +
+`STARKNET_PRIVATE_KEY` + `STARKNET_RPC_URL`, or `SLINGFALL_*`; at most 3 attempts, 10 minutes
+apart). Without an account (or with `--no-translate`) the service only reports
+`settleable_keccak`. `translate <job>` translates one job now, grace or not.
 
 The job id is `sha256(level_hash, inputs, child program, result)`: the same attempt maps to the
 same job and the same Atlantic query (retries are idempotent). Jobs live in `--store`
@@ -29,7 +43,7 @@ the jobs whose PIE was not submitted yet.
 `status` reads a stored job. `--no-submit` stops after the PIE and the facts (tests, dry runs).
 
 Environment (never printed): `ATLANTIC_API_KEY` (submit, status), `STARKNET_RPC_URL` (the
-Satellite's reads). Paths: `PROVE_CAIRO1_RUN` (default the fork build of `docs/proving.md`,
+Satellite's reads), the account of the translations (above). Paths: `PROVE_CAIRO1_RUN` (default the fork build of `docs/proving.md`,
 `tools/atlantic/out/starkware-cairo-vm/target/release/cairo1-run`), `PROVE_SIERRA` (default
 `tools/atlantic/c1main/target/dev/c1main.sierra.json`, built by `scarb --manifest-path
 tools/atlantic/c1main/Scarb.toml build`).
@@ -48,6 +62,7 @@ import sys
 import threading
 import time
 import zipfile
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -66,6 +81,12 @@ DEFAULT_SIERRA = ROOT / "tools" / "atlantic" / "c1main" / "target" / "dev" / "c1
 DEFAULT_RESULT = "PROOF_VERIFICATION_ON_L2"
 RESULTS = ("PROOF_VERIFICATION_ON_L2", "PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION")
 N_OUTPUTS = 10
+# Translation (E3c): the wait for Atlantic's own translation, the retries of a failed transaction,
+# the pause of the background thread.
+DEFAULT_TRANSLATE_GRACE = 600.0
+TRANSLATE_ATTEMPTS = 3
+TRANSLATE_RETRY = 600.0
+TRANSLATE_INTERVAL = 120.0
 # Job sizes (E3a: S is OOM-killed at 6.3M bootloaded steps, M holds one_block, L holds pile10's
 # 12.7M). The bootloader adds ~3.6M steps (Pedersen over the program) to the run's own steps.
 BOOTLOADER_OVERHEAD = 3_600_000
@@ -137,6 +158,53 @@ def run_args(level: list[int], inputs: list[int]) -> list[int]:
 def job_id(level_hash: int, inputs: list[int], child_program: str, result: str) -> str:
     digest = hashlib.sha256(json.dumps([hex(level_hash), [hex(x) for x in inputs], child_program, result]).encode())
     return digest.hexdigest()[:32]
+
+
+def job_output(job: dict) -> list[int]:
+    """Atlantic's output of a built job (what `translateFactHash` re-hashes on the Satellite)."""
+    _, _, level = resolve_level(job["level"])
+    args = run_args(level, [int(x, 16) for x in job["inputs"]])
+    return encoding.run_output(int(job["run"]["child_program_hash"], 16), [int(x, 16) for x in job["outputs"]], args)
+
+
+def parse_time(stamp: object) -> float | None:
+    """Epoch seconds of an ISO 8601 timestamp (Atlantic's `completedAt`), or None."""
+    if not isinstance(stamp, str):
+        return None
+    try:
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def translation_decision(atlantic_status: str | None, done_at: float | None, chain: dict | None, now: float,
+                         grace: float, has_account: bool, translation: dict | None = None) -> str:
+    """What the service does about the Poseidon fact of a submitted job:
+
+    * `translated`: the translated fact is on the Satellite (Atlantic's or ours): nothing to do;
+    * `unknown`: no chain answer (the reads failed or are off);
+    * `waiting`: Atlantic is not `DONE`, or the keccak fact is not on the Satellite yet;
+    * `grace`: keccak fact bridged, Atlantic's own translation may still come (`done_at` + `grace`);
+    * `no-account`: due, but there is no account to send the transaction from (keccak path only);
+    * `gave-up`: `TRANSLATE_ATTEMPTS` transactions failed;
+    * `backoff`: the last attempt is less than `TRANSLATE_RETRY` seconds old;
+    * `translate`: send `translateFactHash` now."""
+    translation = translation or {}
+    if not chain or "isCairoFactValid" not in chain:
+        return "unknown"
+    if chain["isCairoFactValid"]:
+        return "translated"
+    if atlantic_status != "DONE" or not chain["isKeccakVerifiedFactHashValid"]:
+        return "waiting"
+    if done_at is None or now - done_at < grace:
+        return "grace"
+    if not has_account:
+        return "no-account"
+    if translation.get("attempts", 0) >= TRANSLATE_ATTEMPTS:
+        return "gave-up"
+    if now - translation.get("last_attempt", -TRANSLATE_RETRY) < TRANSLATE_RETRY:
+        return "backoff"
+    return "translate"
 
 
 def declared_size(steps: int) -> str:
@@ -247,10 +315,14 @@ def atlantic_status(query_id: str) -> dict:
 
 def satellite_facts(integrity_fact: int, sharp_fact: int, satellite: int = atlantic.SATELLITE_SEPOLIA) -> dict:
     """The two reads `SatelliteVerifier` makes."""
-    cairo = atlantic.starknet_call(satellite, "isCairoFactValid", [integrity_fact, 0]) == [1]
-    keccak = atlantic.starknet_call(satellite, "isKeccakVerifiedFactHashValid",
-                                    [sharp_fact & ((1 << 128) - 1), sharp_fact >> 128]) == [1]
+    cairo = atlantic.is_cairo_fact_valid(integrity_fact, satellite)
+    keccak = atlantic.is_keccak_fact_valid(sharp_fact, satellite)
     return {"satellite": hex(satellite), "isCairoFactValid": cairo, "isKeccakVerifiedFactHashValid": keccak}
+
+
+def send_translation(sharp_fact: int, output: list[int]) -> dict:
+    """The translator of a service with an account: `atlantic.translate` (checks, one transaction)."""
+    return atlantic.translate(sharp_fact, output)
 
 
 # --------------------------------------------------------------------------- jobs
@@ -290,9 +362,14 @@ class Service:
     """Job creation, the worker (one PIE at a time) and the status."""
 
     def __init__(self, store: Store, runner: Runner, result: str = DEFAULT_RESULT, submit: bool = True,
-                 chain: bool = True, submitter=submit_pie, status_of=atlantic_status, facts_of=satellite_facts):
+                 chain: bool = True, submitter=submit_pie, status_of=atlantic_status, facts_of=satellite_facts,
+                 translator=None, grace: float = DEFAULT_TRANSLATE_GRACE, clock=time.time):
+        """`translator(sharp_fact, output) -> dict` sends `translateFactHash` (None: no account, the
+        service only reports the keccak path); `grace` in seconds; `clock` is injectable for tests."""
         self.store, self.runner, self.result, self.submit, self.chain = store, runner, result, submit, chain
         self.submitter, self.status_of, self.facts_of = submitter, status_of, facts_of
+        self.translator, self.grace, self.clock = translator, grace, clock
+        self.translate_lock = threading.Lock()
         self.queue: queue.Queue[str] = queue.Queue()
 
     def create(self, level: object, inputs: object) -> tuple[dict, bool]:
@@ -368,25 +445,105 @@ class Service:
             finally:
                 self.queue.task_done()
 
+    def observe(self, job: dict) -> tuple[dict | None, dict | None]:
+        """(Atlantic's status, the Satellite's answer) of a job; None where unavailable."""
+        atl = chain = None
+        query = (job.get("atlantic") or {}).get("query_id")
+        if query:
+            try:
+                atl = self.status_of(query)
+            except atlantic.AtlanticError as e:
+                atl = {"error": str(e)}
+        if self.chain and "run" in job:
+            try:
+                chain = self.facts_of(int(job["run"]["integrity_fact_hash"], 16), int(job["run"]["sharp_fact_hash"], 16))
+            except atlantic.AtlanticError as e:
+                chain = {"error": str(e)}
+        return atl, chain
+
+    def decide(self, job: dict, atl: dict | None, chain: dict | None) -> str:
+        """`translation_decision` of a job: Atlantic's `completedAt` starts the grace period (the
+        first sighting of a `DONE` query without one)."""
+        atl = atl or {}
+        now = self.clock()
+        done_at = parse_time(atl.get("completedAt")) or (job.get("translation") or {}).get("seen_at")
+        return translation_decision(atl.get("status"), done_at, chain, now, self.grace,
+                                    self.translator is not None, job.get("translation"))
+
+    def translate_job(self, jid: str, force: bool = False) -> dict:
+        """Translates the job's fact if due (`force`: whatever the grace period, the backoff and the
+        attempts; the translator still checks that the fact is bridged and not translated). One transaction at most; the
+        attempt is recorded in `job["translation"]`. Returns the stored job."""
+        with self.translate_lock:
+            job = self.store.load(jid)
+            if job is None or "run" not in job or (self.translator is None and not force):
+                return job
+            atl, chain = self.observe(job)
+            state = job.get("translation") or {}
+            if (atl or {}).get("status") == "DONE" and "seen_at" not in state and not parse_time(atl.get("completedAt")):
+                state["seen_at"] = self.clock()
+            decision = self.decide({**job, "translation": state}, atl, chain)
+            if chain and chain.get("isCairoFactValid") and not state.get("translated"):
+                state["translated"] = True
+            if decision == "translate" or (force and decision != "translated"):
+                if self.translator is None:
+                    raise ProveError(500, "translate: no account (STARKNET_ACCOUNT_ADDRESS, STARKNET_PRIVATE_KEY, STARKNET_RPC_URL)")
+                state["attempts"] = state.get("attempts", 0) + 1
+                state["last_attempt"] = self.clock()
+                try:
+                    result = self.translator(int(job["run"]["sharp_fact_hash"], 16), job_output(job))
+                except (atlantic.AtlanticError, ProveError) as e:
+                    state["error"] = str(e)
+                else:
+                    state.pop("error", None)
+                    tx = result.get("transaction") or {}
+                    state.update({"translated": bool(result.get("isCairoFactValid", True)), "transaction_hash": tx.get("transaction_hash"),
+                                  "gas": tx.get("gas")})
+            if state or job.get("translation"):
+                job["translation"] = state
+                self.store.save(job)
+            return job
+
+    def translate_due(self) -> int:
+        """One pass of the background thread over the submitted jobs whose fact is not translated yet;
+        returns the number of transactions attempted."""
+        sent = 0
+        for job in self.store.all():
+            if job.get("state") != "submitted" or (job.get("translation") or {}).get("translated"):
+                continue
+            before = (job.get("translation") or {}).get("attempts", 0)
+            try:
+                after = (self.translate_job(job["id"]) or {}).get("translation") or {}
+            except Exception as e:  # noqa: BLE001  (a bad job does not stop the others)
+                print(f"prove: translate {job['id']}: {e}", file=sys.stderr, flush=True)
+                continue
+            sent += after.get("attempts", 0) > before
+        return sent
+
+    def translator_loop(self, interval: float = TRANSLATE_INTERVAL) -> None:
+        while True:
+            try:
+                self.translate_due()
+            except Exception as e:  # noqa: BLE001  (a thread never dies)
+                print(f"prove: translator: {e}", file=sys.stderr, flush=True)
+            time.sleep(interval)
+
     def status(self, jid: str) -> dict:
         job = self.store.load(jid)
         if job is None:
             raise ProveError(404, "unknown job")
         answer = dict(job)
-        answer["settleable"] = False
-        query = (job.get("atlantic") or {}).get("query_id")
-        if query:
-            try:
-                answer["atlantic_status"] = self.status_of(query)
-            except atlantic.AtlanticError as e:
-                answer["atlantic_status"] = {"error": str(e)}
-        if self.chain and "run" in job:
-            try:
-                facts = self.facts_of(int(job["run"]["integrity_fact_hash"], 16), int(job["run"]["sharp_fact_hash"], 16))
-                answer["chain"] = facts
-                answer["settleable"] = facts["isCairoFactValid"] or facts["isKeccakVerifiedFactHashValid"]
-            except atlantic.AtlanticError as e:
-                answer["chain"] = {"error": str(e)}
+        answer.update({"settleable": False, "settleable_poseidon": False, "settleable_keccak": False})
+        atl, chain = self.observe(job)
+        if atl is not None:
+            answer["atlantic_status"] = atl
+        if chain is not None:
+            answer["chain"] = chain
+            if "isCairoFactValid" in chain:
+                answer["settleable_poseidon"] = chain["isCairoFactValid"]
+                answer["settleable_keccak"] = chain["isKeccakVerifiedFactHashValid"]
+                answer["settleable"] = chain["isCairoFactValid"] or chain["isKeccakVerifiedFactHashValid"]
+                answer["translation"] = {**(job.get("translation") or {}), "state": self.decide(job, atl, chain)}
         return answer
 
 
@@ -455,8 +612,13 @@ def make_handler(service: Service, log=sys.stderr):
 def make_service(args) -> Service:
     runner = Runner(Path(os.environ.get("PROVE_CAIRO1_RUN", DEFAULT_CAIRO1_RUN)),
                     Path(os.environ.get("PROVE_SIERRA", DEFAULT_SIERRA)))
+    grace = getattr(args, "translate_grace", None)
+    if grace is None:
+        grace = float(os.environ.get("TRANSLATE_GRACE", DEFAULT_TRANSLATE_GRACE))
+    # A translator only with an account (`atlantic.account_env`), else the keccak path alone.
+    translator = send_translation if atlantic.account_env() and not getattr(args, "no_translate", False) else None
     return Service(Store(Path(args.store)), runner, args.result, submit=not args.no_submit,
-                   chain=not getattr(args, "no_chain", False))
+                   chain=not getattr(args, "no_chain", False), translator=translator, grace=grace)
 
 
 def watch(service: Service, jid: str, interval: float) -> dict:
@@ -466,7 +628,8 @@ def watch(service: Service, jid: str, interval: float) -> dict:
         atl = status.get("atlantic_status") or {}
         stages = ", ".join(f"{s['job']} {s['status']}" for s in atl.get("stages") or [])
         print(f"{time.strftime('%H:%M:%S')} {status['state']} atlantic {atl.get('status')} [{stages}] "
-              f"settleable {status['settleable']}", file=sys.stderr, flush=True)
+              f"settleable {status['settleable']} (poseidon {status['settleable_poseidon']}, "
+              f"keccak {status['settleable_keccak']})", file=sys.stderr, flush=True)
         if status["settleable"] or status["state"] in ("failed", "built") or atl.get("status") == "FAILED":
             return status
         time.sleep(interval)
@@ -476,9 +639,13 @@ def cmd_serve(args) -> int:
     service = make_service(args)
     resumed = service.resume()
     threading.Thread(target=service.worker, daemon=True).start()
+    if service.translator is not None:
+        threading.Thread(target=service.translator_loop, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), make_handler(service))
     print(f"prove: listening on http://{args.host}:{server.server_address[1]} (store {args.store}, "
-          f"result {args.result}, submit {not args.no_submit}, {resumed} job(s) resumed)", file=sys.stderr, flush=True)
+          f"result {args.result}, submit {not args.no_submit}, {resumed} job(s) resumed, translation "
+          f"{'after ' + str(int(service.grace)) + ' s' if service.translator else 'off (no account or --no-translate)'})",
+          file=sys.stderr, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -514,6 +681,26 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_translate(args) -> int:
+    service = make_service(args)
+    if args.dry_run:
+        job = service.store.load(args.job)
+        if job is None or "run" not in job:
+            raise ProveError(404, "unknown or unbuilt job")
+        result = atlantic.translate(int(job["run"]["sharp_fact_hash"], 16), job_output(job), send=False)
+    else:
+        if service.translator is None:
+            print("prove: translate: no account (STARKNET_ACCOUNT_ADDRESS, STARKNET_PRIVATE_KEY, STARKNET_RPC_URL)", file=sys.stderr)
+            return 1
+        job = service.translate_job(args.job, force=True)
+        result = (job or {}).get("translation") or {}
+        if result.get("error"):
+            print(json.dumps(result, indent=2))
+            return 1
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def parse_shot(text: str) -> tuple[int, int, int]:
     parts = [int(p) for p in text.split(",")]
     if len(parts) not in (2, 3):
@@ -532,6 +719,9 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("serve", parents=[common], help="run the HTTP service")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8549)
+    p.add_argument("--no-translate", action="store_true", help="never send translateFactHash (keccak path only)")
+    p.add_argument("--translate-grace", type=float, help=f"seconds to wait for Atlantic's translation "
+                   f"(default $TRANSLATE_GRACE or {int(DEFAULT_TRANSLATE_GRACE)})")
     p.set_defaults(run=cmd_serve)
 
     p = sub.add_parser("prove", parents=[common], help="one job in the foreground")
@@ -549,6 +739,11 @@ def main(argv: list[str]) -> int:
     p.add_argument("--interval", type=float, default=300)
     p.add_argument("--no-chain", action="store_true", help="skip the Satellite reads")
     p.set_defaults(run=cmd_status)
+
+    p = sub.add_parser("translate", parents=[common], help="translate one job's fact on the Satellite now")
+    p.add_argument("job")
+    p.add_argument("--dry-run", action="store_true", help="check only, send nothing")
+    p.set_defaults(run=cmd_translate)
 
     args = parser.parse_args(argv)
     if args.cmd == "prove" and not args.inputs and not args.shot:

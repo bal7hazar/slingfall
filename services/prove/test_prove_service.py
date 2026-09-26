@@ -1,4 +1,4 @@
-"""Unit tests of the prover service (lot E3b). Offline: a fake `cairo1-run` (this file run as a
+"""Unit tests of the prover service (lots E3b, E3c). Offline: a fake `cairo1-run` (this file run as a
 script writes a small PIE and prints the outputs), Atlantic and the Satellite replaced by fakes.
 
     python3 -m unittest discover -s services/prove -v
@@ -24,12 +24,14 @@ import prove_service as ps  # noqa: E402
 
 ROOT = HERE.parents[1]
 E3A = json.loads((ROOT / "fixtures" / "proofs" / "atlantic" / "pile10-reference.json").read_text())
+E3A_OUTPUT = [int(x, 16) for x in E3A["atlantic"]["output"]]
 PLAYER = 0x706C61796572
 # pile10-reference as E3a proved it: inputs [player, 1 shot, -604, -392, 0, 0].
 INPUTS = [hex(PLAYER), "0x1", hex(-604 % ps.P), hex(-392 % ps.P), "0x0", "0x0"]
 # A tiny program for the fake PIE: its Pedersen hash stands for c1main's.
 FAKE_PROGRAM = {"builtins": ["output", "range_check", "bitwise", "poseidon"], "main": 0, "data": ["0x1", "0x2", "0x3"]}
 FAKE_STEPS = 8_784_517
+DONE_AT = "2026-09-26T13:07:07.484Z"
 
 
 def fake_cairo1_run(argv: list[str]) -> int:
@@ -59,6 +61,17 @@ class Service(unittest.TestCase):
         sierra.write_text("{}")
         self.submits: list[tuple] = []
         self.on_chain = {"isCairoFactValid": False, "isKeccakVerifiedFactHashValid": False}
+        self.atl = {"status": "IN_PROGRESS", "stages": []}
+        self.now = ps.parse_time(DONE_AT) + 1.0
+        self.translations: list[tuple] = []
+        self.translate_error: str | None = None
+
+        def translator(sharp_fact, output):
+            self.translations.append((sharp_fact, output))
+            if self.translate_error:
+                raise ps.atlantic.AtlanticError(self.translate_error)
+            self.on_chain["isCairoFactValid"] = True
+            return {"isCairoFactValid": True, "transaction": {"transaction_hash": "0xabc", "gas": {"l2Gas": 7}}}
 
         def submitter(pie, size, result, dedup_id, external_id):
             self.submits.append((pie.name, size, result, dedup_id, external_id))
@@ -66,8 +79,9 @@ class Service(unittest.TestCase):
 
         self.service = ps.Service(
             ps.Store(tmp / "store"), ps.Runner(runner, sierra), submitter=submitter,
-            status_of=lambda q: {"status": "IN_PROGRESS", "stages": []},
-            facts_of=lambda integrity, sharp: {"satellite": "0x0", **self.on_chain, "asked": [hex(integrity), hex(sharp)]})
+            status_of=lambda q: self.atl,
+            facts_of=lambda integrity, sharp: {"satellite": "0x0", **self.on_chain, "asked": [hex(integrity), hex(sharp)]},
+            translator=translator, grace=600.0, clock=lambda: self.now)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -91,9 +105,15 @@ class Service(unittest.TestCase):
         self.assertFalse(status["settleable"])
         self.assertEqual(status["atlantic_status"]["status"], "IN_PROGRESS")
         self.assertEqual(status["chain"]["asked"], [job["run"]["integrity_fact_hash"], job["run"]["sharp_fact_hash"]])
-        # Either fact on the Satellite makes the job settleable.
+        self.assertEqual((status["settleable_poseidon"], status["settleable_keccak"]), (False, False))
+        # Either fact on the Satellite makes the job settleable; the Poseidon one is the cheap path.
         self.on_chain["isKeccakVerifiedFactHashValid"] = True
-        self.assertTrue(self.service.status(job["id"])["settleable"])
+        status = self.service.status(job["id"])
+        self.assertEqual((status["settleable"], status["settleable_poseidon"], status["settleable_keccak"]), (True, False, True))
+        self.on_chain["isCairoFactValid"] = True
+        status = self.service.status(job["id"])
+        self.assertEqual((status["settleable"], status["settleable_poseidon"]), (True, True))
+        self.assertEqual(status["translation"]["state"], "translated")
 
     def test_same_attempt_same_job(self):
         job, _ = self.service.create("pile10", INPUTS)
@@ -134,6 +154,95 @@ class Service(unittest.TestCase):
         self.assertEqual(len(self.submits), 1)
         self.assertEqual(self.service.resume(), 0)
 
+    def submitted_job(self) -> str:
+        job, _ = self.service.create("pile10", INPUTS)
+        self.assertEqual(self.service.work(job["id"])["state"], "submitted")
+        return job["id"]
+
+    def test_translation_waits_for_the_grace_period_then_translates_once(self):
+        jid = self.submitted_job()
+        run = self.service.store.load(jid)["run"]
+        # Atlantic still working: nothing to translate.
+        self.assertEqual(self.service.translate_due(), 0)
+        self.assertEqual(self.service.status(jid)["translation"]["state"], "waiting")
+        # Done and keccak fact bridged, inside the grace period: Atlantic's own translation may come.
+        self.atl = {"status": "DONE", "completedAt": DONE_AT, "stages": []}
+        self.on_chain["isKeccakVerifiedFactHashValid"] = True
+        self.assertEqual(self.service.status(jid)["translation"]["state"], "grace")
+        self.now = ps.parse_time(DONE_AT) + 599.0
+        self.assertEqual(self.service.translate_due(), 0)
+        self.assertEqual(self.translations, [])
+        # Past it: the service translates, with the output the Satellite re-hashes.
+        self.now = ps.parse_time(DONE_AT) + 601.0
+        self.assertEqual(self.service.status(jid)["translation"]["state"], "translate")
+        self.assertEqual(self.service.translate_due(), 1)
+        [(sharp, output)] = self.translations
+        self.assertEqual(hex(sharp), run["sharp_fact_hash"])
+        # (the fake PIE's program hash stands for c1main's)
+        self.assertEqual(output, ps.encoding.run_output(int(run["child_program_hash"], 16),
+                                                        [int(x, 16) for x in E3A["outputs"]], [int(x, 16) for x in E3A["args"]]))
+        boot = ps.encoding.ATLANTIC_BOOTLOADER_PROGRAM_HASH
+        self.assertEqual(hex(ps.encoding.sharp_fact_hash(boot, output)), run["sharp_fact_hash"])
+        status = self.service.status(jid)
+        self.assertEqual((status["settleable_poseidon"], status["translation"]["state"], status["translation"]["transaction_hash"]),
+                         (True, "translated", "0xabc"))
+        # Once translated: never again.
+        self.now += 10_000
+        self.assertEqual(self.service.translate_due(), 0)
+        self.assertEqual(len(self.translations), 1)
+
+    def test_atlantic_translating_first_costs_nothing(self):
+        jid = self.submitted_job()
+        self.atl = {"status": "DONE", "completedAt": DONE_AT, "stages": []}
+        self.on_chain.update(isKeccakVerifiedFactHashValid=True, isCairoFactValid=True)
+        self.now = ps.parse_time(DONE_AT) + 7200
+        self.assertEqual(self.service.translate_due(), 0)
+        self.assertEqual(self.translations, [])
+        self.assertTrue(self.service.store.load(jid)["translation"]["translated"])
+
+    def test_without_an_account_the_keccak_path_is_reported(self):
+        jid = self.submitted_job()
+        self.service.translator = None
+        self.atl = {"status": "DONE", "completedAt": DONE_AT, "stages": []}
+        self.on_chain["isKeccakVerifiedFactHashValid"] = True
+        self.now = ps.parse_time(DONE_AT) + 7200
+        self.assertEqual(self.service.translate_due(), 0)
+        status = self.service.status(jid)
+        self.assertEqual((status["settleable"], status["settleable_keccak"], status["settleable_poseidon"]), (True, True, False))
+        self.assertEqual(status["translation"]["state"], "no-account")
+
+    def test_failed_translation_backs_off_and_gives_up(self):
+        jid = self.submitted_job()
+        self.atl = {"status": "DONE", "completedAt": DONE_AT, "stages": []}
+        self.on_chain["isKeccakVerifiedFactHashValid"] = True
+        self.translate_error = "translate: exit 1: out of gas"
+        self.now = ps.parse_time(DONE_AT) + 601
+        self.assertEqual(self.service.translate_due(), 1)
+        self.assertIn("out of gas", self.service.store.load(jid)["translation"]["error"])
+        self.assertEqual(self.service.status(jid)["translation"]["state"], "backoff")
+        self.assertEqual(self.service.translate_due(), 0)
+        for _ in range(ps.TRANSLATE_ATTEMPTS - 1):
+            self.now += ps.TRANSLATE_RETRY + 1
+            self.assertEqual(self.service.translate_due(), 1)
+        self.assertEqual(len(self.translations), ps.TRANSLATE_ATTEMPTS)
+        self.now += ps.TRANSLATE_RETRY + 1
+        self.assertEqual(self.service.translate_due(), 0)
+        self.assertEqual(self.service.status(jid)["translation"]["state"], "gave-up")
+        # A manual translation ignores the counters (and records the success).
+        self.translate_error = None
+        self.assertTrue(self.service.translate_job(jid, force=True)["translation"]["translated"])
+        self.assertNotIn("error", self.service.store.load(jid)["translation"])
+
+    def test_done_without_a_completion_time_starts_the_grace_at_first_sight(self):
+        jid = self.submitted_job()
+        self.atl = {"status": "DONE", "stages": []}
+        self.on_chain["isKeccakVerifiedFactHashValid"] = True
+        first = self.now
+        self.assertEqual(self.service.translate_due(), 0)
+        self.assertEqual(self.service.store.load(jid)["translation"]["seen_at"], first)
+        self.now = first + 601
+        self.assertEqual(self.service.translate_due(), 1)
+
     def test_http(self):
         server = ps.ThreadingHTTPServer(("127.0.0.1", 0), ps.make_handler(self.service, log=open(os.devnull, "w")))
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -160,6 +269,37 @@ class Service(unittest.TestCase):
             server.server_close()
 
 
+class TranslationDecision(unittest.TestCase):
+    CHAIN = {"isCairoFactValid": False, "isKeccakVerifiedFactHashValid": True}
+
+    def test_table(self):
+        grace = 600.0
+        attempts = {"attempts": 1, "last_attempt": 700}
+        cases = [
+            # (atlantic status, done_at, chain, now, has account, stored translation, decision)
+            ("DONE", 0.0, None, 9999, True, None, "unknown"),
+            ("DONE", 0.0, {"error": "rpc"}, 9999, True, None, "unknown"),
+            ("DONE", 0.0, {**self.CHAIN, "isCairoFactValid": True}, 9999, True, None, "translated"),
+            ("IN_PROGRESS", None, self.CHAIN, 9999, True, None, "waiting"),
+            ("DONE", 0.0, {**self.CHAIN, "isKeccakVerifiedFactHashValid": False}, 9999, True, None, "waiting"),
+            ("DONE", 0.0, self.CHAIN, 599, True, None, "grace"),
+            ("DONE", None, self.CHAIN, 9999, True, None, "grace"),
+            ("DONE", 0.0, self.CHAIN, 600, True, None, "translate"),
+            ("DONE", 0.0, self.CHAIN, 600, False, None, "no-account"),
+            ("DONE", 0.0, self.CHAIN, 1000, True, attempts, "backoff"),
+            ("DONE", 0.0, self.CHAIN, 1300, True, attempts, "translate"),
+            ("DONE", 0.0, self.CHAIN, 99999, True, {"attempts": ps.TRANSLATE_ATTEMPTS, "last_attempt": 0}, "gave-up"),
+        ]
+        for status, done_at, chain, now, account, translation, expected in cases:
+            with self.subTest(status=status, done_at=done_at, chain=chain, now=now, account=account, translation=translation):
+                self.assertEqual(ps.translation_decision(status, done_at, chain, now, grace, account, translation), expected)
+
+    def test_parse_time(self):
+        self.assertEqual(ps.parse_time("2026-09-26T13:07:07Z"), ps.parse_time("2026-09-26T13:07:07+00:00"))
+        self.assertIsNone(ps.parse_time(None))
+        self.assertIsNone(ps.parse_time("yesterday"))
+
+
 class Helpers(unittest.TestCase):
     def test_sizes_and_args(self):
         self.assertEqual(ps.declared_size(2_425_421), "M")  # one_block (E3a: M)
@@ -167,6 +307,12 @@ class Helpers(unittest.TestCase):
         level = ps.resolve_level("pile10")[2]
         self.assertEqual(ps.run_args(level, [int(x, 16) for x in INPUTS]), [int(x, 16) for x in E3A["args"]])
         self.assertEqual(ps.c1_input_text([1, -1]), f"[1 {ps.P - 1}]\n")
+
+    def test_job_output_is_atlantics_output(self):
+        # The output `translateFactHash` re-hashes: E3a's recorded one, from the job's own fields.
+        job = {"level": "pile10", "inputs": INPUTS, "outputs": E3A["outputs"],
+               "run": {"child_program_hash": E3A["run"]["child_program_hash"]}}
+        self.assertEqual(ps.job_output(job), E3A_OUTPUT)
 
     def test_program_output(self):
         self.assertEqual(ps.parse_program_output("Program Output : [1 2\n3]\n"), [1, 2, 3])
