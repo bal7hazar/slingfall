@@ -82,6 +82,8 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 
 ## Open points
 
+- `Snip36Verifier`: `PROGRAM_HASH_INDEX` must become 2 and the message hashes start at index 8 (facts header `[proof_version, proof_variant, program_hash]` + virtual OS output header of 5 felts); confirm the OS's L2->L1 message hash rule. Small lot before E2; E2 itself waits for PROOF2 on Sepolia (~2026-10-08) and the class-size question.
+
 
 - Executors cannot read files outside the repository checkout (`/home/claude/projects/pm/...` copies were
   refused by the sandbox; reads were allowed): briefs must stage needed files in the repository first.
