@@ -76,9 +76,15 @@ def translated_fact_hash(program_hash: int, output: list[int]) -> int:
     return bootloaded_fact_hash(SHARP_BOOTLOADER_PROGRAM_HASH, program_hash, output)
 
 
+def run_output(child_program_hash: int, outputs: list[int], args: list[int]) -> list[int]:
+    """Atlantic's public output of one proven run of `c1main` (its 10 outputs, its argument felts):
+    what `translateFactHash` re-derives both facts from."""
+    return atlantic_output(child_program_hash, task_output(outputs, args))
+
+
 def slingfall_fact(child_program_hash: int, outputs: list[int], args: list[int]) -> dict[str, int]:
     """The facts of one proven run of `c1main` (its 10 outputs, its argument felts)."""
-    out = atlantic_output(child_program_hash, task_output(outputs, args))
+    out = run_output(child_program_hash, outputs, args)
     return {"sharp_fact_hash": sharp_fact_hash(ATLANTIC_BOOTLOADER_PROGRAM_HASH, out),
             "integrity_fact_hash": translated_fact_hash(ATLANTIC_BOOTLOADER_PROGRAM_HASH, out)}
 

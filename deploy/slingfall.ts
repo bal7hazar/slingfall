@@ -8,6 +8,7 @@
 //   node deploy/slingfall.ts submit --config FILE --outputs FILE --signature R,S [--expect-panic MSG]
 //   node deploy/slingfall.ts submit-settled --config FILE --outputs FILE --args FILE [--expect-panic MSG]
 //   node deploy/slingfall.ts fake-fact --config FILE [--fact HEX] [--keccak HEX]   (devnet)
+//   node deploy/slingfall.ts translate --output FILE [--satellite HEX] [--dry-run]   (Sepolia)
 //   node deploy/slingfall.ts best --config FILE --player HEX --level HASH
 //   node deploy/slingfall.ts leaderboard --config FILE --level HASH
 //
@@ -27,6 +28,11 @@
 // `submit-settled` sends `submit_settled(outputs, args)`: `--args` is `c1main`'s argument, a JSON
 // array of felts (`tracec.py args`) or a prover-service job (`{"level_hash", "inputs"}`).
 // `fake-fact` registers facts on the devnet's `FakeSatellite`.
+// `translate` (lot E3c) calls the Satellite's permissionless `translateFactHash(program_hash, output,
+// false)`: `--output` is a JSON array of felts, Atlantic's output of the run (`tools/atlantic`,
+// `atlantic.py translate` computes it and checks the keccak fact is bridged first); the Satellite
+// re-derives the keccak fact and registers the Poseidon one. Prints `{transaction_hash,
+// integrity_fact_hash, gas}`; `--dry-run` prints the call's size and sends nothing.
 // `SlingfallSim` is not declared: over the CASM limit (docs/DESIGN.md D11), `simulate` is unused
 // on the Stub path.
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -56,6 +62,7 @@ const SHARP_BOOTLOADER_HASH = '0x5ab580b04e3532b6b18f81cfa654a05e29dd8e2352d88df
 const SATELLITE_SEPOLIA = '0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e';
 const LEVELS = 'fixtures/levels';
 const LEVEL_REGISTERED = hash.getSelectorFromName('LevelRegistered');
+const TRANSLATED_FACT_HASH_SET = hash.getSelectorFromName('TranslatedFactHashSet');
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
@@ -68,12 +75,14 @@ const { values: opt, positionals } = parseArgs({
     verifier: { type: 'string', default: 'stub' },
     satellite: { type: 'string', default: SATELLITE_SEPOLIA },
     'fake-satellite': { type: 'boolean', default: false },
+    'dry-run': { type: 'boolean', default: false },
     'child-hash': { type: 'string', default: CHILD_PROGRAM_HASH },
     args: { type: 'string' },
     fact: { type: 'string' },
     keccak: { type: 'string' },
     out: { type: 'string' },
     config: { type: 'string' },
+    output: { type: 'string' },
     outputs: { type: 'string' },
     signature: { type: 'string' },
     'expect-panic': { type: 'string' },
@@ -303,6 +312,36 @@ async function cmdFakeFact(): Promise<void> {
   log(`fake satellite ${satellite}: registered ${[opt.fact, opt.keccak && `keccak ${opt.keccak}`].filter(Boolean).join(', ')}`);
 }
 
+/** `translateFactHash(program_hash, output, is_mocked = false)` of Herodotus's Satellite. */
+function translateCall(satellite: string, output: readonly string[]): Call {
+  return {
+    contractAddress: satellite,
+    entrypoint: 'translateFactHash',
+    calldata: [ATLANTIC_BOOTLOADER_HASH, feltHex(output.length), ...output, '0x0'],
+  };
+}
+
+async function cmdTranslate(): Promise<void> {
+  const output = (readJson(need('output')) as (string | number)[]).map(feltHex);
+  const satellite = feltHex(need('satellite'));
+  const call = translateCall(satellite, output);
+  if (opt['dry-run']) {
+    console.log(JSON.stringify({ entrypoint: call.entrypoint, satellite, calldata_felts: (call.calldata as string[]).length }));
+    return;
+  }
+  const sender = await account();
+  const tx = await sender.execute(call);
+  const r = await receipt(tx.transaction_hash);
+  const event = (r.events ?? []).find(
+    (e) => BigInt(e.from_address ?? satellite) === BigInt(satellite) && BigInt(e.keys[0]) === BigInt(TRANSLATED_FACT_HASH_SET),
+  );
+  if (!event) throw new Error(`translateFactHash ${tx.transaction_hash}: no TranslatedFactHashSet event`);
+  // data: keccak_fact_hash (u256: low, high), integrity_fact_hash, is_mocked
+  const gas = receiptGas(r);
+  log(gasLine(`translateFactHash ${tx.transaction_hash}`, gas));
+  console.log(JSON.stringify({ transaction_hash: tx.transaction_hash, integrity_fact_hash: feltHex(event.data[2]), gas }, null, 2));
+}
+
 async function cmdSubmit(): Promise<void> {
   const config = readJson(need('config')) as { address: string };
   const outputs = readOutputs();
@@ -332,6 +371,8 @@ async function main(): Promise<void> {
       return cmdSubmitSettled();
     case 'fake-fact':
       return cmdFakeFact();
+    case 'translate':
+      return cmdTranslate();
     case 'best': {
       const config = readJson(need('config')) as { address: string };
       const best = await new SlingfallContract(config.address, rpc).best(need('player'), need('level'));
@@ -344,7 +385,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      throw new Error('usage: node deploy/slingfall.ts class-hash | account | deploy | submit | submit-settled | fake-fact | best | leaderboard (see the header)');
+      throw new Error('usage: node deploy/slingfall.ts class-hash | account | deploy | submit | submit-settled | fake-fact | translate | best | leaderboard (see the header)');
   }
 }
 

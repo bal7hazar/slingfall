@@ -13,7 +13,10 @@
 #                                 constants, register the six levels -> deploy/sepolia.json
 #   deploy/sepolia.sh settle JOB  the first settled submit: prover-service job JOB (services/prove,
 #                                 its fact on the Satellite) -> submit_settled, best, leaderboard,
-#                                 all recorded in deploy/sepolia.json
+#                                 all recorded in deploy/sepolia.json (the Poseidon path when the
+#                                 fact is translated, else the keccak one)
+#   deploy/sepolia.sh translate JOB  lot E3c: translateFactHash for job JOB's bridged keccak fact
+#                                 (one transaction, permissionless; the cheap path of `settle`)
 #
 # deploy/sepolia.env gets the client's VITE_* variables (addresses only, no key, no private RPC).
 set -euo pipefail
@@ -56,6 +59,7 @@ settle() {
 import json, sys
 job, run, player = json.load(open(sys.argv[1])), sys.argv[2], int(sys.argv[3], 16)
 assert job["settleable"], f"job {job['id']}: the fact is not on the Satellite yet ({job.get('chain')})"
+print(f"sepolia: settling on the {'Poseidon (translated, cheap)' if job['settleable_poseidon'] else 'keccak'} path", file=sys.stderr)
 assert int(job["outputs"][3], 16) == player, "the job's player is not the account"
 json.dump({"outputs": job["outputs"]}, open(f"{run}/outputs.json", "w"))
 json.dump({"level_hash": job["level_hash"], "inputs": job["inputs"]}, open(f"{run}/args.json", "w"))
@@ -85,8 +89,14 @@ print(f"sepolia: settled {settle['transaction_hash']}; best {best}; leaderboard 
 EOF
 }
 
+translate() {
+  local job="${1:?translate JOB: a services/prove job id}"
+  python3 "$ROOT/services/prove/prove_service.py" translate "$job" --store "${PROVE_STORE:-$ROOT/services/prove/out}"
+}
+
 case "${1:-deploy}" in
   deploy) deploy ;;
   settle) settle "${2:-}" ;;
+  translate) translate "${2:-}" ;;
   *) sed -n '2,22p' "$0" >&2; exit 2 ;;
 esac

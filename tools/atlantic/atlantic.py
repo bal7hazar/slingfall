@@ -10,6 +10,7 @@ fact back (lot E3a, `docs/proving.md` "Atlantic + Integrity"). Python 3 standard
     atlantic.py fact <query-id> [--golden fixtures/golden/<case>.json --args ARGS.json] [--json]
     atlantic.py check-fact <fact-hash> [--keccak SHARP_FACT] [--registry both|fact-registry|satellite]
                            [--min-bits 96] [--json]
+    atlantic.py translate <sharp-fact> (--fixture NAME|FILE | --query ID | --output FILE) [--dry-run] [--json]
     atlantic.py program-hash --pie PIE.zip [--json]
     atlantic.py fact-hash --golden GOLDEN.json --args ARGS.json --child-hash H [--json]
 
@@ -20,10 +21,19 @@ facts from them (`encoding.py`); with `--golden` / `--args` it also checks that 
 our run's. `check-fact` reads Integrity's FactRegistry and Herodotus's Satellite (the registry Atlantic
 writes to) with `starknet_call`: verifications (security bits, settings), `isCairoFactValid`, and the
 bridged keccak fact. `program-hash` recomputes the bootloader's (Pedersen) hash of a PIE's program.
+`translate` (lot E3c) calls the Satellite's permissionless `translateFactHash(program_hash, output,
+false)` for a fact whose keccak verification is bridged, so that the Poseidon fact
+(`isCairoFactValid`) exists and `submit_settled` takes the cheap path. `<sharp-fact>` is the bridged
+keccak fact; the run's output (which the Satellite re-hashes) comes from a committed run
+(`--fixture`, `fixtures/proofs/atlantic/<name>.json`), an Atlantic query's metadata (`--query`) or a
+JSON array of felts (`--output`), and must hash to `<sharp-fact>` (checked before anything is
+sent). The transaction is sent by `deploy/slingfall.ts translate` (starknet.js, node).
 
 Environment (never printed): `ATLANTIC_API_KEY` (header `api-key`) for `submit` / `status` / `fact`;
-`STARKNET_RPC_URL` for `check-fact` (JSON-RPC 0.8+; a `User-Agent` is always sent, the public node
-answers 403 without one). No transaction is ever sent: `check-fact` only calls view functions.
+`STARKNET_RPC_URL` for `check-fact` / `translate` (JSON-RPC 0.8+; a `User-Agent` is always sent, the
+public node answers 403 without one); `translate` also needs the account, `STARKNET_ACCOUNT_ADDRESS`
+and `STARKNET_PRIVATE_KEY` (or `SLINGFALL_ACCOUNT_ADDRESS` / `SLINGFALL_PRIVATE_KEY`). `check-fact`
+only calls view functions; `translate --dry-run` too. `translate` sends one transaction.
 
 `submit` is idempotent: the `dedupId` is derived from the files' SHA-256 and the request fields, so a
 second identical submit returns the first query id (`ATLANTIC_QUERY_WITH_DEDUP_ID_ALREADY_EXISTS`).
@@ -36,7 +46,9 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -53,6 +65,10 @@ USER_AGENT = "slingfall/1.0"
 FACT_REGISTRY_SEPOLIA = 0x4CE7851F00B6C3289674841FD7A1B96B6FD41ED1EDC248FACCD672C26371B8C
 SATELLITE_SEPOLIA = 0x00421CD95F9DDABDD090DB74C9429F257CB6BC1CCC339278D1DB1DE39156676E
 SECURITY_BITS_MIN = 96  # docs/DESIGN.md D9, research 01 §2; the Satellite's ALLOWED_SECURITY_BITS
+ROOT = Path(__file__).resolve().parents[2]
+PROOFS = ROOT / "fixtures" / "proofs" / "atlantic"
+LEVELS = ROOT / "fixtures" / "levels"
+SLINGFALL_CLI = ROOT / "deploy" / "slingfall.ts"
 
 
 class AtlanticError(Exception):
@@ -304,6 +320,117 @@ def cmd_check_fact(args) -> dict:
     return result
 
 
+# --------------------------------------------------------------------------- translate (E3c)
+
+def account_env() -> dict[str, str] | None:
+    """The environment `deploy/slingfall.ts` reads (RPC, account address, key) from `STARKNET_*` or
+    `SLINGFALL_*`; `None` when there is no account to send a transaction from."""
+    pick = lambda *names: next((os.environ[n] for n in names if os.environ.get(n)), "")  # noqa: E731
+    env = {"STARKNET_RPC": pick("STARKNET_RPC", "STARKNET_RPC_URL"),
+           "SLINGFALL_ACCOUNT_ADDRESS": pick("SLINGFALL_ACCOUNT_ADDRESS", "STARKNET_ACCOUNT_ADDRESS"),
+           "SLINGFALL_PRIVATE_KEY": pick("SLINGFALL_PRIVATE_KEY", "STARKNET_PRIVATE_KEY")}
+    return env if all(env.values()) else None
+
+
+def translate_calldata(output: list[int], program_hash: int = encoding.ATLANTIC_BOOTLOADER_PROGRAM_HASH) -> list[int]:
+    """`translateFactHash(program_hash, output: Span<felt252>, is_mocked = false)`."""
+    return [program_hash, len(output), *(x % encoding.P for x in output), 0]
+
+
+def fixture_output(doc: dict) -> list[int]:
+    """Atlantic's output of a committed run: the recorded one (`atlantic.output`), else re-derived from
+    the level, the inputs and the run's outputs (the Sepolia run of E3b, which keeps no metadata)."""
+    if doc.get("atlantic", {}).get("output"):
+        return [int(x, 0) for x in doc["atlantic"]["output"]]
+    level = json.loads((LEVELS / f"{doc['level']}.felts.json").read_text())["felts"]
+    inputs = [int(x, 0) for x in doc["inputs"]]
+    args = [len(level), *(int(x, 0) if isinstance(x, str) else x for x in level), len(inputs), *inputs]
+    return encoding.run_output(int(doc["run"]["child_program_hash"], 0), [int(x, 0) for x in doc["outputs"]], args)
+
+
+def sharp_parts(fact: int) -> list[int]:
+    """The two felts (low, high 128 bits) a `u256` fact is called with."""
+    return [fact & ((1 << 128) - 1), fact >> 128]
+
+
+def is_cairo_fact_valid(fact: int, satellite: int = SATELLITE_SEPOLIA) -> bool:
+    return starknet_call(satellite, "isCairoFactValid", [fact, 0]) == [1]
+
+
+def is_keccak_fact_valid(sharp_fact: int, satellite: int = SATELLITE_SEPOLIA) -> bool:
+    return starknet_call(satellite, "isKeccakVerifiedFactHashValid", sharp_parts(sharp_fact)) == [1]
+
+
+def send_translation(output: list[int], satellite: int = SATELLITE_SEPOLIA) -> dict:
+    """Sends `translateFactHash` with `deploy/slingfall.ts translate` (one transaction, from the account
+    of the environment); its answer: `{transaction_hash, integrity_fact_hash, gas}`."""
+    env = account_env()
+    if env is None:
+        raise AtlanticError("translate: no account (set STARKNET_RPC_URL, STARKNET_ACCOUNT_ADDRESS, STARKNET_PRIVATE_KEY)")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "output.json"
+        path.write_text(json.dumps([hex(x) for x in output]))
+        argv = ["node", str(SLINGFALL_CLI), "translate", "--output", str(path), "--satellite", hex(satellite),
+                "--rpc", env["STARKNET_RPC"]]
+        try:
+            run = subprocess.run(argv, capture_output=True, text=True, timeout=900, check=False,
+                                 env={**os.environ, **env})
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise AtlanticError(f"translate: cannot run {SLINGFALL_CLI.name}: {e}") from None
+    if run.returncode != 0:
+        tail = (run.stderr or run.stdout).strip().splitlines()[-3:]
+        raise AtlanticError(f"translate: exit {run.returncode}: {' | '.join(tail)}")
+    try:
+        return json.loads(run.stdout)
+    except ValueError:
+        raise AtlanticError(f"translate: unexpected answer: {run.stdout[-200:]!r}") from None
+
+
+def translate(sharp_fact: int, output: list[int], satellite: int = SATELLITE_SEPOLIA, send: bool = True,
+              sender=send_translation) -> dict:
+    """Translates the bridged keccak fact `sharp_fact` of the run whose Atlantic output is `output`.
+
+    Checks first, sends nothing when: the output does not hash to `sharp_fact` (the Satellite would
+    derive other facts), the Poseidon fact is already valid, or the keccak fact is not on the
+    Satellite (`KECCAK_FACT_HASH_NOT_SAVED`). After the transaction, `isCairoFactValid` must be true."""
+    boot = encoding.ATLANTIC_BOOTLOADER_PROGRAM_HASH
+    derived = encoding.sharp_fact_hash(boot, output)
+    if derived != sharp_fact:
+        raise AtlanticError(f"translate: the output hashes to the keccak fact {hex(derived)}, not {hex(sharp_fact)}")
+    integrity = encoding.translated_fact_hash(boot, output)
+    result: dict = {"sharp_fact_hash": hex(sharp_fact), "integrity_fact_hash": hex(integrity),
+                    "satellite": hex(satellite), "output_felts": len(output),
+                    "calldata_felts": len(translate_calldata(output))}
+    if is_cairo_fact_valid(integrity, satellite):
+        return {**result, "action": "already translated"}
+    if not is_keccak_fact_valid(sharp_fact, satellite):
+        raise AtlanticError(f"translate: the keccak fact {hex(sharp_fact)} is not on the Satellite yet "
+                            "(KECCAK_FACT_HASH_NOT_SAVED)")
+    if not send:
+        return {**result, "action": "dry run: would translate"}
+    result["transaction"] = sender(output, satellite)
+    result["isCairoFactValid"] = is_cairo_fact_valid(integrity, satellite)
+    if not result["isCairoFactValid"]:
+        raise AtlanticError(f"translate: {result['transaction'].get('transaction_hash')} accepted but "
+                            f"isCairoFactValid({hex(integrity)}) is false")
+    return {**result, "action": "translated"}
+
+
+def cmd_translate(args) -> dict:
+    if args.fixture:
+        path = Path(args.fixture)
+        doc = json.loads((path if path.suffix == ".json" else PROOFS / f"{args.fixture}.json").read_text())
+        output = fixture_output(doc)
+    elif args.query:
+        meta, _ = _metadata(query_state(args.query))
+        if meta is None:
+            raise AtlanticError(f"translate: query {args.query} has no metadata.json yet")
+        output = [int(x, 16) for x in meta["output"]]
+    else:
+        output = _load_felts(args.output)
+    return translate(int(args.sharp_fact, 0), output, send=not args.dry_run)
+
+
 def cmd_program_hash(args) -> dict:
     builtins, main, data = encoding.pie_program(args.pie)
     return {"program_hash_pedersen": hex(encoding.program_hash_pedersen(builtins, main, data)),
@@ -376,6 +503,14 @@ def main() -> None:
     p.add_argument("--registry", default="both", choices=["both", "fact-registry", "satellite"])
     p.add_argument("--min-bits", type=int, default=SECURITY_BITS_MIN)
     p.set_defaults(func=cmd_check_fact)
+    p = sub.add_parser("translate", help="translate a bridged keccak fact on the Satellite (sends one transaction)")
+    p.add_argument("sharp_fact", help="the SHARP (keccak) fact bridged to the Satellite")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--fixture", help="fixtures/proofs/atlantic/<name>.json (a name or a path)")
+    src.add_argument("--query", help="an Atlantic query id: its metadata.json output")
+    src.add_argument("--output", help="a JSON array of the run's Atlantic output felts")
+    p.add_argument("--dry-run", action="store_true", help="check only, send nothing")
+    p.set_defaults(func=cmd_translate)
     p = sub.add_parser("program-hash", help="the bootloader's Pedersen program hash of a PIE's program")
     p.add_argument("--pie", required=True)
     p.set_defaults(func=cmd_program_hash)
