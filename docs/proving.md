@@ -118,10 +118,13 @@ a function of the `*.executable.json` alone:
 
 | executable (rapier alpha.2, this commit) | program hash |
 |---|---|
-| `main` | `0x336705585711330cb8d1ab719a30db76bfd9e3f5a326e280ed049ca4d2bd15f` |
-| `init` | `0x326675b20632ef231efb1b977f91518b6d6991e80dec72f8518311abb795788` |
-| `step_chunk` | `0x53580ca39f6c2e103b5638c235db51d25155e03c571e71d0b61a1b1debfa9d7` |
-| `outputs` | `0x549ef0dfe4e640dbc4fd09b3573abf7770024e05fa523132dfc137d5ba05fb2` |
+| `main` | `0x6ba8179d6dc26c57e1fb681d303c986f5d074e8ee2f7d9cf8771b72cdc972cc` |
+| `init` | `0x2fbad83ae98d17fde2a224b810aa5131bb845f035a5d755488682bf60d909d1` |
+| `step_chunk` | `0x79a883fcc8f3aaba3a921cfc5e1453f661bf41ff7f09901a00fded757e96f7d` |
+| `outputs` | `0x540e51231eb36e1d9d028c5734868262e98ed70412569117b34c2b00ddf714b` |
+
+The bytecode writes jump offsets as negative numbers (`-0xc`), which are the felts `P - x`. The
+`main` value is the one a CI proof carried.
 
 These change with every change to the replay, the rules or rapier. A verifier pins them per
 release.
@@ -177,6 +180,18 @@ executables' outputs are a Cairo change (`slingfall_replay::chunk`, `slingfall_g
 outside P1: see its report, "Escalations". Until then, **only the whole-level proof of `main` is
 a trustless proof of a level**. Chunked proofs are a memory-bounded development tool, or need a
 recursive/aggregating layer that checks the links.
+
+## Size limit of `canonical_small`
+
+`canonical_small` has the sequence columns `seq_4 .. seq_20` only (stwo-cairo
+`SMALL_MAX_SEQUENCE_LOG_SIZE = 20`; the other variants go to 2^25). A trace in which one
+component has more than 2^20 rows panics after the commitment phase, whatever the memory:
+`Preprocessed column … "seq_21" is missing from static allocation`. `prove.py` reports this panic
+as a "more than 2^20 rows" error.
+
+The whole pile10 reference shot (10.7M steps) and the whole cores3 reference shot (13.5M) both
+hit it (CI, P1). Such a proof needs `--params tools/prove/params.canonical_without_pedersen.json`,
+which starts at a 7 GiB floor, or chunks.
 
 ## Memory model
 

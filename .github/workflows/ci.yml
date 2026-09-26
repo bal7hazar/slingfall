@@ -187,11 +187,14 @@ jobs:
           - {case: one_block-miss, mode: whole, args: "", measure: false}
           - {case: pile10-reference, mode: chunks2, args: "--chunks 2", measure: true}
           - {case: pile10-reference, mode: chunks3, args: "--chunks 3", measure: true}
-          - {case: pile10-reference, mode: whole-cwp, args: "--params tools/prove/params.canonical_without_pedersen.json", measure: true}
-          - {case: cores3-reference, mode: whole-cwp, args: "--params tools/prove/params.canonical_without_pedersen.json", measure: true}
+          - {case: pile10-reference, mode: k16, args: "--k 16", measure: true}
+          - {case: cores3-reference, mode: chunks3, args: "--chunks 3", measure: true}
+          - {case: cores3-reference, mode: k16, args: "--k 16", measure: true}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v4
+      # Restore and save apart, so that the build is cached even when a later step fails.
+      - uses: actions/cache/restore@v4
+        id: stwo
         with:
           path: |
             ~/.cargo/registry
@@ -202,6 +205,14 @@ jobs:
       # rustup installs the toolchain of the clone's rust-toolchain.toml.
       - name: Build the prover
         run: tools/prove/setup.sh
+      - uses: actions/cache/save@v4
+        if: steps.stwo.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/prove/vendor
+          key: stwo-cairo-467d5c6-${{ hashFiles('tools/prove/*.patch', 'tools/prove/setup.sh') }}
       - uses: software-mansion/setup-scarb@v1
       - run: scarb --manifest-path "$REPLAY" build
       - name: Decoding tests
