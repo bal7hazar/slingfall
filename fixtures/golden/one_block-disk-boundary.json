@@ -1,0 +1,18 @@
+{
+  "case": "one_block-disk-boundary",
+  "level": "one_block",
+  "shots": [[0,-1024,0]],
+  "outputs": [
+    "0x1",
+    "0x5c2facd32b8c47ffd8909d04d73808bbf5967f1bb3a4ae762d2637fbe9e0431",
+    "0x0",
+    "0x706c61796572",
+    "0x2b5c99ae2a7fd202b540bacb87b724723accf52cd4c2ae795f602a8e7cf9c11",
+    "0x0",
+    "0x0",
+    "0x1",
+    "0x78",
+    "0x612b0349b4ca8083c61573d3504e1e4fad7958423ed9fbd1816d9f8dfad52cf"
+  ],
+  "steps": 2333285
+}

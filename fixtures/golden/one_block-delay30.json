@@ -1,0 +1,18 @@
+{
+  "case": "one_block-delay30",
+  "level": "one_block",
+  "shots": [[-600,-392,30]],
+  "outputs": [
+    "0x1",
+    "0x5c2facd32b8c47ffd8909d04d73808bbf5967f1bb3a4ae762d2637fbe9e0431",
+    "0x0",
+    "0x706c61796572",
+    "0xa1f7e8537d18143cec60610bcc93bed56e8436972b6107757f6415c70c9a3e",
+    "0x0",
+    "0x0",
+    "0x1",
+    "0x96",
+    "0x612b0349b4ca8083c61573d3504e1e4fad7958423ed9fbd1816d9f8dfad52cf"
+  ],
+  "steps": 2819875
+}
