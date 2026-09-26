@@ -145,3 +145,42 @@ mostly the decimal formatting of the moving bodies: each body's pose text is cac
 not move (−27 % of the trace cost on pile10). It is ≤ 10 % of a shot on pile10 but not on the
 light levels, whose ticks cost 21-52k. Rejected candidate (`trace::tests::alternatives`): a
 two-digit table, 15,393 vs 14,810 steps for 44 typical values.
+
+## Determinism and budget CI (`tools/golden`, lot G5)
+
+`python3 tools/golden/golden.py` (Python 3 standard library) checks the three builds against each
+other and against committed goldens; the CI job `golden` runs it, one leg per level fixture
+(pile10, cores3, one_block), then a seeded fuzz.
+
+```sh
+scarb build                                                  # here; the script runs `--no-build`
+python3 tools/golden/golden.py run --check [--level L] [-j 4] --no-build   # the CI check
+python3 tools/golden/golden.py run --update --no-build        # rewrite fixtures/golden/<case>.json
+python3 tools/golden/golden.py fuzz --seed 5 --n 6 --no-build  # random inputs, nothing stored
+python3 tools/golden/golden.py to-cairo [--check]             # tests/golden.cairo (snforge)
+```
+
+`fixtures/golden/cases.json` lists the cases (level fixture, shots, chunk schedules): pile10
+reference and three shots, cores3 reference, three shots and a pull outside the disk (clamped),
+one_block miss, delay 30 and a pull on the disk boundary. Per case the script runs `main`,
+`main_trace` and, per chunk schedule, `init` then `step_chunk(…, K, 1)` chained (a schedule is the
+list of tick budgets, its last value repeating: small chunks that cut through delays, the launch
+and the end of a shot, then a large tail). A chained run has no `Outputs`, so the script rebuilds
+the 10 felts: identity fields by Poseidon from the level and inputs, score / shots / ticks from the
+state header, `won` from the printed `body` / `destroyed` lines, `final_state_hash` from the last
+printed frame. Failures: outputs of the three builds differ, the chained trace lines differ from
+`main_trace`'s, two schedules end on different `ChunkState` felts, outputs differ from the golden,
+or `main` takes more than 1.10 × the golden's steps (fewer steps only asks for `--update`).
+
+`golden.py fuzz` draws pulls (inside the disk, on its axes, outside), delays and shot counts per
+level from a seed and requires `main` ≡ chained chunks of random sizes. `to-cairo` generates
+`tests/golden.cairo`: one snforge test per case, `main` on the golden inputs returns the golden
+felts (`--check` fails when the file is stale after a golden changes).
+
+`scarb execute` costs about 10 s of fixed overhead per call whatever the program (VM setup), which
+is why chained runs use short schedules rather than K = 1 all along (K = 1 on a 191-tick shot is
+191 calls); the exhaustive K = 1, 3, 7, 60 chains stay in `chunk::tests::test_chain_*`.
+
+CI time (ubuntu-latest, PR #11): `golden (pile10)` 6 min 35 s, `golden (one_block)` 5 min 30 s,
+`golden (cores3)` 4 min 31 s, each a whole job (checkout, scarb, build, `--check`, fuzz `--n 6`),
+in parallel: under the 8-minute budget.
