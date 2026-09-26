@@ -32,7 +32,7 @@ page says "VM not built" and plays the recorded trace.
 
 The page (`?level=pile10|cores3|one_block`, default pile10): press within 1.5 m of the sling
 anchor and drag to aim (an integer pull in `[-1024, 1024]²` clamped to the disk `pull_radius`;
-the dotted arc is the exact flight of the pebble); releasing runs that shot in the worker, from
+the dotted arc is the exact flight of the pebble, up to the first tick inside a body's box: a display cut, not physics); releasing runs that shot in the worker, from
 the previous shot's state, with the inputs so far. Frames play at 60 Hz as they arrive
 (interpolated for display only); when they lag real time (the impact: 3x the Cairo steps per
 tick of the flight) the playback slows to their arrival rate and the HUD says "simulating…"
@@ -68,7 +68,8 @@ frame, ticks, steps, seconds, chunks, wasm) and the outputs.
 | `src/trace/synth.ts` | deterministic generator of the hand-made `pile10` trace (`BigInt`, no floats in the state) |
 | `src/aim/fixed.ts` | Q32.32 `mulFloor`, `isqrtCeil` |
 | `src/aim/pull.ts` | `clampPull` (D3 integer clamp), drag to pull mapping |
-| `src/aim/arc.ts` | `flightArc`: the exact arc; the formula is documented at the top of the file |
+| `src/aim/arc.ts` | `flightArc`: the exact arc, rapier's substepped free flight (`SUBSTEPS = 4` Euler steps of `dt // 4` per tick, mirrors `SOLVER_ITERATIONS`); the formula is documented at the top of the file |
+| `src/aim/contact.ts` | body AABBs at the settled poses: where the preview stops (display only) |
 | `src/aim/controller.ts` | pointer handling and the overlay drawing |
 | `src/render/` | `buffer` (frames as `f64` columns), `scene` (PixiJS bodies), `camera`, `playback`, `hud`, `live` (arrival rate, slow-motion speed), `effects` (flashes, fade-outs) |
 | `src/game/session.ts` | `LevelSession`: the shot loop without DOM (`init` once, a shot per release from the previous state, the inputs kept, level over from the state header, outputs, retry) |

@@ -111,8 +111,9 @@ different collapse (results in `docs/briefs/s1-substeps.md`). A switch is a retu
 
 **Flight arc.** rapier integrates a free flight as `k` Euler steps of `dt / k` per tick (gravity
 included in each), so at x4 the pebble sits 0.375 g dt^2 = 1.02 mm per tick *above* the single-step
-arc of `client/src/aim/arc.ts` (8 cm at the first contact, 12 cm on the longest flight); x1 is
-bit-identical to `arc.ts`. `arc.ts` is exact at x1 only.
+single-step arc (8 cm at the first contact, 12 cm on the longest flight). Since lot C2 `client/src/aim/arc.ts`
+models the substepped flight (`SUBSTEPS` there mirrors `SOLVER_ITERATIONS`: a setting change is that one
+constant; bit-exact against `fixtures/traces/pile10-reference.json` at x4, and x1 is the same code with `SUBSTEPS = 1`).
 
 ## Materials
 
