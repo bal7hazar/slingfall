@@ -463,8 +463,8 @@ Satellite that knows exactly those facts (`submit/tests/settled.cairo`).
 
 **What is on-chain today (2026-09-26).** Only the bridged keccak fact: `isKeccakVerifiedFactHashValid(
 sharp_fact)` is `true` on the Satellite for both E3a runs. The two E3a
-`PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION` queries were still stuck after trace generation 3 h
-later (`01M3EMT5TPVX00M8TC1K6HS841`: `IN_PROGRESS`, step `TRACE_AND_METADATA_GENERATION`, at 11:46Z),
+`PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION` queries were still stuck after trace generation 2.5 h
+later (`01M3EMT5TPVX00M8TC1K6HS841`, created 10:40Z: `IN_PROGRESS`, step `TRACE_AND_METADATA_GENERATION`, at 13:12Z),
 so the prover service submits `PROOF_VERIFICATION_ON_L2` by default and `SatelliteVerifier` accepts the
 keccak fact. Anyone may call the Satellite's permissionless `translateFactHash(
 ATLANTIC_BOOTLOADER_PROGRAM_HASH, out, false)` to register the Poseidon fact from the keccak one (a
