@@ -120,6 +120,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "slingfall_sizes"
+version = "0.1.0"
+dependencies = [
+ "fixed",
+ "rapier2d",
+ "slingfall_contract",
+ "slingfall_game",
+ "slingfall_level",
+ "slingfall_rules",
+ "snforge_std",
+]
+
+[[package]]
 name = "slingfall_testing"
 version = "0.1.0"
 dependencies = [
