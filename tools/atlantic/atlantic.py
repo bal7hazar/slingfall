@@ -4,7 +4,7 @@ fact back (lot E3a, `docs/proving.md` "Atlantic + Integrity"). Python 3 standard
 
     atlantic.py c1-input --args ARGS.json --out INPUT.txt
     atlantic.py submit (--pie PIE.zip | --program P.json [--input I.txt]) [--layout auto] [--size S]
-                       [--result PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION] [--network TESTNET]
+                       [--result PROOF_VERIFICATION_ON_L2] [--network TESTNET]
                        [--prover stwo] [--record FILE] [--json]
     atlantic.py status <query-id> [--watch [--interval 30]] [--json]
     atlantic.py fact <query-id> [--golden fixtures/golden/<case>.json --args ARGS.json] [--json]
@@ -351,7 +351,8 @@ def main() -> None:
     p.add_argument("--input")
     p.add_argument("--layout", default="auto")
     p.add_argument("--size", default="M", choices=["XS", "S", "M", "L"])
-    p.add_argument("--result", default="PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION")
+    # `..._WITH_TRANSLATION` stalled after trace generation on 2026-09-26 (docs/proving.md).
+    p.add_argument("--result", default="PROOF_VERIFICATION_ON_L2")
     p.add_argument("--network", default="TESTNET", choices=["TESTNET", "MAINNET"])
     p.add_argument("--cairo-version", default="cairo1", choices=["cairo0", "cairo1"])
     p.add_argument("--prover", help="sharpProver (omitted: Atlantic's default, stwo)")

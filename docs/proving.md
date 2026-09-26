@@ -287,7 +287,8 @@ program: `tools/atlantic/c1main`; the committed runs: `fixtures/proofs/atlantic/
   (the keccak fact goes to Herodotus's **Satellite** on Starknet Sepolia,
   `0x00421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e`). With
   `PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION` a `TRANSLATE_FACT_HASH` stage follows: the Satellite's
-  `translateFactHash(program_hash, output)` re-derives the keccak fact from the public output and
+  `translateFactHash(program_hash, output)` (not observed completing on 2026-09-26: both such queries
+  stalled after trace generation) re-derives the keccak fact from the public output and
   registers the Poseidon ("Integrity") fact, reported by `get_all_verifications_for_fact_hash(fact,
   false)` with `security_bits = 96` and settings `'translated'` (Satellite source,
   `HerodotusDev/satellite` `cairo/src/cairo_fact_registry.cairo`). Integrity's own FactRegistry
@@ -396,6 +397,17 @@ Integrity's `lib_utils.cairo`).
 5. Cost: one Poseidon over ≈ `len(level) + len(inputs) + 20` felts (≈ 110 for one_block, ≈ 180 for
    pile10) plus one contract call; no proof bytes in calldata.
 
+**What is on-chain today (2026-09-26).** Only the bridged keccak fact: `isKeccakVerifiedFactHashValid(
+sharp_fact)` is `true` on the Satellite for both runs. The two `PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION`
+queries stalled after trace generation (no proof job created within 2.5 h / 50 min), so no translated
+Poseidon fact has been observed. Until translation works, E3b's check is the **keccak path**: recompute
+`out` as in step 3, `sharp_fact = keccak_u256s_be(ATLANTIC_BOOTLOADER_PROGRAM_HASH, keccak_u256s_be(out))`
+(byte-reversed as the Satellite's `get_fact_hashes` does: big-endian digests), then require
+`Satellite.isKeccakVerifiedFactHashValid(sharp_fact)`. It costs one Keccak over `len(out)` 32-byte words
+(≈ 100-175) instead of the Poseidon. Anyone may also call the Satellite's permissionless
+`translateFactHash(ATLANTIC_BOOTLOADER_PROGRAM_HASH, out, false)` to register the Poseidon fact from the
+keccak one (a transaction; not sent in E3a).
+
 Trust: the fact rests on Ethereum's SHARP verifier plus Herodotus's L1 → L2 bridge and Satellite owner
 (the Satellite is upgradeable), not on an on-chain Starknet verification of the proof.
 
@@ -404,9 +416,10 @@ Trust: the fact rests on Ethereum's SHARP verifier plus Herodotus's L1 → L2 br
 1. The client plays the level with the browser VM (same Cairo) and gets the 10 outputs.
 2. A **prover service** (ours; it holds the Atlantic API key, never the browser) receives `(level id,
    inputs)`, re-runs `cairo1-run` on `c1main` (5-10 s), checks the outputs, submits the PIE with
-   `result = PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION`, `declaredJobSize = M` (L for ≥ 9M-step runs),
+   `result = PROOF_VERIFICATION_ON_L2` (`…_WITH_TRANSLATION` once it completes), `declaredJobSize = M` (L for ≥ 9M-step runs),
    `dedupId` = hash of the inputs (idempotent retries), and polls `GET /atlantic-query/{id}` until `DONE`.
-3. The service returns `integrityFactHash` (the client can recompute it offline with the formula above)
+3. Latency on Sepolia: trace generation 40-60 s, SHARP proof + L1 verification ≈ 1.5 h, bridge ≈ 4 min.
+   The service returns `integrityFactHash` (the client can recompute it offline with the formula above)
    and the query id; the client polls `check-fact` (a view call) until the Satellite knows the fact.
 4. The player sends `submit(level, inputs, outputs)` from their wallet; the contract recomputes and
    checks the fact (above). Nothing Atlantic-specific is signed by the player.

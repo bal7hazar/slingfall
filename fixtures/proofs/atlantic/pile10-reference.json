@@ -501,6 +501,48 @@
       "createdAt": "2026-09-26T08:52:02.386Z",
       "completedAt": "2026-09-26T10:27:28.187Z",
       "totalSeconds": 5725.8
+    },
+    {
+      "query_id": "01M3EMT5TPVX00M8TC1K6HS841",
+      "lane": "b: cairo1-run PIE (ported fork), c1main",
+      "request": {
+        "endpoint": "POST /atlantic-query (multipart/form-data, header api-key)",
+        "fields": {
+          "declaredJobSize": "L",
+          "layout": "auto",
+          "result": "PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION",
+          "network": "TESTNET",
+          "cairoVersion": "cairo1",
+          "cairoVm": "rust",
+          "mockFactHash": "false",
+          "externalId": "pile10-reference-b-translate",
+          "dedupId": "slingfall-34337e62c6956e4ecdf8eed25d6e860faccc3526"
+        },
+        "files": {
+          "pieFile": {
+            "name": "pile10-reference.c1.pie.zip",
+            "bytes": 43414514,
+            "sha256": "96789a80ceabe3569bd2ab88789189f996ed615d2dd5adcceefab9070a5e4ad5"
+          }
+        }
+      },
+      "status": "IN_PROGRESS",
+      "jobSize": "S",
+      "layout": "dynamic",
+      "sharpProver": "stwo",
+      "errorReason": null,
+      "stages": [
+        {
+          "job": "TRACE_AND_METADATA_GENERATION",
+          "status": "COMPLETED",
+          "createdAt": "2026-09-26T10:40:14.028Z",
+          "completedAt": "2026-09-26T10:41:50.222Z",
+          "seconds": 96.2
+        }
+      ],
+      "createdAt": "2026-09-26T10:40:13.995Z",
+      "completedAt": null,
+      "totalSeconds": null
     }
   ],
   "starknet": {
