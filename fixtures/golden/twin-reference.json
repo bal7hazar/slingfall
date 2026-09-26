@@ -1,0 +1,18 @@
+{
+  "case": "twin-reference",
+  "level": "twin",
+  "shots": [[-503,-327,0], [-543,-472,0]],
+  "outputs": [
+    "0x1",
+    "0x39f8a8153c8af137f12e5bf0a707aaf7496fc1cbd4bb611720af3112aebcdbd",
+    "0x0",
+    "0x706c61796572",
+    "0x422dbb0c77b2544b5c8192caad8e8df31823aee7a7d05051d6c96b29698ba4e",
+    "0x1068",
+    "0x1",
+    "0x2",
+    "0x132",
+    "0x3fef19c06df07fb70869d69fcbf33e89fbb861ec077979fc9c123690d8b87f6"
+  ],
+  "steps": 47579795
+}

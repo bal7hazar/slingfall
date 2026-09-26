@@ -1,0 +1,18 @@
+{
+  "case": "tower-reference",
+  "level": "tower",
+  "shots": [[-604,-392,0]],
+  "outputs": [
+    "0x1",
+    "0xde9b6c6b0716c89e8f40c652912a8951a900b4f12ac8e129f8d44f06ff8782",
+    "0x0",
+    "0x706c61796572",
+    "0x5c242b3f403a2cc4fbf7e6f51d9ceab41baeabb21691fed72ec2cdce0d51d8f",
+    "0x1838",
+    "0x1",
+    "0x1",
+    "0xb4",
+    "0x24c64ff015ab77f5bdd04d9643be04a01e5d46027398948e708f4a86c0b33d7"
+  ],
+  "steps": 42399252
+}
