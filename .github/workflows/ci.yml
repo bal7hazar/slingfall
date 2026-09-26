@@ -154,7 +154,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        level: [pile10, cores3, one_block]
+        level: [pile10, cores3, one_block, tower, bridge, twin]
     steps:
       - uses: actions/checkout@v7
       - uses: software-mansion/setup-scarb@v1
