@@ -1,18 +1,18 @@
 {
   "case": "cores3-reference",
   "level": "cores3",
-  "shots": [[-600,-392,0]],
+  "shots": [[-653,-304,0]],
   "outputs": [
     "0x1",
-    "0x696781fcbba962e99ec065977f6693ce9e9566b45853faa4afa8b75c8904f9a",
+    "0x1f899335c51fb84fe7222c0dae3d7340ac9bb0a861e5a73af50e8308ba7b833",
     "0x0",
     "0x706c61796572",
-    "0x31b10e77b97a88153b1e9d781ecddece54061fe1cf88e6a3660eee99fda4f3b",
-    "0x2bf2",
+    "0x79f8064de0aae7def56f7ab2bef730c066af0ba2b9c39277f46fa426d79e221",
+    "0x2b2a",
     "0x1",
     "0x1",
-    "0x8f",
-    "0x2272be0f580fd156823304800919530eaa97430e972d7213ee13f4fbf7a5dbc"
+    "0xb4",
+    "0x389db9ca95005e7b2328ae64371a49e4bc3317dcd68d4968bff2b77b9f33e9a"
   ],
-  "steps": 7394341
+  "steps": 22801514
 }

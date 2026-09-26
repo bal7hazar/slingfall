@@ -14,10 +14,10 @@ describe('trace lines v1', () => {
     const trace = linesToTrace(recorded());
     const expected = reference();
     expect(trace.level).toEqual(expected.level);
-    expect(trace.frames.length).toBe(192);
+    expect(trace.frames.length).toBe(110);
     expect(trace.frames).toEqual(expected.frames);
     expect(trace.events).toEqual(expected.events);
-    expect(trace.events.at(-1)).toEqual({ tick: 191, kind: 'shot_end', shot: 0 });
+    expect(trace.events.at(-1)).toEqual({ tick: 109, kind: 'shot_end', shot: 0 });
   });
 
   it('parses each kind of line', () => {

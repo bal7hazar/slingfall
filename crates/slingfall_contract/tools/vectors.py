@@ -38,7 +38,7 @@ SECRET = 0x736C696E6766616C6C  # 'slingfall': a test key, never a deployment key
 PLAYER = 0x706C61796572  # 'player'
 MARKER = 0x534C494E4746414C4C  # 'SLINGFALL', `simulate::MARKER`
 FROM = 0x5AFE  # contract address of the message-hash vector
-PILE10_HASH = 0x1B7372774C035DDCB4F559F8A8E37E0215235D87AAB0748DE58EF2BA0C18B54
+PILE10_HASH = 0x17876831F245E0EC3D63220F2CB73C429EC93E7C888C2AA916D237CD9C114A3
 # `[version, level_hash, seed, player, inputs_hash, score, won, shots_used, ticks_run,
 # final_state_hash]` of the golden claim.
 OUTPUTS = [1, PILE10_HASH, 0, PLAYER, 0xABC, 1650, 1, 2, 431, 0x33]

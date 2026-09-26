@@ -17,15 +17,15 @@ pub const ATTESTATION_KEY: felt252 =
 pub const PLAYER: felt252 = 'player';
 /// `verifier::attestation_hash` of the golden claim's felts.
 pub const GOLDEN_ATTESTATION_HASH: felt252 =
-    0x3b737b679b6dadbaf81a339e82fab5d613db6a613bbd1c601785f242aa2c0e9;
+    0xf23e293dc0e3bdde13040eb03964304bb82d8c9315e65865bf93e2cc5fcd0a;
 /// ECDSA signature `(r, s)` of `GOLDEN_ATTESTATION_HASH` by `SECRET`.
-pub const GOLDEN_R: felt252 = 0x3fdb3b83cb47b48c799b969bc14b76d51dd3425a33e8e94c8f8430a26bc3f18;
-pub const GOLDEN_S: felt252 = 0xb783e02ebce061eb256c330b4dcfcc902d24d06a8965e26a9e319fcba00fd2;
+pub const GOLDEN_R: felt252 = 0x4a13c6238b607f1571896992647877421057f184e686fc0fccf4e26b777e668;
+pub const GOLDEN_S: felt252 = 0x5add451759eeed34bfd22bf8872d6e9460b3fbbc56b89086c203ff34ffe214a;
 /// `from` of the message-hash vector.
 pub const MESSAGE_FROM: felt252 = 0x5afe;
 /// `verifier::message_hash(MESSAGE_FROM, MARKER, golden claim felts)`.
 pub const GOLDEN_MESSAGE_HASH: felt252 =
-    0x2b71979fe789aea951ef427aeae50af0bfd7c4bb4f9b0239e9873ddb910730b;
+    0x743c2d89f0290e5c22ae2ce6d52430d15361a740d330187e43f4bfe65eaea2f;
 
 /// The golden claim: `[1, PILE10_HASH, 0, PLAYER, 0xabc, 1650, 1, 2, 431, 0x33]`.
 pub fn golden_claim() -> Outputs {
@@ -49,7 +49,7 @@ pub fn reference_inputs() -> Array<felt252> {
     to_felts(
         @Inputs {
             player: PLAYER,
-            shots: array![Shot { pull_x: -600, pull_y: -392, delay: 0, ability_tick: 0 }],
+            shots: array![Shot { pull_x: -604, pull_y: -392, delay: 0, ability_tick: 0 }],
         },
     )
 }
@@ -58,7 +58,7 @@ pub fn reference_inputs() -> Array<felt252> {
 pub fn reference_outputs() -> Array<felt252> {
     array![
         1, PILE10_HASH, 0, PLAYER,
-        0x31b10e77b97a88153b1e9d781ecddece54061fe1cf88e6a3660eee99fda4f3b, 5350, 1, 1, 191,
-        0x2ff3945fee21a4cc7f9447a645a65108dd2a7e697f0c06e75ef0475bbef13e9,
+        0x5c242b3f403a2cc4fbf7e6f51d9ceab41baeabb21691fed72ec2cdce0d51d8f, 5200, 1, 1, 107,
+        0x135df25e65cc5905398c07fc0fb89cb47ee2360a8704793595e82dd6cfbb255,
     ]
 }

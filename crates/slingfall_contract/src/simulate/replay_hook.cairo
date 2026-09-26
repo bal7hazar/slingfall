@@ -28,19 +28,19 @@ mod tests {
     use super::ReplaySimulateHook;
     use super::super::run;
 
-    /// `slingfall_replay`'s `main` on pile10 with the reference shot (-600, -392), player
+    /// `slingfall_replay`'s `main` on pile10 with the reference shot (-604, -392), player
     /// `'player'` (`slingfall_game::fixtures::reference_outputs`).
     #[test]
     fn test_simulate_pile10_reference_matches_replay_main() {
         let inputs = Inputs {
             player: PLAYER,
-            shots: array![Shot { pull_x: -600, pull_y: -392, delay: 0, ability_tick: 0 }],
+            shots: array![Shot { pull_x: -604, pull_y: -392, delay: 0, ability_tick: 0 }],
         };
         let outputs = run::<ReplaySimulateHook>(pile10_felts().span(), to_felts(@inputs).span());
         let expected: Array<felt252> = array![
             1, PILE10_HASH, 0, PLAYER,
-            0x31b10e77b97a88153b1e9d781ecddece54061fe1cf88e6a3660eee99fda4f3b, 5350, 1, 1, 191,
-            0x2ff3945fee21a4cc7f9447a645a65108dd2a7e697f0c06e75ef0475bbef13e9,
+            0x5c242b3f403a2cc4fbf7e6f51d9ceab41baeabb21691fed72ec2cdce0d51d8f, 5200, 1, 1, 107,
+            0x135df25e65cc5905398c07fc0fb89cb47ee2360a8704793595e82dd6cfbb255,
         ];
         assert_eq!(outputs.to_felts(), expected);
     }

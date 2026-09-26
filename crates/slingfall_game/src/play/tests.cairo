@@ -100,6 +100,6 @@ fn steps_rules__pile10_reference() {
     let report = game.play_shot(@level, inputs.shots[0]);
     // `play` is `play_shot` shot after shot: the golden outputs' fields.
     assert!(report.won);
-    assert_eq!((game.score, game.shots_used, game.tick), (5350, 1, 191));
+    assert_eq!((game.score, game.shots_used, game.tick), (5200, 1, 107));
     assert_eq!(game.final_state_hash(), REFERENCE_FINAL_STATE_HASH);
 }
