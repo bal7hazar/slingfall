@@ -71,6 +71,8 @@ PULL_MAX = 1024  # `slingfall_level::inputs::PULL_MAX`
 DELAY_MAX = 60  # D3
 KIND_STATIC, KIND_CORE = 0, 2
 TAIL_K = 60  # tick budget of the chunks after a schedule's small ones, unless it says otherwise
+# Felts of each chunked executable's binding header (`crates/slingfall_replay/README.md`).
+BINDING_HEADER = {"init": 1, "step_chunk": 4, "outputs": 2}
 
 
 class GoldenError(Exception):
@@ -103,7 +105,8 @@ def execute(name: str, felts: list[int]) -> tuple[int, list[int], list[str]]:
         raise GoldenError(f"{name}: scarb execute failed\n{text[-2000:]}\n{out.stderr[-2000:]}")
     head, rest = text.split("Program output:", 1)
     values = [int(v) % P for v in rest.split("Resources:", 1)[0].split()]
-    returned = values[1 : 1 + values[0]]
+    # Without the binding header of the chunked executables (lot P1b): the state, or the outputs.
+    returned = values[1 + BINDING_HEADER.get(name, 0) : 1 + values[0]]
     steps = int(STEPS_RE.search(rest).group(1).replace(",", ""))
     return steps, returned, [l for l in head.splitlines() if TRACE_LINE.match(l)]
 

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  BINDING_HEADER,
   DEFAULT_PLAYER,
   P,
   ballDropProgram,
@@ -12,6 +13,7 @@ import {
   readChunkHeader,
   signed,
   slingfallProgram,
+  stripBindingHeader,
   type SlingfallInputs,
   type SlingfallLevel,
 } from './program';
@@ -105,6 +107,20 @@ describe('ChunkState header', () => {
     // Shot 0 is over when shots_used is 1; nothing to step when the level is over.
     expect(slingfallProgram.remainingTicks(PILE10, state(1, 0), 0)).toBe(0);
     expect(slingfallProgram.remainingTicks(PILE10, state(1, 1), 1)).toBe(0);
+  });
+});
+
+describe('binding header', () => {
+  it('strips each executable header before the state or outputs', () => {
+    expect(BINDING_HEADER).toEqual({ init: 1, chunk: 4, outputs: 2 });
+    const s = state(0, 0);
+    expect(slingfallProgram.payload!('init', ['99', ...s])).toEqual(s);
+    expect(slingfallProgram.payload!('chunk', ['5', '6', '0', '16', ...s])).toEqual(s);
+    expect(readChunkHeader(stripBindingHeader('chunk', ['5', '6', '0', '16', ...s]))).toMatchObject({ shotsUsed: 0 });
+    const outputs = ['1', '2', '0', DEFAULT_PLAYER, '4', '5200', '1', '1', '109', '9'];
+    expect(decodeOutputs(slingfallProgram.payload!('outputs', ['5', '6', ...outputs])).score).toBe('5200');
+    expect(() => stripBindingHeader('chunk', ['5', '6'])).toThrow('chunk: 2 felts, shorter than its 4-felt binding header');
+    expect(ballDropProgram.payload).toBeUndefined();
   });
 });
 

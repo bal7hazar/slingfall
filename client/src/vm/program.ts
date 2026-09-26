@@ -18,6 +18,8 @@ export interface ChunkProgram<Level = unknown, Inputs = unknown> {
   remainingTicks(level: Level, state: readonly string[], shot: number): number;
   /** Arguments of the `outputs` executable (programs that have one). */
   outputsArgs?(state: readonly string[], inputs: Inputs): string;
+  /** The state (or outputs) in the felts a run of `entry` returned; all of them when absent. */
+  payload?(entry: Entry, returned: readonly string[]): string[];
   /** The observer's lines (`src/trace/lines.ts`); `null` for any other line. */
   parseLine(line: string): TraceLine | null;
 }
@@ -97,6 +99,20 @@ export interface ChunkHeader {
 
 export const CHUNK_STATE_VERSION = 1;
 
+/**
+ * Felts of the binding header each executable returns before its state or outputs
+ * (`crates/slingfall_replay/README.md`, lot P1b): `init` `[level_hash]`, `step_chunk`
+ * `[state_in_hash, inputs_hash, shot, k]`, `outputs` `[state_in_hash, inputs_hash]`.
+ */
+export const BINDING_HEADER: Readonly<Record<Entry, number>> = { init: 1, chunk: 4, outputs: 2 };
+
+/** A run's returned felts without the binding header of `entry`. */
+export function stripBindingHeader(entry: Entry, returned: readonly string[]): string[] {
+  const n = BINDING_HEADER[entry];
+  if (returned.length < n) throw new Error(`${entry}: ${returned.length} felts, shorter than its ${n}-felt binding header`);
+  return returned.slice(n);
+}
+
 export function readChunkHeader(state: readonly string[]): ChunkHeader {
   if (state.length < 7 || Number(state[0]) !== CHUNK_STATE_VERSION) {
     throw new Error(`not a ChunkState of version ${CHUNK_STATE_VERSION}: ${state.slice(0, 7).join(' ')}`);
@@ -156,6 +172,7 @@ export const slingfallProgram: ChunkProgram<SlingfallLevel, SlingfallInputs> = {
     return Math.max(1, levelInfo(level).tickCap + MAX_DELAY - h.shotTicks);
   },
   outputsArgs: (state, inputs) => `${array(state)} ${array(inputsFelts(inputs))}`,
+  payload: stripBindingHeader,
   parseLine: parseTraceLine,
 };
 

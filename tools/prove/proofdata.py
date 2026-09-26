@@ -29,6 +29,10 @@ from pathlib import Path
 P = 2**251 + 17 * 2**192 + 1
 MSB_U32 = 0x80000000
 N_OPTIONAL_SEGMENTS = 10  # pedersen .. mul_mod in `PublicSegmentRanges`
+# Felts of each replay executable's binding header (`split_public_output`).
+HEADER_LEN = {"main": 0, "init": 1, "step_chunk": 4, "outputs": 2}
+# `ChunkState` felts read by the chain check (`crates/slingfall_replay/README.md`).
+STATE_SHOTS_USED, STATE_OVER = 1, 2
 
 
 class ProofDataError(Exception):
@@ -99,6 +103,33 @@ def executable_bytecode(path: Path) -> list[int]:
     offsets are written negative (`-0xc`): the felt is `P - x`."""
     doc = json.loads(Path(path).read_text())
     return [(int(x, 0) if isinstance(x, str) else int(x)) % P for x in doc["program"]["bytecode"]]
+
+
+def split_public_output(program: str, felts: list[int]) -> dict:
+    """A replay executable's returned felts, split into its binding header and its payload (lot
+    P1b, `docs/proving.md` "Chunk binding"; the Cairo `slingfall_game::chunk::*_HEADER_LEN`):
+
+        main        outputs (10)                                        no header
+        init        [level_hash] ++ state
+        step_chunk  [state_in_hash, inputs_hash, shot, k] ++ state
+        outputs     [state_in_hash, inputs_hash] ++ outputs (10)
+
+    A hash is Poseidon over the felts without their length prefix; a state is its `ChunkState`
+    felts."""
+    if program not in HEADER_LEN:
+        raise ProofDataError(f"unknown executable {program!r}")
+    n = HEADER_LEN[program]
+    if len(felts) < n:
+        raise ProofDataError(f"{program}: {len(felts)} output felts, shorter than its {n}-felt header")
+    head, body = felts[:n], felts[n:]
+    if program == "init":
+        return {"level_hash": head[0], "state": body}
+    if program == "step_chunk":
+        return {"state_in_hash": head[0], "inputs_hash": head[1], "shot": head[2], "k": head[3],
+                "state": body}
+    if program == "outputs":
+        return {"state_in_hash": head[0], "inputs_hash": head[1], "outputs": body}
+    return {"outputs": body}
 
 
 def returned_felts(output: list[int]) -> list[int]:

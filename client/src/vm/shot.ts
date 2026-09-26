@@ -96,12 +96,14 @@ export interface ShotOptions {
 class Runs<Level, Inputs> {
   readonly chunks: ChunkReport[] = [];
   private readonly engine: VmEngine;
+  private readonly program: ChunkProgram<Level, Inputs>;
   private readonly options: ShotOptions;
   private readonly now: () => number;
   private readonly onPrint: (text: string) => void;
 
   constructor(engine: VmEngine, program: ChunkProgram<Level, Inputs>, options: ShotOptions) {
     this.engine = engine;
+    this.program = program;
     this.options = options;
     this.now = options.now ?? (() => performance.now());
     this.onPrint = (text) => {
@@ -128,7 +130,7 @@ class Runs<Level, Inputs> {
     };
     this.chunks.push(chunk);
     this.options.onChunk?.(chunk);
-    return r.returned;
+    return this.program.payload?.(entry, r.returned) ?? r.returned;
   }
 
   result(state: string[], t0: number): ShotResult {

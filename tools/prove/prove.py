@@ -12,7 +12,9 @@ is the 10 felts of `docs/DESIGN.md` D4.
 
 Chunked (`--chunks N` or `--k K`): `init(level)`, then `step_chunk(state, inputs, shot, K, 0)`
 until each shot is over, then `outputs(state, inputs)`, one proof each. Every proof's public
-output is the state it returns (the 10 felts for `outputs`); the next proof is run on it.
+output is its binding header, then the state it returns (the 10 felts for `outputs`); the next
+proof is run on that state (`proofdata.split_public_output`, lot P1b). The chain's links are
+checked from the public outputs (`verify.check_chain`) before the run is written.
 `--chunks N` sets K = ceil(ticks / N) with the level's `ticks_run` (from the golden with
 `--case`, else from one `scarb execute` of `main`): N `step_chunk` proofs on a one-shot level,
 more when a chunk would cross a shot's end.
@@ -21,7 +23,7 @@ Every proof: `--params_json params.canonical_small.json --proof-format binary --
 through `measure.py` (wall, peak RSS), one at a time. Then `verify.py`'s checks on each proof.
 Writes to `--out`: the proofs (`*.proof.bin`), `outputs.json` (the 10 felts, the level and inputs
 felts, the program hash of the executable that produced them), `report.json` (per proof: steps,
-wall, peak RSS, proof bytes and sha256, verify; the chain), `summary.json` (the same without the
+wall, peak RSS, proof bytes and sha256, verify; the chain and each binding header), `summary.json` (the same without the
 state felts, as `fixtures/proofs/` keeps it), the logs. With `--case`, the outputs must equal
 `fixtures/golden/<case>.json`.
 """
@@ -98,6 +100,8 @@ class Prover:
         self.out, self.bin, self.executables, self.params = out, bin_dir, executables, params
         self.proofs: list[dict] = []
         self.hashes: dict[str, int] = {}
+        # `(executable, public output)` per proof, for `verify.check_chain`.
+        self.links: list[tuple[str, list[int]]] = []
 
     def program_hash(self, name: str) -> int:
         if name not in self.hashes:
@@ -105,9 +109,10 @@ class Prover:
                 proofdata.executable_bytecode(self.executables / f"{name}.executable.json"))
         return self.hashes[name]
 
-    def prove(self, label: str, name: str, args: list[int], input_state: list[int] | None = None) -> list[int]:
-        """One `run_and_prove` of executable `name` on `args`; returns its public output felts
-        (the returned array), checked against the proof file and the verify binary."""
+    def prove(self, label: str, name: str, args: list[int], input_state: list[int] | None = None) -> dict:
+        """One `run_and_prove` of executable `name` on `args`. Returns its public output (the
+        returned array, checked against the proof file and the verify binary) split into the
+        binding header and the payload (`proofdata.split_public_output`)."""
         args_path = self.out / f"{label}.args.json"
         args_path.write_text(json.dumps(hexes(args)))
         proof = self.out / f"{label}.proof.bin"
@@ -147,12 +152,16 @@ class Prover:
                              f"{name}'s bytecode hash {self.program_hash(name):#x} (program section "
                              f"{len(program)} cells, bytecode {len(code)}, first difference at {first})")
         output = claims["returned"]
-        entry.update(verify="failed", public_output=hexes(output),
+        parts = proofdata.split_public_output(name, output)
+        header = {k: (hex(v) if k.endswith("hash") else v) for k, v in parts.items()
+                  if k not in ("state", "outputs")}
+        entry.update(verify="failed", public_output=hexes(output), header=header,
                      input_state=hexes(input_state) if input_state else None)
         t = time.time()
         verify.check_proof(proof, output, self.program_hash(name), self.bin)
         entry.update(verify="ok", verify_wall_s=round(time.time() - t, 1))
-        return output
+        self.links.append((name, output))
+        return parts
 
 
 def summary(report: dict) -> dict:
@@ -201,19 +210,21 @@ def run(args) -> int:
     outputs: list[int] = []
     try:
         if not k:
-            outputs = prover.prove("main", "main", [len(level), *level, len(inputs), *inputs])
+            outputs = prover.prove("main", "main", [len(level), *level, len(inputs), *inputs])["outputs"]
             program = "main"
         else:
-            state = prover.prove("init", "init", [len(level), *level])
+            state = prover.prove("init", "init", [len(level), *level])["state"]
             i = 0
             for shot in range(len(shots)):
                 while state[1] == shot and state[2] == 0:
                     prev = state
                     state = prover.prove(f"chunk{i:02d}", "step_chunk",
-                                         [len(state), *state, len(inputs), *inputs, shot, k, 0], prev)
+                                         [len(state), *state, len(inputs), *inputs, shot, k, 0], prev)["state"]
                     i += 1
-            outputs = prover.prove("outputs", "outputs", [len(state), *state, len(inputs), *inputs], state)
+            outputs = prover.prove("outputs", "outputs", [len(state), *state, len(inputs), *inputs],
+                                   state)["outputs"]
             program = "outputs"
+            verify.check_chain(prover.links, inputs)
         if len(outputs) != N_OUTPUTS:
             raise ProveError(f"{len(outputs)} output felts, expected {N_OUTPUTS}")
         if golden and hexes(outputs) != golden["outputs"]:

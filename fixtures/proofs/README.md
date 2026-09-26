@@ -11,3 +11,8 @@ One directory per `tools/prove/prove.py` run, named `<golden case>-<mode>`. A di
 The proofs themselves (~1 MB each) are never committed. The runs are CI runs on
 `ubuntu-latest`; see `docs/proving.md`, "Measurements". The program hashes change whenever the
 replay, the rules or rapier change, so these files record a measurement; they are not goldens.
+
+Directories suffixed `-p1b` (lot P1b) are runs of the executables with binding headers
+(`docs/proving.md`, "Chunk binding") on the shared VPS (prover built with `--native`, a
+22 GiB cgroup, `verify.py --run` green on each); the others are P1's CI runs, whose chunked public
+outputs predate the headers.
