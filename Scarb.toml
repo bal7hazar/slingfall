@@ -6,6 +6,7 @@ members = [
     "crates/slingfall_testing",
     "crates/slingfall_level",
     "crates/slingfall_rules",
+    "crates/slingfall_game",
     "crates/slingfall_contract",
 ]
 
@@ -26,6 +27,7 @@ rapier2d = "=0.1.0-alpha.1"
 starknet = "2.19.4"
 snforge_std = "0.61.0"
 assert_macros = "2.19.4"
+slingfall_game = { path = "crates/slingfall_game" }
 
 [workspace.tool.scarb]
 allow-prebuilt-plugins = ["snforge_std"]

@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_contract, slingfall_replay]
+        crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_game, slingfall_contract, slingfall_replay]
     steps:
       - uses: actions/checkout@v7
       - uses: software-mansion/setup-scarb@v1

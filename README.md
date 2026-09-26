@@ -11,7 +11,8 @@ Working name. Original mechanics and assets: a *pebble* is launched at structure
 | physics | [rapier-cairo](https://github.com/bal7hazar/rapier-cairo) (`rapier2d`, registry version) on the Q32.32 scalar `fixed` and `glam` | dependency |
 | level and inputs | Cairo structs with a `Serde` felt layout, JSON form for the editor, Poseidon hashes | `crates/slingfall_level` |
 | rules | slingshot, damage from contact-force events, calm rule, scoring, win | `crates/slingfall_rules` |
-| replay | `main(level, inputs) -> outputs` (proof build) and `main_trace` (client build), chunked `step_chunk(state, k)` | `crates/slingfall_replay` |
+| game | the level logic as a library: `play` with an `Observer`, `step_shot`, the chunked `ChunkState`; shared by the replay and the contract | `crates/slingfall_game` |
+| replay | `main(level, inputs) -> outputs` (proof build) and `main_trace` (client build), chunked `step_chunk(state, k)`: executables over the game library | `crates/slingfall_replay` |
 | contract | level registry, `simulate` (SNIP-36 virtual OS), `submit` (proof facts, nullifier, best score) | `crates/slingfall_contract` |
 | client | cairo-vm in WASM running the replay in chunks in a Web Worker, PixiJS renderer | `client/` |
 

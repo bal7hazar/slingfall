@@ -28,11 +28,12 @@
 //! `tools/tracec/tracec.py` turns these lines into trace format v1 JSON (`client/README.md`).
 
 use rapier2d::prelude::{Pose2, RigidBodyTrait, Vec2, WorldTrait};
+use slingfall_game::errors;
+use slingfall_game::play::{Observer, decode, play};
 use slingfall_level::inputs::Inputs;
 use slingfall_level::level::{KIND_STATIC, Level, ShapeDef};
 use slingfall_level::outputs::OutputsTrait;
 use slingfall_rules::world::{Entity, Game, TickReport};
-use crate::main::{Observer, decode, errors, play};
 
 #[cfg(test)]
 mod tests;

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Unit tests of levelc (standard library `unittest`): python3 tools/levelc/test_levelc.py"""
 
+import argparse
 import sys
+import tempfile
 import unittest
 from decimal import Decimal as D
 from pathlib import Path
@@ -125,6 +127,16 @@ class Levels(unittest.TestCase):
         want = levelc.cairo_fixtures(LEVELS)
         got = (ROOT / "crates/slingfall_level/src/level/fixtures.cairo").read_text()
         self.assertTrue(levelc.same_code(got, want))
+
+    def test_to_cairo_check_flags_a_stale_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "fixtures.cairo"
+            args = argparse.Namespace(levels=[str(p) for p in LEVELS], out=str(out), check=True)
+            out.write_text("stale\n")
+            with self.assertRaises(SystemExit):
+                levelc.cmd_to_cairo(args)
+            out.write_text(levelc.cairo_fixtures(LEVELS))
+            levelc.cmd_to_cairo(args)
 
 
 if __name__ == "__main__":

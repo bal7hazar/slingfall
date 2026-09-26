@@ -1,11 +1,14 @@
+use slingfall_game::chunk::{CHUNK_STATE_VERSION, ChunkState, state_outputs};
+use slingfall_game::errors;
+use slingfall_game::fixtures::{PLAYER, reference_inputs, reference_outputs, shot};
+use slingfall_game::play::decode;
 use slingfall_level::hash::to_felts;
 use slingfall_level::inputs::Inputs;
+use slingfall_level::level::fixtures::{one_block_felts, pile10_felts};
 use slingfall_level::outputs::OutputsTrait;
 use slingfall_testing::opaque;
-use crate::main::fixtures::{one_block_felts, pile10_felts};
-use crate::main::tests::{PLAYER, reference_inputs, reference_outputs, shot};
-use crate::main::{decode, errors, main};
-use super::{CHUNK_STATE_VERSION, ChunkState, init, state_outputs, step_chunk};
+use crate::main::main;
+use super::{init, step_chunk};
 
 /// `init`, then `step_chunk` with budget `k` for every shot of `inputs` until the level is over or
 /// the inputs end; the outputs of the final state. Checks the header after every chunk.

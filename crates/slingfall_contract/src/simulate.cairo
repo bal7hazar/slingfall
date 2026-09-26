@@ -1,6 +1,6 @@
 //! `simulate(level_hash, inputs)`: the level logic run in the SNIP-36 virtual OS, emitting the
 //! outputs as an L2 to L1 message (`docs/DESIGN.md` D9). The replay itself is behind
-//! `SimulateHook`; lot G4 replaces `ActiveHook` with the rules' replay.
+//! `SimulateHook`; `ActiveHook` is `slingfall_game::play::play` (lot G4b).
 
 use slingfall_level::inputs::{Inputs, InputsTrait};
 use slingfall_level::level::{Level, LevelTrait};
@@ -39,7 +39,7 @@ pub impl StubSimulateHook of SimulateHook {
     }
 }
 
-/// The hook the contract's `simulate` calls: the replay (lot G4).
+/// The hook the contract's `simulate` calls: the replay (`slingfall_game::play::play`).
 pub impl ActiveHook = replay_hook::ReplaySimulateHook;
 
 /// Deserialises the stored `level` felts and the `inputs` felts, validates the inputs against the
@@ -65,8 +65,8 @@ pub fn run<impl Hook: SimulateHook>(level: Span<felt252>, inputs: Span<felt252>)
 mod tests {
     use slingfall_level::hash::to_felts;
     use slingfall_level::inputs::{Inputs, InputsTrait, Shot};
+    use slingfall_level::level::fixtures::{PILE10_HASH, pile10_felts};
     use slingfall_testing::opaque;
-    use crate::submit::fixtures::{PILE10_HASH, pile10_felts};
     use super::{StubSimulateHook, run};
 
     fn inputs(shots: Array<Shot>) -> Array<felt252> {
