@@ -7,7 +7,7 @@
 import type { RpcProvider } from 'starknet';
 import { requestAttestation } from './attest.ts';
 import type { ChainConfig } from './config.ts';
-import { describeJob, requestProof, waitSettleable } from './prove.ts';
+import { describeJob, requestProof, settleLabel, waitCheap, waitSettleable } from './prove.ts';
 import { SlingfallContract, feltHex, levelValidatedEvents, receiptGas, runArgs, type ChainWriter } from './slingfall.ts';
 import { submitLevel, type Receipt, type SubmissionStep } from './submission.ts';
 import { WALLET_LABELS, connectWallet, provider, walletKinds, type WalletKind } from './wallet.ts';
@@ -29,7 +29,7 @@ export class SubmitPanel {
   private readonly send = make('button', { type: 'button', textContent: 'Submit', disabled: true });
   private readonly status = make('p', { className: 'submit-status' });
   private readonly tier = make('p', { className: 'submit-tier' });
-  private readonly settle = make('button', { type: 'button', textContent: 'Settle on Starknet', hidden: true });
+  private readonly settle = make('button', { type: 'button', textContent: 'Settle', hidden: true });
   private readonly board = make('ol', { className: 'submit-board' });
   private readonly config: ChainConfig;
   private readonly rpc: RpcProvider;
@@ -173,11 +173,26 @@ export class SubmitPanel {
     try {
       const job = await requestProof(url, levelHash, inputs);
       show(describeJob(job));
-      await waitSettleable(url, job.id, (j) => show(describeJob(j)));
+      const ready = await waitSettleable(url, job.id, (j) => show(describeJob(j)));
       if (round !== this.round) return;
       this.pending = { outputs, inputs };
+      this.settle.textContent = settleLabel(ready);
       this.settle.hidden = false;
       this.refresh();
+      if (!ready.settleablePoseidon) {
+        // The keccak path settles now; while the service translates the fact, the cheap one may come.
+        const stale = () => round !== this.round || this.pending === null;
+        const upgrade = await waitCheap(
+          url,
+          job.id,
+          (j) => {
+            if (!stale()) this.settle.textContent = settleLabel(j);
+            show(describeJob(j));
+          },
+          { stop: stale },
+        ).catch(() => null); // the button already works on the keccak path
+        if (upgrade && !stale()) this.settle.textContent = settleLabel(upgrade);
+      }
     } catch (e) {
       show(e instanceof Error ? e.message : String(e));
     }
