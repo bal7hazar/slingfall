@@ -19,6 +19,11 @@ and checks what the JSON and felts cannot say:
    run through `main` (the proof build, no prints) must win, and take fewer Cairo steps than
    `--budget` (default 1e8, the interim budget of the brief; the target of D10 is 3e7, a warning).
 
+**Simulation setting (lot S1):** the executables are the default build (x4 solver iterations, 60 Hz).
+`rules.py [--substeps {1,2,4}] [--hz {30,60}] LEVEL.json...` runs this same check on the build of
+another setting (`SLINGFALL_SUBSTEPS` / `SLINGFALL_HZ`, read by `tools/golden/golden.py`, which builds a
+scratch copy of the workspace with the two constants of `slingfall_rules::world` changed).
+
 Fixtures written by hand before the settle tool (`LEGACY`: their poses and goldens are frozen by
 the committed goldens) get the awake test as a warning, not a failure.
 """
@@ -183,3 +188,27 @@ def awake_probe(level: dict, pile: list[int]) -> tuple[list[str], str]:
     if moved:
         problems.append(f"not pre-settled: a settle moves bodies {moved} (run tools/settle/settle.py)")
     return problems, f"{len(run.damage)} damage lines, {len(moved)} bodies move, {run.steps:,} steps"
+
+
+def main() -> None:
+    """`levelc.py check --rules` on the build of another simulation setting."""
+    import argparse
+    import os
+    import subprocess
+
+    ap = argparse.ArgumentParser(description="levelc check --rules under another simulation setting")
+    ap.add_argument("levels", nargs="+")
+    ap.add_argument("--substeps", type=int, choices=(1, 2, 4), default=4)
+    ap.add_argument("--hz", type=int, choices=(30, 60), default=60)
+    ap.add_argument("--jobs", type=int, default=2)
+    ap.add_argument("--budget", type=int, default=BUDGET_INTERIM)
+    ap.add_argument("--no-build", action="store_true", help="the executables of this setting are already built")
+    args = ap.parse_args()
+    env = {**os.environ, "SLINGFALL_SUBSTEPS": str(args.substeps), "SLINGFALL_HZ": str(args.hz)}
+    cmd = [sys.executable, str(Path(__file__).with_name("levelc.py")), "check", "--rules", "--jobs", str(args.jobs),
+           "--budget", str(args.budget), *(["--no-build"] if args.no_build else []), *args.levels]
+    sys.exit(subprocess.run(cmd, env=env).returncode)
+
+
+if __name__ == "__main__":
+    main()

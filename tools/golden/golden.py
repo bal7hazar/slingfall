@@ -30,6 +30,11 @@ level from `--seed`, and checks `main` against a chain of random chunk sizes; no
 `to-cairo` writes `crates/slingfall_replay/tests/golden.cairo` (levels, inputs and golden outputs of
 every case, one snforge test per case); with `--check` it fails when the file is stale.
 
+`SLINGFALL_SUBSTEPS` (1, 2, 4) and `SLINGFALL_HZ` (30, 60) select another simulation setting of
+`slingfall_rules::world` (lot S1): every tool built on this module then builds and runs a scratch copy
+of the workspace with the two constants rewritten (`variant_root`); the committed goldens are the
+default, x4 at 60 Hz.
+
 `scarb execute` costs about 10 s of fixed overhead per call (VM setup, whatever the program
 does), so the runs are spread over `-j` processes and the chained schedules keep a few small
 chunks (to cut through delays, launches and shot ends) before a large tail.
@@ -39,8 +44,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,7 +57,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "crates" / "slingfall_replay" / "Scarb.toml"
 LEVELS = ROOT / "fixtures" / "levels"
 GOLDEN = ROOT / "fixtures" / "golden"
 CASES = GOLDEN / "cases.json"
@@ -75,6 +81,53 @@ TAIL_K = 60  # tick budget of the chunks after a schedule's small ones, unless i
 BINDING_HEADER = {"init": 1, "step_chunk": 4, "outputs": 2}
 
 
+# --------------------------------------------------------------------------- simulation settings
+
+DT_60, DT_30 = 71582788, 143165576  # floor(2^32 / 60), floor(2^32 / 30), raw Q32.32
+SUBSTEPS_ENV, HZ_ENV = "SLINGFALL_SUBSTEPS", "SLINGFALL_HZ"
+SETTINGS = (int(os.environ.get(SUBSTEPS_ENV, 4)), int(os.environ.get(HZ_ENV, 60)))  # (substeps, Hz)
+
+
+def variant_root(substeps: int, hz: int) -> Path:
+    """Scratch copy of the workspace built with another setting of `slingfall_rules::world`
+    (`SOLVER_ITERATIONS`, `TICK_DT_RAW`), used instead of Scarb features: the manifests declare
+    none. The default setting is the repository itself."""
+    if (substeps, hz) == (4, 60):
+        return ROOT
+    if substeps not in (1, 2, 4) or hz not in (30, 60):
+        sys.exit(f"unsupported setting: substeps {substeps} (1, 2, 4), hz {hz} (30, 60)")
+    return Path(tempfile.gettempdir()) / f"slingfall-sim-x{substeps}-{hz}hz"
+
+
+def sync_variant(substeps: int, hz: int) -> Path:
+    """Refreshes the scratch copy from the repository (the `target` dirs stay: incremental)."""
+    root = variant_root(substeps, hz)
+    if root == ROOT:
+        return root
+    root.mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "Scarb.toml", root / "Scarb.toml")
+    shutil.copytree(ROOT / "crates", root / "crates", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("target", ".snfoundry_cache"))
+    world = root / "crates" / "slingfall_rules" / "src" / "world.cairo"
+    text = world.read_text()
+    text, n = re.subn(r"(pub const SOLVER_ITERATIONS: u32 = )\d+;", rf"\g<1>{substeps};", text)
+    text, m = re.subn(r"(pub const TICK_DT_RAW: i64 = )\d+;", rf"\g<1>{DT_30 if hz == 30 else DT_60};", text)
+    if n != 1 or m != 1:
+        sys.exit("world.cairo: SOLVER_ITERATIONS / TICK_DT_RAW constants not found")
+    world.write_text(text)
+    return root
+
+
+MANIFEST = variant_root(*SETTINGS) / "crates" / "slingfall_replay" / "Scarb.toml"
+
+
+def use_setting(substeps: int, hz: int) -> None:
+    """Switches this process (and the tools built on it) to another setting; `build()` follows."""
+    global MANIFEST, SETTINGS
+    SETTINGS = (substeps, hz)
+    MANIFEST = variant_root(substeps, hz) / "crates" / "slingfall_replay" / "Scarb.toml"
+
+
 class GoldenError(Exception):
     """A determinism or golden failure (the message says which case and build)."""
 
@@ -82,6 +135,7 @@ class GoldenError(Exception):
 # --------------------------------------------------------------------------- running scarb
 
 def build() -> None:
+    sync_variant(*SETTINGS)
     out = subprocess.run(["scarb", "--manifest-path", str(MANIFEST), "build"], capture_output=True, text=True)
     if out.returncode != 0:
         sys.exit(f"scarb build failed\n{out.stdout}\n{out.stderr}")
