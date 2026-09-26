@@ -1,6 +1,8 @@
 import { Application } from 'pixi.js';
 import './style.css';
 import type { Pull } from './aim/pull';
+import { chainConfig } from './chain/config';
+import { SubmitPanel } from './chain/panel';
 import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
 import { Hud, hudAt } from './render/hud';
@@ -66,6 +68,9 @@ async function main(): Promise<void> {
   element('#app').appendChild(app.canvas);
 
   const hud = ui.hud();
+  // The Submit step (lot G9) when a deployed contract is configured (docs/e2e.md).
+  const config = chainConfig();
+  const submit = config ? new SubmitPanel(ui.result, config) : null;
   const playback = new Playback(() => view?.stage.buffer.frameCount ?? 0);
   const rate = new ArrivalRate();
   let view: View | null = null;
@@ -149,6 +154,7 @@ async function main(): Promise<void> {
     generation++;
     s.reset();
     ui.result.hidden = true;
+    submit?.hide();
     const stage = new Stage(app, s.traceLevel, s.events, INSETS, (pull) => void fire(s, pull));
     stage.buffer.push(s.startFrame());
     show({ stage, events: s.events, shots: s.traceLevel.shots, producing: () => s.phase === 'flying' });
@@ -208,6 +214,7 @@ async function main(): Promise<void> {
       console.log(`outputs (${(performance.now() - t).toFixed(0)} ms): ${OUTPUT_FIELDS.map((f) => outputs[f]).join(' ')}`);
       ui.resultSummary.textContent = `Score ${r.score} · shots ${r.shotsUsed} · ${r.ticks} ticks · the outputs a proof will carry:`;
       showOutputs(outputs);
+      submit?.offer((player) => s.outputsFor(player));
     } catch (e) {
       ui.resultSummary.textContent = `Score ${r.score} · outputs failed: ${e instanceof Error ? e.message : e}`;
     }
