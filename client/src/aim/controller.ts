@@ -15,7 +15,7 @@ const u = (metres: number): number => metres * UNITS_PER_METRE;
 
 /**
  * Aim UI: drag from the sling anchor to set the integer pull, shown as the exact flight arc
- * (`flightArc`, BigInt Q32.32), one dot per tick. Release calls `onRelease` with the pull (the
+ * (`flightArc`, BigInt Q32.32), one dot per tick until the first tick inside a body's box. Release calls `onRelease` with the pull (the
  * live mode fires the shot, `src/game/`). The pull is opposite to the launch: drag back to shoot forward.
  */
 export class AimController {

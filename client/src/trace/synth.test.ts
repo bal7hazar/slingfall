@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { arcParamsFromLevel, flightArc } from '../aim/arc';
+import { TICK_DT_RAW, arcParamsFromLevel, launchVelocity } from '../aim/arc';
+import { mulFloor } from '../aim/fixed';
 import { formatTrace, buildPile10 } from './synth';
 import { parseTrace } from './source';
 
@@ -35,11 +36,19 @@ describe('pile10 fixture', () => {
     expect(heights.at(-1)).toBeLessThan(heights[0]);
   });
 
-  it('flies along the exact aim arc until the contact', () => {
-    const arc = flightArc(arcParamsFromLevel(trace.level), { x: -775, y: -270 });
+  it('flies along a one-step-per-tick Euler arc until the contact (the fixture is not physics)', () => {
+    // The hand-made fixture keeps its own single Euler step per tick; the aim arc has been the
+    // engine's substepped flight since C2 (`arc.test.ts` holds that against the real trace).
+    const params = arcParamsFromLevel(trace.level);
+    const v = launchVelocity({ x: -775, y: -270 }, params.launchScale);
+    const dvy = mulFloor(params.gravityY, TICK_DT_RAW);
+    let { x, y } = params.anchor;
     for (let tick = 1; tick <= 40; tick++) {
+      v.y += dvy;
+      x += mulFloor(v.x, TICK_DT_RAW);
+      y += mulFloor(v.y, TICK_DT_RAW);
       const pebble = trace.frames[tick].bodies.find((b) => b.handle === 11)!;
-      expect([BigInt(pebble.x), BigInt(pebble.y)]).toEqual([arc[tick - 1].x, arc[tick - 1].y]);
+      expect([BigInt(pebble.x), BigInt(pebble.y)]).toEqual([x, y]);
     }
   });
 
