@@ -8,6 +8,7 @@ members = [
     "crates/slingfall_rules",
     "crates/slingfall_game",
     "crates/slingfall_contract",
+    "crates/slingfall_sizes",
 ]
 
 [workspace.package]

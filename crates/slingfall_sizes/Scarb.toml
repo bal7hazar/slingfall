@@ -1,30 +1,28 @@
 [package]
-name = "slingfall_contract"
-description = "Slingfall Starknet contract: level registry, simulate, submit, verifier interface."
+name = "slingfall_sizes"
+description = "Class-size fixtures of the Slingfall contract (lot G7b): not published, measured by tools/classsize."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [dependencies]
 starknet.workspace = true
 fixed.workspace = true
+rapier2d.workspace = true
 slingfall_game.workspace = true
+slingfall_contract = { path = "../slingfall_contract" }
 slingfall_level = { path = "../slingfall_level" }
 slingfall_rules = { path = "../slingfall_rules" }
 
 [dev-dependencies]
 snforge_std.workspace = true
 assert_macros.workspace = true
-slingfall_testing = { path = "../slingfall_testing" }
-
-# Library target without artifact: `crates/slingfall_sizes` (G7b) builds its class-size fixtures on
-# this crate's modules.
-[lib]
-sierra = false
 
 [[target.starknet-contract]]
 sierra = true
+casm = true
 
 [tool]
 fmt.workspace = true
