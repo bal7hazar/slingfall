@@ -1,6 +1,6 @@
 # Execution plan
 
-Status: **v1.11, 2026-09-26** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged; v1.2: G2 #3 merged, Pose2 swap, wave 2 G3 + G7 launched; v1.3: G1c #4 merged, wave 1 complete; v1.4: G7 #5 merged; v1.5: G3 #6 merged, wave 3 G3b + G4 launched; v1.6: G3b #7 merged (spent-pebble rule); v1.7: G4 #8 merged, milestone M4, wave 4 launched; v1.8: G6b #9 merged (live client); v1.9: G4b #10 merged, class-size blocker found, G7b launched; v1.10: G5 #11 merged, G8 + G4c launched; v1.11: G7b #12 merged: CASM 5.3x the limit, two-class layout decided, Stone + Integrity fallback until rapier CS) (owner of this file: the `slingfall` orchestrator session).
+Status: **v1.12, 2026-09-26** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged; v1.2: G2 #3 merged, Pose2 swap, wave 2 G3 + G7 launched; v1.3: G1c #4 merged, wave 1 complete; v1.4: G7 #5 merged; v1.5: G3 #6 merged, wave 3 G3b + G4 launched; v1.6: G3b #7 merged (spent-pebble rule); v1.7: G4 #8 merged, milestone M4, wave 4 launched; v1.8: G6b #9 merged (live client); v1.9: G4b #10 merged, class-size blocker found, G7b launched; v1.10: G5 #11 merged, G8 + G4c launched; v1.11: G7b #12 merged: CASM 5.3x the limit, two-class layout decided, Stone + Integrity fallback until rapier CS; v1.12: G4c #13 merged, G7c launched, G8 running) (owner of this file: the `slingfall` orchestrator session).
 Programme context: `/home/claude/projects/pm/PLAN.md` phase D. Design: `docs/DESIGN.md`.
 
 ## Target
@@ -26,7 +26,7 @@ orchestrator before each wave.
 | 3 | G4 ✅ #8 | `slingfall_replay`: `main`, `main_trace` (observer emitting **trace format v1** of `client/README.md`: level header with `gravity_y`, `launch_scale`, `pull_radius`, `shots`, per-body `pose`; frames with `asleep`; events `damage` / `destroyed` / `score` / `shot_end`; semantics fixed by G6: a handle absent from `level.bodies` is the pebble, a dynamic body absent from a frame no longer exists, shots left = `level.shots` minus `shot_end` events, ticks strictly increase), `init` / `step_chunk` on `WorldState` (D1); assert `client/src/aim/arc.ts`'s flight formula against rapier's `integrate` on a free-flying pebble; `scarb execute` on the fixtures; **Cairo steps per shot and per level measured** and written here | Opus | G3 |
 | 4 | G4b ✅ #10 | replay logic as a library crate `slingfall_game` shared with the contract, non-test fixtures export, hook through `play` (G4 / G7 escalations) | Sonnet | G4 |
 | 3 | G5 ✅ #11 | determinism and budget CI: golden `(level, inputs) -> outputs` snapshots, trace ≡ proof ≡ chunked outputs, input fuzzing, per-level step ceilings (+10 %) | Sonnet | G4 |
-| 4 | G4c | `outputs` executable moved into the replay package; CI rebuild-and-diff of the committed client executables (G6b escalations) | Sonnet | G6b |
+| 4 | G4c ✅ #13 | `outputs` executable moved into the replay package; CI rebuild-and-diff of the committed client executables (G6b escalations) | Sonnet | G6b |
 | 4 | G8 | content and editor tooling: pre-settle tool, level validator (zero damage at rest over 120 ticks, step budget), 5 levels of 8-10 blocks, material tuning | Sonnet | G4, G6 |
 | 4 | G6b ✅ #9 | client live mode: G1c worker runs `step_chunk` per shot, slow-motion impact presentation, score UI | Opus | G1c, G4, G6 |
 | 4 | G7b ✅ #12 | **class size**: the `Slingfall` class is 201 974 Sierra felts / 11.7 MB vs Starknet's 81 920 / 4.09 MB: decompose (registry, level, rules, one step, simulate), measure the levers (reachable shape pairs, inline policy, two-class layout, scarb inlining strategy), numbers for rapier | Opus | G4b |
@@ -58,6 +58,7 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 |---|---|---|
 | B0 | #1 | workspace, client skeleton, CI, executor tooling; `rapier2d = "=0.1.0-alpha.1"` |
 | G2 | #3 | level / inputs / outputs, `levelc` with a stdlib Poseidon matching Cairo, 3 fixtures, 55 + 15 tests; hash of pile10 = 5.8k steps; orchestrator follow-up: `Pose2` / `Rot2` now `pub use rapier2d::prelude` (felt layout unchanged) |
+| G4c | #13 | 5th executable `outputs` in the replay package; client copy deleted; `vm` job rebuilds the committed executables and fails on a diff (byte-identical rebuild proven; job 3m12s) |
 | G7b | #12 | `crates/slingfall_sizes` fixtures (a)-(e) + split, `tools/classsize` (table / attribution / strategies): sim class 196 801 Sierra / 433 601 CASM felts (limits 81 920); the first `World::step` costs +179 688 Sierra / +380 402 CASM; 54.9 % never-run engine code (joints 47.9 %); two-class layout +0.02 % steps (adopted, D9); inlining `avoid` +102 % steps (rejected), threshold 40 −14 % CASM / +15 % steps (reserve); numbers sent to rapier (CS1). `slingfall_sizes` built and linted by CI, its two 32M-step tests run locally only |
 | G5 | #11 | `tools/golden/golden.py` (check / update / fuzz / to-cairo): 8 cases, three builds agree on the 10 outputs and the trace lines, chained runs under two schedules, fuzz seed 5 n 6 per level = 0 mismatches, step ceilings +10 %; CI `golden` matrix 4.5-6.5 min per leg; deliberate red check shown |
 | G4b | #10 | `slingfall_game` library crate (play, chunk, fixtures), replay = 4 thin executables, contract hook through `play`, `levelc to-cairo --check`, level fixtures public; steps identical (31 487 873); finding: **the contract class exceeds Starknet's limits** (201 974 felts vs 81 920; 11.7 MB vs 4.09 MB) |
@@ -71,7 +72,6 @@ Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in 
 
 ## Open points
 
-- `outputs` executable lives in `client/vm/fixtures/outputs/` (path deps): move it to `crates/slingfall_replay` as a 5th target; committed replay executables (28 MB JSON) need a CI rebuild-and-diff step or an in-job build.
 
 - Executors cannot read files outside the repository checkout (`/home/claude/projects/pm/...` copies were
   refused by the sandbox; reads were allowed): briefs must stage needed files in the repository first.
