@@ -94,15 +94,16 @@ deploy() {
   node "$ROOT/deploy/slingfall.ts" deploy --devnet --rpc "$RPC" --network devnet \
     --attestation-key "$pubkey" --out "$OUT"
   # The client's configuration: the devnet account signs in the page (dev only).
-  node "$ROOT/deploy/slingfall.ts" account --rpc "$RPC" --with-key | python3 -c '
+  node "$ROOT/deploy/slingfall.ts" account --rpc "$RPC" --with-key >"$RUN/account-${PORT}.json"
+  python3 - "$RUN/account-${PORT}.json" "$OUT" >"$ENV_OUT" <<'EOF'
 import json, sys
-account, config = json.load(sys.stdin), json.load(open(sys.argv[1]))
-print(f"VITE_SLINGFALL_ADDRESS={config[\"address\"]}")
-print(f"VITE_RPC_URL={config[\"rpc_url\"]}")
+account, config = (json.load(open(path)) for path in sys.argv[1:])
+print(f"VITE_SLINGFALL_ADDRESS={config['address']}")
+print(f"VITE_RPC_URL={config['rpc_url']}")
 print("VITE_ATTEST_URL=http://127.0.0.1:8547")
-print(f"VITE_DEVNET_ACCOUNT_ADDRESS={account[\"address\"]}")
-print(f"VITE_DEVNET_PRIVATE_KEY={account[\"private_key\"]}")
-' "$OUT" >"$ENV_OUT"
+print(f"VITE_DEVNET_ACCOUNT_ADDRESS={account['address']}")
+print(f"VITE_DEVNET_PRIVATE_KEY={account['private_key']}")
+EOF
   echo "devnet: wrote $OUT and $ENV_OUT" >&2
 }
 

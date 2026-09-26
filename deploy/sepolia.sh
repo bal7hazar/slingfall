@@ -24,11 +24,11 @@ OUT="$ROOT/deploy/sepolia.json"
 scarb --manifest-path "$ROOT/deploy/contract/Scarb.toml" build
 node "$ROOT/deploy/slingfall.ts" deploy --network sepolia --rpc "$STARKNET_RPC" \
   --attestation-key "$SLINGFALL_ATTESTATION_KEY" --out "$OUT"
-python3 -c '
+python3 - "$OUT" >"$ROOT/deploy/sepolia.env" <<'EOF'
 import json, sys
 config = json.load(open(sys.argv[1]))
-print(f"VITE_SLINGFALL_ADDRESS={config[\"address\"]}")
-print(f"VITE_RPC_URL={config[\"rpc_url\"]}")
+print(f"VITE_SLINGFALL_ADDRESS={config['address']}")
+print(f"VITE_RPC_URL={config['rpc_url']}")
 print("VITE_ATTEST_URL=https://attest.example.invalid  # the public attestation service")
-' "$OUT" >"$ROOT/deploy/sepolia.env"
+EOF
 echo "sepolia: wrote $OUT and deploy/sepolia.env" >&2
