@@ -50,8 +50,8 @@ The arguments are encoded as `tools/tracec` encodes them (`[len(L), L…, len(I)
   felts.
 - **Chunked** (`--chunks N`, or `--k K`): proofs of `init(level)`, then
   `step_chunk(state, inputs, shot, K, 0)` until each shot is over, then `outputs(state, inputs)`.
-  - Each proof's public output is the state it returns, or the 10 felts for `outputs`. The next
-    proof runs on it.
+  - Each proof's public output is its binding header, then the state it returns (the 10 felts
+    for `outputs`): see "Chunk binding". The next proof runs on the state.
   - `--chunks N` sets K = ceil(ticks_run / N). `ticks_run` comes from the golden with `--case`,
     otherwise from one `scarb execute` of `main`.
   - A one-shot level gives N `step_chunk` proofs. A multi-shot level can give more, because a
@@ -63,7 +63,7 @@ The arguments are encoded as `tools/tracec` encodes them (`[len(L), L…, len(I)
 - `outputs.json`: the 10 felts, the level and inputs felts, the proving executable and its
   program hash;
 - `report.json`: per proof, the steps, wall time, peak RSS, proof bytes and sha256, the verify
-  result, and the public output and recorded input state (the chain);
+  result, the public output, its binding header and the recorded input state (the chain);
 - the logs.
 
 With `--case`, the outputs must equal `fixtures/golden/<case>.json`; the script fails otherwise.
@@ -80,16 +80,25 @@ python3 tools/prove/verify.py --run out/p2          # every proof of a run and i
 `verify.py` checks four things:
 
 1. **The STARK verifies**: the patched `verify` binary exits 0.
-2. **The public output is the outputs**: the proof's output segment is `[10, outputs…]`. It is
-   read twice, by `proofdata.py` from the proof file and by the binary; the two must agree.
+2. **The public output is the outputs**: the proof's output segment is `[n, header…, outputs…]`
+   (no header for `main`, `[state_in_hash, inputs_hash]` for `outputs`). It is read twice, by
+   `proofdata.py` from the proof file and by the binary; the two must agree.
 3. **The program is the one claimed**: the proof's program hash equals `outputs.json`'s
    `program_hash`. That value is recomputed from the executable's bytecode when
    `crates/slingfall_replay/target/dev/<name>.executable.json` is present.
 4. **The identity fields**: `level_hash` and `inputs_hash` are the Poseidon hashes of the level
    and inputs felts recorded in `outputs.json`.
 
-`tools/prove/test_prove.py` holds the decoding tests. With `PROVE_RUN=<dir>`, it also runs the
-tamper tests: a changed score, program hash or level felt, or a truncated proof, is rejected.
+`--run <dir>` verifies every proof of the directory (`main`, or `init`, `chunkNN`, `outputs`),
+pins each program hash to the executables' (`--executables`, default
+`crates/slingfall_replay/target/dev`) and checks the chain's links from the public outputs
+("Chunk binding"). It does not read `report.json`.
+
+`tools/prove/test_prove.py` holds the decoding tests and the chain-link tests on synthetic public
+outputs. With `PROVE_RUN=<dir>`, it also runs the tamper tests: a changed score, program hash or
+level felt, or a truncated proof, is rejected; and it proves `one_block-miss` with `--k 16` into
+`<dir>-k16`, then checks that `verify.py --run` accepts it and rejects a copy whose middle chunk
+was proven on a fabricated state (`PROVE_CHAIN=skip` skips this part, ~2-3 min on a runner).
 
 ### Where the output lives in a proof
 
@@ -116,12 +125,12 @@ The **program hash** is stwo's own (`get_verification_output`):
 The program section is the executable's bytecode (`initial_pc .. initial_ap - 2`), so the hash is
 a function of the `*.executable.json` alone:
 
-| executable (rapier alpha.2, this commit) | program hash |
+| executable (rapier alpha.2, P1b's binding headers) | program hash |
 |---|---|
-| `main` | `0x6ba8179d6dc26c57e1fb681d303c986f5d074e8ee2f7d9cf8771b72cdc972cc` |
-| `init` | `0x2fbad83ae98d17fde2a224b810aa5131bb845f035a5d755488682bf60d909d1` |
-| `step_chunk` | `0x79a883fcc8f3aaba3a921cfc5e1453f661bf41ff7f09901a00fded757e96f7d` |
-| `outputs` | `0x540e51231eb36e1d9d028c5734868262e98ed70412569117b34c2b00ddf714b` |
+| `main` | `0x6ba8179d6dc26c57e1fb681d303c986f5d074e8ee2f7d9cf8771b72cdc972cc` (unchanged by P1b) |
+| `init` | `0x74a9e5569fb76389f7b81bf396c8ae63629eabd77d4d8106023d8b6d796c304` |
+| `step_chunk` | `0x40c4eb050499160b97bdda0ae4392477db65888013c4c0d67cc86b48ead6e24` |
+| `outputs` | `0x2ee00e85021e893c1e6b0e7efc6e5b383dab8ee4e3eb8b283f80d0f39e7b761` |
 
 The bytecode writes jump offsets as negative numbers (`-0xc`), which are the felts `P - x`. The
 `main` value is the one a CI proof carried.
@@ -147,39 +156,64 @@ hints (`CairoHintProcessor.user_args`); they are witness, not public memory. The
 "some level and inputs, whose hashes are these, give these outputs". The binding to the actual
 level and inputs is the `level_hash` / `inputs_hash` check of point 4.
 
-## The chunk trust model
+## Chunk binding
 
-A chunked run is `init` → `step_chunk` × n → `outputs`, each proof separate. Each proof's public
-output is its returned state (a `ChunkState`: the 7-felt header, the level, the rules'
-`GameState`), and the prover feeds that output to the next proof as its argument. **The binding
-between two proofs is only that the next chunk's input state is the previous proof's output, and
-that input is private** (see above). The proofs as they stand therefore prove less than the
-whole-level proof:
+A chunked run is `init` → `step_chunk` × n → `outputs`, each proof separate, each proof's
+arguments private (see above). Since lot P1b every chunked executable **returns a binding header
+before its payload**, so that the public outputs alone tie the proofs together
+(`slingfall_game::chunk::{init_header, step_header, outputs_header}`):
 
-- `step_chunk`'s proof says: *some* state, *some* inputs, shot and K lead to this state.
-- `outputs`' proof says: *some* state and *some* inputs give these 10 felts. Its `level_hash`
-  comes from the level carried in the state, and its `inputs_hash` from the inputs argument.
+| executable | public output (the returned array) |
+|---|---|
+| `init(level)` | `[LEVEL_HASH] ++ state` |
+| `step_chunk(state, inputs, shot, k, trace)` | `[STATE_IN_HASH, INPUTS_HASH, shot, k] ++ new_state` |
+| `outputs(state, inputs)` | `[STATE_IN_HASH, INPUTS_HASH] ++ outputs` (the 10 D4 felts) |
+| `main(level, inputs)` | `outputs` (unchanged: it binds `level_hash` / `inputs_hash` itself) |
 
-Nothing in the proofs ties chunk *i + 1*'s input to chunk *i*'s output, or all chunks to the same
-inputs. A dishonest prover could start the last chunk from a fabricated state with a high score.
-`verify.py --run` checks the links **as recorded by the prover** (`report.json`'s `input_state`
-equals the previous public output). That is a consistency check for an honest prover, not a
-soundness guarantee.
+**The hash.** `LEVEL_HASH = poseidon(level felts)`, `INPUTS_HASH = poseidon(inputs felts)`,
+`STATE_IN_HASH = poseidon(state felts)`: `poseidon_hash_span` over the `Serde` felts of the
+argument, **without the array's length prefix**. For a state these are exactly the felts the
+previous proof returned after its header, i.e. `slingfall_level::hash::serde_hash` of the
+`ChunkState`. The same function everywhere: Cairo `hash_felts` (the corelib sponge, 16 felts per
+loop iteration), Python `tools/levelc/poseidon.py` `hash_span`. The executables hash the argument
+felts they received, before decoding them: a proof commits to the exact felts it ran on.
 
-To make a chain sound, each `step_chunk` and `outputs` proof must commit to its input as well as
-its output. The simplest form: return `poseidon(state_in)` and `inputs_hash` with the new state
-(or its hash). A verifier then checks:
+**What a verifier checks** (`verify.py --run`, `verify.check_chain`), from public data only (the
+proofs, their public outputs, the level and inputs felts; never `report.json`):
 
-- `init`'s output hash is chunk 1's input hash, and each chunk's output hash is the next chunk's
-  input hash;
-- every chunk carries the same `inputs_hash`;
-- `init`'s level is the expected level.
+1. every proof verifies (the STARK, as for `main`), and its program hash is the pinned hash of the
+   executable at its position: `init`, then `step_chunk` × n, then `outputs` (`verify.py`
+   recomputes the hashes from `--executables`);
+2. `chunk_0.STATE_IN_HASH == poseidon(init.state)` and
+   `chunk_{i+1}.STATE_IN_HASH == poseidon(chunk_i.new_state)`;
+3. `outputs.STATE_IN_HASH == poseidon(last.new_state)` (`init.state` when there is no chunk);
+4. every `INPUTS_HASH` (the chunks' and `outputs`') equals the 10-felt `inputs_hash`, which is the
+   hash of the submitted inputs;
+5. each chunk's `shot` is the shot in progress in its input state (`shots_used`, felt 1), that
+   state is not over (felt 2), and `shot` < the number of shots in the inputs: the shots run in
+   order;
+6. the last state is finished: over, or `shots_used` equals the number of shots (a chain cut
+   short would give the outputs of a partial game);
+7. `init.LEVEL_HASH` equals the 10-felt `level_hash`, which is the expected level's hash;
+8. the outputs are the 10 felts after `outputs`' header, checked as for `main` (points 3-4 of
+   "What a verifier must check").
 
-The prover-side scaffolding is ready (`prove.py` chains, `verify.py --run` checks links). The
-executables' outputs are a Cairo change (`slingfall_replay::chunk`, `slingfall_game::chunk`),
-outside P1: see its report, "Escalations". Until then, **only the whole-level proof of `main` is
-a trustless proof of a level**. Chunked proofs are a memory-bounded development tool, or need a
-recursive/aggregating layer that checks the links.
+`k` is public but free: any K sequence gives `main`'s run bit for bit (G4), and `k = 0` is a no-op.
+With these checks a chain is as sound as `main`: each link is a Poseidon collision otherwise. A
+dishonest prover who proves a middle chunk on a fabricated state (say a higher score) and every
+later proof honestly from it gets valid proofs and consistent outputs, and one broken link:
+`chunkNN: STATE_IN_HASH is not the hash of the previous proof's state`
+(`test_prove.py`, `ChainTamper`, on real proofs; `Chain` on synthetic outputs).
+
+**Cost.** ~5.5 Cairo steps per state felt (`scarb execute`, against `main` before P1b): +17.1k to
++18.5k per pile10 `step_chunk` / `outputs` (3 001-3 232 felts), +3.6k to +4.7k on one_block
+(774 felts), +0.5-0.9k per `init`. On a K = 16 chunk: +1.4-1.8 % on one_block, +3.8-4.5 % on
+pile10's light pre-impact chunks (~410k steps), +0.3 % on its impact chunks; +1.2 % over the
+whole pile10 K = 16 chain. The corelib `poseidon_hash_span` costs twice as much (probes
+`slingfall_game::chunk::tests::steps_*hash*`).
+
+A verifier on chain (D9) needs the same checks over the proofs' public outputs, or a recursive
+layer that performs them.
 
 ## Size limit of `canonical_small`
 
@@ -268,3 +302,21 @@ How to read the table:
   number of chunks.
 - **Proofs are deterministic**: the same inputs give the same proof bytes. The `init`, `outputs`
   and `main` proofs had identical sha256 across CI runs.
+
+## Measurements (P1b, binding headers)
+
+Setup: the shared VPS (8 cores, a 22 GiB systemd unit, no swap), the prover built with
+`setup.sh --native`, `canonical_small` unless stated, one proof at a time; `verify.py --run`
+green on every run. Per-run files: `fixtures/proofs/<case>-<mode>-p1b/summary.json`.
+
+| case | mode | proofs | steps (sum) | largest proof | wall (sum) | peak RSS | proof bytes (sum) | result |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| one_block-miss | whole | 1 | 2 801 412 | 2 801 412 | 25.5 s | 5.99 GiB | 1 538 769 | verifies, outputs = golden |
+| one_block-miss | `--k 16` | 10 | 3 186 596 | 572 734 | 228 s | 3.61 GiB | 14 635 159 | verifies, chain linked, outputs = golden |
+| pile10-reference | `--k 16` | 9 | 11 942 986 | 5 352 452 | 241 s | 10.67 GiB | 13 188 942 | verifies, chain linked, outputs = golden |
+| pile10-reference | whole, `canonical_without_pedersen` | 1 | 10 692 530 | 10 692 530 | 94.5 s | 21.73 GiB (cgroup 22.00 GiB sampled) | 1 587 683 | verifies, outputs = golden |
+
+- The headers add 136 476 steps to the pile10 K = 16 chain (+1.16 %: +886 on `init`, +13.5k to
+  +18.4k per chunk, +13.1k on `outputs`), against P1's `pile10-reference-k16`.
+- The whole pile10 shot fits the 22 GiB unit with `canonical_without_pedersen`, just: its peak is
+  at the unit's limit, so it is not a margin to rely on. P1's 16 GB runner was killed on it.
