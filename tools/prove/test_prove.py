@@ -90,8 +90,8 @@ class Decoding(unittest.TestCase):
     def test_executable_bytecode(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "x.executable.json"
-            path.write_text(json.dumps({"program": {"bytecode": ["0x1", "0xa"]}, "entrypoints": []}))
-            self.assertEqual(proofdata.executable_bytecode(path), [1, 10])
+            path.write_text(json.dumps({"program": {"bytecode": ["0x1", "0xa", "-0xc"]}, "entrypoints": []}))
+            self.assertEqual(proofdata.executable_bytecode(path), [1, 10, proofdata.P - 12])
 
 
 @unittest.skipUnless(RUN, "PROVE_RUN=<a whole-level prove.py directory> for the tamper tests")

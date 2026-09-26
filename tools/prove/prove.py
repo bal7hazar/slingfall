@@ -53,6 +53,10 @@ EXECUTABLES = ROOT / "crates" / "slingfall_replay" / "target" / "dev"
 GOLDEN = ROOT / "fixtures" / "golden"
 LEVELS = ROOT / "fixtures" / "levels"
 PARAMS = HERE / "params.canonical_small.json"
+# `canonical_small` has the sequence columns up to 2^20 rows only (stwo-cairo
+# `SMALL_MAX_SEQUENCE_LOG_SIZE`); a larger component needs this one (up to 2^25, ~7 GiB floor).
+PARAMS_LARGE = HERE / "params.canonical_without_pedersen.json"
+SMALL_TRACE_LIMIT = "is missing from static allocation"
 STEPS_RE = re.compile(r"Num steps: (\d+)")
 N_OUTPUTS = 10
 
@@ -124,6 +128,11 @@ class Prover:
         print("  " + measure.line(label, m) + f" steps={entry['steps']}", flush=True)
         self.proofs.append(entry)
         entry["verify"] = "not proven"
+        if SMALL_TRACE_LIMIT in text:
+            entry["verify"] = "component over 2^20 rows"
+            raise ProveError(f"{label}: a component of this trace has more than 2^20 rows, which the "
+                             f"canonical_small preprocessed trace cannot prove (seq columns up to "
+                             f"2^20): prove in chunks, or with --params {PARAMS_LARGE.relative_to(ROOT)}")
         if m["exit"] != 0 or not proof.exists():
             raise ProveError(f"{label}: run_and_prove exit {m['exit']} (killed: {m['exit'] < 0}), "
                              f"log {log}\n{text[-1500:]}")

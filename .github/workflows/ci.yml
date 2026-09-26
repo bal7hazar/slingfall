@@ -187,8 +187,8 @@ jobs:
           - {case: one_block-miss, mode: whole, args: "", measure: false}
           - {case: pile10-reference, mode: chunks2, args: "--chunks 2", measure: true}
           - {case: pile10-reference, mode: chunks3, args: "--chunks 3", measure: true}
-          - {case: pile10-reference, mode: whole, args: "", measure: true}
-          - {case: cores3-reference, mode: whole, args: "", measure: true}
+          - {case: pile10-reference, mode: whole-cwp, args: "--params tools/prove/params.canonical_without_pedersen.json", measure: true}
+          - {case: cores3-reference, mode: whole-cwp, args: "--params tools/prove/params.canonical_without_pedersen.json", measure: true}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/cache@v4
@@ -211,7 +211,7 @@ jobs:
       - name: Re-verify every proof of the run
         run: python3 tools/prove/verify.py --run prove-out
       - name: Tamper tests
-        if: matrix.mode == 'whole'
+        if: startsWith(matrix.mode, 'whole')
         env:
           PROVE_RUN: prove-out
         run: python3 tools/prove/test_prove.py

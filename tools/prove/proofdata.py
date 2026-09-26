@@ -95,9 +95,10 @@ def program_hash(program: list[int]) -> int:
 
 
 def executable_bytecode(path: Path) -> list[int]:
-    """The bytecode of a scarb `*.executable.json` (what the proof's program section holds)."""
+    """The bytecode of a scarb `*.executable.json` (what the proof's program section holds). Jump
+    offsets are written negative (`-0xc`): the felt is `P - x`."""
     doc = json.loads(Path(path).read_text())
-    return [int(x, 0) if isinstance(x, str) else int(x) for x in doc["program"]["bytecode"]]
+    return [(int(x, 0) if isinstance(x, str) else int(x)) % P for x in doc["program"]["bytecode"]]
 
 
 def returned_felts(output: list[int]) -> list[int]:
