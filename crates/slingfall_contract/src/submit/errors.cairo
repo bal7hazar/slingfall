@@ -12,6 +12,8 @@ pub const LEVEL_CALLER: felt252 = 'level: caller';
 
 /// `simulate`: no level has this hash (or its stored felts do not decode).
 pub const SIMULATE_LEVEL: felt252 = 'simulate: level';
+/// `simulate`: the admin has not set the class hash of `SlingfallSim` (`sim_class_hash`).
+pub const SIMULATE_CLASS: felt252 = 'simulate: class';
 /// `simulate`: the inputs felts are not exactly one `Inputs`.
 pub const SIMULATE_INPUTS: felt252 = 'simulate: inputs';
 

@@ -1,7 +1,8 @@
 //! Class-size fixtures of the `Slingfall` contract (lot G7b): Starknet contracts that expose the
 //! contract's code one layer at a time, so that `tools/classsize/classsize.py` can report what each
 //! layer costs in Sierra felts, CASM felts and class bytes against the Starknet limits. Not
-//! published, not deployed; the real contract is `slingfall_contract::submit::Slingfall`.
+//! published, not deployed; the real contracts are `slingfall_contract::submit::Slingfall` and
+//! `slingfall_contract::simulate::class::SlingfallSim`.
 //!
 //! Every fixture embeds `base::BaseComponent` (the registry, `submit` and the admin, i.e. the
 //! `Slingfall` contract without `simulate`) and adds a `simulate` entry point whose hook grows
@@ -16,11 +17,15 @@
 //! | `SizeD_OneStep` | + one `World::step_with_force_events` |
 //! | `SizeD2_OneTick` | + a launch and one `GameTrait::tick` (damage, calm, score) |
 //! | `SizeE_Simulate` | the real `simulate` (`ReplaySimulateHook`, `slingfall_game::play`) |
-//! | `SplitCore` + `SplitSim` | the two-class layout: `SplitCore` library-calls `SplitSim::run` |
+//!
+//! The two-class layout measured here by lot G7b (`SplitCore` + `SplitSim`) is now the real
+//! contract (lot G7c): `Slingfall` library-calls `SlingfallSim` (`slingfall_contract::simulate::
+//! class`), and `tools/classsize` measures both. `SizeE_Simulate` stays the one-class reference
+//! (same code as `SlingfallSim` plus the registry) of the class-size ladder and of the steps of
+//! the library call.
 
 pub mod base;
 pub mod fixtures;
 pub mod hooks;
-pub mod split;
 #[cfg(test)]
 mod tests;
