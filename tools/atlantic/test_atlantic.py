@@ -2,7 +2,7 @@
 
     python3 -m unittest discover -s tools/atlantic -p 'test_*.py'
 
-The fact-chain tests replay the committed runs (`fixtures/proofs/<case>.json`: Atlantic's output and
+The fact-chain tests replay the committed runs (`fixtures/proofs/atlantic/<case>.json`: Atlantic's output and
 facts, our outputs and arguments) through `encoding.py`.
 """
 
@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE))
 import atlantic  # noqa: E402
 import encoding  # noqa: E402
 
-PROOFS = HERE.parents[1] / "fixtures" / "proofs"
+PROOFS = HERE.parents[1] / "fixtures" / "proofs" / "atlantic"
 CASES = ["one_block-miss", "pile10-reference"]
 
 # A verification read on Integrity's Sepolia FactRegistry on 2026-09-26 (event `FactRegistered`

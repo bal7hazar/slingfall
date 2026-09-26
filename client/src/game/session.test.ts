@@ -106,6 +106,10 @@ describe('LevelSession (fake engine)', () => {
     expect(outputs).toMatchObject({ player: DEFAULT_PLAYER, score: '1000', won: '1', shots_used: '2', ticks_run: '6' });
     await session.outputs();
     expect(vm.outputsRuns).toBe(1);
+    // The wallet's outputs: the same final state, the submitting player.
+    const felts = await session.outputsFor('0x5afe');
+    expect([felts[3], felts[5], felts[8]]).toEqual(['0x5afe', '1000', '6']);
+    expect(vm.outputsRuns).toBe(2);
     expect(JSON.parse(inputsJson(session.inputs()))).toEqual({
       player: DEFAULT_PLAYER,
       shots: [

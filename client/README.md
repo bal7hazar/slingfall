@@ -37,6 +37,13 @@ level's end a panel shows won / lost, the score, and the 10 output felts a proof
 carry (`inputs_hash` and `final_state_hash` highlighted), computed by the `outputs` executable in
 the worker; **Copy inputs** copies the shots as JSON (`{player, shots: [{pull_x, pull_y,
 delay}]}`); **Retry** restarts the level from the state `init` returned (no new `init`).
+With a deployed contract configured (`VITE_SLINGFALL_ADDRESS`, `VITE_RPC_URL`, `VITE_ATTEST_URL`,
+from `deploy/devnet.env`; lot G9, [`docs/e2e.md`](../docs/e2e.md)) the panel adds **Submit on
+Starknet**: connect a wallet (Cartridge Controller, a get-starknet browser wallet, or on a devnet
+its prefunded account), give the proof path if the local prover made one, and submit: the page
+recomputes the outputs for the wallet's address, gets `[r, s]` from the attestation service,
+sends `submit(outputs, [r, s])` through the wallet and shows the transaction hash, its gas, the
+player's best and the leaderboard. Without the variables the section (and starknet.js) is left out.
 **Play/Pause** (or Space) and the slider scrub the level so far. `?autoshot=px,py;px,py` releases
 those pulls by itself (headless checks). The console logs each shot's figures (release to first
 frame, ticks, steps, seconds, chunks, wasm) and the outputs.
@@ -56,6 +63,7 @@ frame, ticks, steps, seconds, chunks, wasm) and the outputs.
 | `src/render/` | `buffer` (frames as `f64` columns), `scene` (PixiJS bodies), `camera`, `playback`, `hud`, `live` (arrival rate, slow-motion speed), `effects` (flashes, fade-outs) |
 | `src/game/session.ts` | `LevelSession`: the shot loop without DOM (`init` once, a shot per release from the previous state, the inputs kept, level over from the state header, outputs, retry) |
 | `src/game/stage.ts` | what one level draws: buffer, scene, effects, camera, aim |
+| `src/chain/` | the Submit step (lot G9): `slingfall` (calldata, reads, `LevelValidated`, gas), `attest` (the attestation client), `submission` (the flow, DOM-free), `wallet` (Cartridge / get-starknet / devnet account), `config` (`VITE_*`), `panel` (DOM) |
 | `src/main.ts` | wiring: level choice, live playback, HUD, end-of-level panel, recorded fallback |
 | `src/vm/` | the cairo-vm worker: programs (`slingfallProgram`, `ballDropProgram`), chunk sizing rule, chunk loop, worker, `VmClient`, `WorkerTraceSource` |
 | `public/levels/` | copies of `fixtures/levels/*.json` and `*.felts.json` (checked by `src/game/levels.test.ts`) |

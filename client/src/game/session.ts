@@ -170,6 +170,16 @@ export class LevelSession {
     return this.outputsPromise;
   }
 
+  /**
+   * The outputs felts of the finished level for another `player` (the wallet that submits them:
+   * `submit` wants `player == caller`). The simulation never reads the player, so the final
+   * state stands; only `player` and `inputs_hash` change (one `outputs` run, not cached).
+   */
+  async outputsFor(player: string): Promise<string[]> {
+    if (this.phase !== 'over') throw new Error('the level is not over');
+    return (await this.vm.outputs(this.state, { player, shots: this.shots })).state;
+  }
+
   /** Back to the state `init` returned (no new `init` run). */
   reset(): void {
     if (this.phase === 'flying') throw new Error('cannot reset while a shot is in flight');

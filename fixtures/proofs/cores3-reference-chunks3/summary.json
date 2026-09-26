@@ -1,0 +1,145 @@
+{
+  "case": "cores3-reference",
+  "level": "cores3",
+  "shots": [
+    [
+      -653,
+      -304,
+      0
+    ]
+  ],
+  "mode": "chunked K=60",
+  "k": 60,
+  "params": "params.canonical_small.json",
+  "memory_max": "max",
+  "ok": true,
+  "error": null,
+  "wall_total_s": 190.2,
+  "steps_total": 13877995,
+  "maxrss_peak_bytes": 13022711808,
+  "proof_bytes_total": 6055264,
+  "program_hashes": {
+    "init": "0x2fbad83ae98d17fde2a224b810aa5131bb845f035a5d755488682bf60d909d1",
+    "step_chunk": "0x79a883fcc8f3aaba3a921cfc5e1453f661bf41ff7f09901a00fded757e96f7d",
+    "outputs": "0x540e51231eb36e1d9d028c5734868262e98ed70412569117b34c2b00ddf714b"
+  },
+  "proofs": [
+    {
+      "label": "init",
+      "program": "init",
+      "proof": "init.proof.bin",
+      "steps": 211897,
+      "exit": 0,
+      "wall_s": 19.6,
+      "maxrss_bytes": 3099914240,
+      "cgroup_base_bytes": 3382317056,
+      "cgroup_peak_bytes": 6443368448,
+      "memory_max": "max",
+      "proof_bytes": 1485330,
+      "verify": "ok",
+      "proof_sha256": "e4008bffde068143c9702a9daeaca3994d5e29638695714006de860f2de79e15",
+      "public_output": {
+        "n": 1747,
+        "sha256": "aafd89e3297b04930411b14b254734ea12ae449472470ecaa352f80a2a688330"
+      },
+      "input_state": null,
+      "verify_wall_s": 1.7
+    },
+    {
+      "label": "chunk00",
+      "program": "step_chunk",
+      "proof": "chunk00.proof.bin",
+      "steps": 1046985,
+      "exit": 0,
+      "wall_s": 24.2,
+      "maxrss_bytes": 3587227648,
+      "cgroup_base_bytes": 3395964928,
+      "cgroup_peak_bytes": 6966837248,
+      "memory_max": "max",
+      "proof_bytes": 1158888,
+      "verify": "ok",
+      "proof_sha256": "5b5edaa4e24ee514e955fb6c81273fabd4a1a4c13d5743236f0092c40daa16f6",
+      "public_output": {
+        "n": 1964,
+        "sha256": "b6f403564157db35128d5983aa1019bd9124707ddbf31e32acb59da6350b5f3b"
+      },
+      "input_state": {
+        "n": 1747,
+        "sha256": "aafd89e3297b04930411b14b254734ea12ae449472470ecaa352f80a2a688330"
+      },
+      "verify_wall_s": 1.9
+    },
+    {
+      "label": "chunk01",
+      "program": "step_chunk",
+      "proof": "chunk01.proof.bin",
+      "steps": 6106827,
+      "exit": 0,
+      "wall_s": 54.1,
+      "maxrss_bytes": 9634902016,
+      "cgroup_base_bytes": 3403071488,
+      "cgroup_peak_bytes": 13033615360,
+      "memory_max": "max",
+      "proof_bytes": 1188203,
+      "verify": "ok",
+      "proof_sha256": "a5b16af93ae5fcbf0380318ed5ea6708634c57b2640de71a3e17ff6e009b33e2",
+      "public_output": {
+        "n": 1755,
+        "sha256": "c74a4f7c890df68ccfdd9dc786b9f8d30ac854d200061fadbef2059eb47c165e"
+      },
+      "input_state": {
+        "n": 1964,
+        "sha256": "b6f403564157db35128d5983aa1019bd9124707ddbf31e32acb59da6350b5f3b"
+      },
+      "verify_wall_s": 1.8
+    },
+    {
+      "label": "chunk02",
+      "program": "step_chunk",
+      "proof": "chunk02.proof.bin",
+      "steps": 6473040,
+      "exit": 0,
+      "wall_s": 64.7,
+      "maxrss_bytes": 13022711808,
+      "cgroup_base_bytes": 3407282176,
+      "cgroup_peak_bytes": 15339577344,
+      "memory_max": "max",
+      "proof_bytes": 1244052,
+      "verify": "ok",
+      "proof_sha256": "d4f3d166fa56ff17da96ef160ec488a88955672bfd602fa7149e599c13bf32b1",
+      "public_output": {
+        "n": 1165,
+        "sha256": "2e0d56157dc34d4ad20c9913322821a1455f24a705ab853ef48fed2e701657b2"
+      },
+      "input_state": {
+        "n": 1755,
+        "sha256": "c74a4f7c890df68ccfdd9dc786b9f8d30ac854d200061fadbef2059eb47c165e"
+      },
+      "verify_wall_s": 1.9
+    },
+    {
+      "label": "outputs",
+      "program": "outputs",
+      "proof": "outputs.proof.bin",
+      "steps": 39246,
+      "exit": 0,
+      "wall_s": 13.5,
+      "maxrss_bytes": 2747428864,
+      "cgroup_base_bytes": 2527514624,
+      "cgroup_peak_bytes": 5189324800,
+      "memory_max": "max",
+      "proof_bytes": 978791,
+      "verify": "ok",
+      "proof_sha256": "bb10de44d2165a07bd80628cf371147d25ec624ac181b48cc9525cd0f142567a",
+      "public_output": {
+        "n": 10,
+        "sha256": "be3bc8d9f45a08a3037a74fdbd313613cc12138d2a7c15064269a10c1fe416df"
+      },
+      "input_state": {
+        "n": 1165,
+        "sha256": "2e0d56157dc34d4ad20c9913322821a1455f24a705ab853ef48fed2e701657b2"
+      },
+      "verify_wall_s": 0.2
+    }
+  ]
+}

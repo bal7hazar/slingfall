@@ -170,6 +170,84 @@ jobs:
         if: matrix.kind == 'fuzz'
         run: python3 tools/golden/golden.py fuzz --seed 5 --n 6 --no-build --level ${{ matrix.level }}
 
+  prove:
+    # Local Stwo proving (tools/prove, lot P1, docs/proving.md): build stwo-cairo's run_and_prove /
+    # verify (cached by rev and patches), prove one_block-miss (2.8M steps, ~7 GiB) with the
+    # canonical_small preprocessed trace, re-verify it and check its outputs against the golden,
+    # then the tamper tests. ~3 min with the build cached, ~13 min cold (the prover build alone is
+    # ~9.5 min on the runner's 4 cores): optional, not in `all-checks`. The measurement legs of
+    # the pull request (pile10 / cores3 chunked, fixtures/proofs/) were a matrix on this job.
+    name: prove (one_block-miss)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      # Restore and save apart, so that the build is cached even when a later step fails.
+      - uses: actions/cache/restore@v4
+        id: stwo
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/prove/vendor
+          key: stwo-cairo-467d5c6-${{ hashFiles('tools/prove/*.patch', 'tools/prove/setup.sh') }}
+          restore-keys: stwo-cairo-467d5c6-
+      # rustup installs the toolchain of the clone's rust-toolchain.toml.
+      - name: Build the prover
+        run: tools/prove/setup.sh
+      - uses: actions/cache/save@v4
+        if: steps.stwo.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/prove/vendor
+          key: stwo-cairo-467d5c6-${{ hashFiles('tools/prove/*.patch', 'tools/prove/setup.sh') }}
+      - uses: software-mansion/setup-scarb@v1
+      - run: scarb --manifest-path "$REPLAY" build
+      - name: Decoding tests
+        run: python3 tools/prove/test_prove.py
+      - name: Prove and verify
+        run: python3 tools/prove/prove.py --case one_block-miss --out prove-out
+      - name: Re-verify every proof of the run
+        run: python3 tools/prove/verify.py --run prove-out
+      - name: Tamper tests
+        env:
+          PROVE_RUN: prove-out
+        run: python3 tools/prove/test_prove.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prove-one_block-miss
+          path: |
+            prove-out/*.json
+            prove-out/*.log
+
+  e2e:
+    # Lot G9 (docs/e2e.md): attest.py unit tests, then deploy/e2e.sh on a local starknet-devnet
+    # (release binary): deploy, replay the pile10 reference shot for the devnet account, attest,
+    # submit, best / leaderboard, the nullifier. Optional: not in `all-checks` (external devnet).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: attest.py unit tests
+        run: python3 -m unittest discover -s services/attest -v
+      - uses: software-mansion/setup-scarb@v1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm --prefix client ci
+      - run: scarb --manifest-path "$REPLAY" build
+      - name: End to end on the devnet
+        run: deploy/e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e
+          path: deploy/out/
+
   all-checks:
     # The single required check: green only when every job above is.
     if: always()

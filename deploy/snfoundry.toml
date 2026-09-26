@@ -1,0 +1,10 @@
+# sncast profiles for manual reads and admin calls on a deployed Slingfall (docs/e2e.md); the
+# deployment itself is deploy/slingfall.ts. Run from deploy/: `sncast --profile devnet call ...`.
+# Accounts come from sncast's own accounts file (`sncast account import`), never from this file.
+# Sepolia: pass the owner's RPC on the command line, `sncast --profile sepolia --url "$STARKNET_RPC"`.
+
+[sncast.devnet]
+url = "http://127.0.0.1:5050/rpc"
+
+[sncast.sepolia]
+account = "slingfall-admin"
