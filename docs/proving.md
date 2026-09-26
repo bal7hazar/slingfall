@@ -468,7 +468,8 @@ later (`01M3EMT5TPVX00M8TC1K6HS841`, created 10:40Z: `IN_PROGRESS`, step `TRACE_
 so the prover service submits `PROOF_VERIFICATION_ON_L2` by default and `SatelliteVerifier` accepts the
 keccak fact. Anyone may call the Satellite's permissionless `translateFactHash(
 ATLANTIC_BOOTLOADER_PROGRAM_HASH, out, false)` to register the Poseidon fact from the keccak one (a
-transaction; not sent by E3a or E3b), after which the cheaper Poseidon path applies.
+transaction, not sent by E3a or E3b; lot E3c sent it: "Translation" below), after which the cheaper
+Poseidon path applies.
 
 Trust: the fact rests on Ethereum's SHARP verifier plus Herodotus's L1 → L2 bridge and Satellite owner
 (the Satellite is upgradeable), not on an on-chain Starknet verification of the proof.
@@ -511,9 +512,63 @@ the account. The whole deployment (declare 22.9 STRK, deploy, configure, six lev
    the job id (`sha256(level_hash, inputs, c1main Sierra, result)`: retries are idempotent). Jobs live
    on disk (`services/prove/out/<id>/job.json`).
 3. Latency on Sepolia: trace generation 40-100 s, SHARP proof + L1 verification ≈ 1.5 h, bridge ≈ 4
-   min. `GET /status/<id>` answers Atlantic's stages and the Satellite's two reads (`settleable`).
-4. The player sends `submit_settled(outputs, args)` from their wallet ("Settle on Starknet"); the
-   contract recomputes and checks the fact (above). Nothing Atlantic-specific is signed by the player.
+   min. `GET /status/<id>` answers Atlantic's stages and the Satellite's two reads: `settleable_poseidon`
+   (translated fact, cheap), `settleable_keccak` (bridged fact only), `settleable` (either), and
+   `translation` (E3c, below).
+4. The player sends `submit_settled(outputs, args)` from their wallet ("Settle (cheap)" when the
+   Poseidon fact is on the Satellite, else "Settle"; the contract itself tries the Poseidon fact first
+   and falls back to the keccak one); it recomputes and checks the fact (above). Nothing
+   Atlantic-specific is signed by the player.
+
+### Translation (E3c): the service translates the fact itself
+
+The Satellite's `translateFactHash(program_hash: felt252, output: Span<felt252>, is_mocked: bool)`
+(`HerodotusDev/satellite`, `cairo/src/cairo_fact_registry.cairo`; the ABI of the class deployed on
+Sepolia matches) re-derives the keccak fact and the Poseidon fact from `program_hash` and `output`,
+asserts `keccak_facts[(keccak_fact, is_mocked)]` (`KECCAK_FACT_HASH_NOT_SAVED` otherwise), sets
+`translated_fact_hashes[(poseidon_fact, is_mocked)]` and emits `TranslatedFactHashSet(keccak_fact_hash: u256,
+integrity_fact_hash, is_mocked)`. Nobody is authorised or paid: `isCairoFactValid(fact, false)` is then
+true (`get_all_verifications_for_fact_hash` shows one `translated` verification, 96 security bits).
+For a Slingfall run `program_hash` = `ATLANTIC_BOOTLOADER_PROGRAM_HASH` and `output` = Atlantic's output
+(`encoding.run_output`: 172 felts for pile10, 175 felts of calldata with the program hash, the length
+and `is_mocked`), which the tool recomputes from the level, the inputs and the run's outputs and checks
+against the keccak fact before sending anything.
+
+- **Tool.** `tools/atlantic/atlantic.py translate <sharp_fact> (--fixture NAME | --query ID | --output
+  FILE) [--dry-run]`: checks the output hashes to the keccak fact, that the Poseidon fact is not
+  valid yet and that the keccak fact is on the Satellite, sends the transaction with
+  `node deploy/slingfall.ts translate --output FILE` (starknet.js; the account of the environment:
+  `STARKNET_*` or `SLINGFALL_*`), checks `isCairoFactValid` afterwards. `deploy/sepolia.sh translate JOB`
+  does it for a prover-service job.
+- **Service.** When Atlantic's status is `DONE` (the keccak fact is bridged) and the Poseidon fact is
+  still absent `TRANSLATE_GRACE` seconds after Atlantic's `completedAt` (default 600; the first sighting
+  when there is none), `serve`'s background thread (a pass every 120 s) translates it: one transaction,
+  three attempts at most, ten minutes apart, recorded in `job.json` (`translation`). Atlantic's own
+  translation, when it comes, wins (the fact is then already valid). Without an account
+  (`STARKNET_ACCOUNT_ADDRESS`, `STARKNET_PRIVATE_KEY`, `STARKNET_RPC_URL`) or with `--no-translate` the
+  service only reports `settleable_keccak`. `/status`'s `translation.state`: `waiting`, `grace`,
+  `translate`, `translated`, `backoff`, `gave-up`, `no-account`, `unknown`
+  (`prove_service.translation_decision`, table-tested).
+- **Client.** The panel shows "Settle" on the keccak path and switches the button to "Settle (cheap)"
+  when `settleable_poseidon` turns true (it keeps polling while the service can still translate).
+
+Sepolia (2026-09-26, `fixtures/proofs/atlantic/pile10-reference-sepolia.json`, `translation`): the E3b
+fact `0xced287ce…3fb5d6` translated by `atlantic.py translate`, transaction
+`0x40c081d32d2b150122c0e2ad25178b16681bd95b91de290a3e4247c30f0a624`: 13,731,733 L2 gas, 288 L1 data gas,
+**0.290 STRK**; `isCairoFactValid(0x5c02aa91…9caf5)` went from `false` to `true` (`check-fact`: one
+`translated` verification, 96 bits).
+
+Cost of the settled submit by path (`deploy/e2e.sh`, starknet-devnet 0.10.0 with the `FakeSatellite`,
+pile10 reference, L2 gas): Poseidon fact 4,453,840 (0.79x the attested `submit`, 5,649,600), keccak
+fact 11,973,840 (2.12x); both figures are E3b's, reproduced. On Sepolia the keccak path cost 18,819,885
+(E3b). The Poseidon path was **not** measured on Sepolia: the deployed verifier is the Satellite-only
+one (no attested `submit` exists there) and the only funded attempt's nullifier is settled, so a
+second `submit_settled` reverts; a fresh attempt needs a new Atlantic proof (about 66 min). What the
+numbers bound: the real Satellite costs about 6.85M L2 gas more than the fake over the keccak path
+(18.82M against 11.97M), so the Poseidon path on Sepolia is at most about 4.45M + 6.85M ≈ 11.3M (an
+inference, not a measurement), below the keccak path's 18.8M in any case. The translation itself is a
+transaction of 13.7M L2 gas that the service pays: translating moves cost from the player's settlement
+to the service, it does not reduce the total.
 
 ### Runs, latency, cost
 
