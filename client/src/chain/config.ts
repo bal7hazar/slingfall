@@ -6,6 +6,8 @@ export interface ChainConfig {
   address: string;
   rpcUrl: string;
   attestUrl: string;
+  /** The prover service of the settled tier (`services/prove`); `null`: no "Settle" step. */
+  proveUrl: string | null;
   /** Devnet only: a prefunded account the page signs with itself (no wallet extension). */
   devnetAccount: { address: string; privateKey: string } | null;
 }
@@ -25,6 +27,7 @@ export function chainConfig(env: Env = import.meta.env): ChainConfig | null {
     address,
     rpcUrl: get('VITE_RPC_URL') ?? 'http://127.0.0.1:5050/rpc',
     attestUrl: get('VITE_ATTEST_URL') ?? 'http://127.0.0.1:8547',
+    proveUrl: get('VITE_PROVE_URL') ?? null,
     devnetAccount: devAddress && devKey ? { address: devAddress, privateKey: devKey } : null,
   };
 }

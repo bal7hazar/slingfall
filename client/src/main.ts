@@ -3,6 +3,7 @@ import './style.css';
 import type { Pull } from './aim/pull';
 import { chainConfig } from './chain/config';
 import { SubmitPanel } from './chain/panel';
+import { inputsFelts } from './chain/slingfall';
 import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
 import { Hud, hudAt } from './render/hud';
@@ -214,7 +215,7 @@ async function main(): Promise<void> {
       console.log(`outputs (${(performance.now() - t).toFixed(0)} ms): ${OUTPUT_FIELDS.map((f) => outputs[f]).join(' ')}`);
       ui.resultSummary.textContent = `Score ${r.score} · shots ${r.shotsUsed} · ${r.ticks} ticks · the outputs a proof will carry:`;
       showOutputs(outputs);
-      submit?.offer((player) => s.outputsFor(player));
+      submit?.offer((player) => s.outputsFor(player), (player) => inputsFelts(player, s.shots));
     } catch (e) {
       ui.resultSummary.textContent = `Score ${r.score} · outputs failed: ${e instanceof Error ? e.message : e}`;
     }

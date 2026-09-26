@@ -13,7 +13,10 @@ import {
   mentionsPanic,
   receiptGas,
   registerLevelCall,
+  runArgs,
+  inputsFelts,
   submitCalldata,
+  submitSettledCall,
 } from './slingfall';
 import { submitLevel, type Receipt } from './submission';
 
@@ -102,7 +105,9 @@ describe('submit encoding', () => {
   });
 
   it('decodes best and leaderboard', () => {
-    expect(decodeRecord(['0x1450', '0x1', '0xabc', '0x7'])).toEqual({ score: 5200, won: true, inputsHash: '0xabc', block: 7 });
+    expect(decodeRecord(['0x1450', '0x1', '0xabc', '0x7', '0x0'])).toEqual({ score: 5200, won: true, inputsHash: '0xabc', block: 7, settled: false });
+    expect(decodeRecord(['0x1450', '0x1', '0xabc', '0x7', '0x1']).settled).toBe(true);
+    expect(() => decodeRecord(['0x1450', '0x1', '0xabc', '0x7'])).toThrow('4 felts');
     expect(decodeLeaderboard(['0x2', '0x10', '0x64', '0x20', '0x32'])).toEqual([
       { player: '0x10', score: 100 },
       { player: '0x20', score: 50 },
@@ -116,11 +121,13 @@ describe('submit encoding', () => {
       events: [
         { from_address: '0x123', keys: [LEVEL_VALIDATED, '0x1', '0x2'], data: ['0x3', '0x4', '0x1'] },
         { from_address: CONTRACT, keys: ['0x99'], data: [] },
-        { from_address: CONTRACT, keys: [LEVEL_VALIDATED, feltHex(C.PLAYER), PILE10_HASH], data: ['0xabc', '0x672', '0x1'] },
+        { from_address: CONTRACT, keys: [LEVEL_VALIDATED, feltHex(C.PLAYER), PILE10_HASH], data: ['0xabc', '0x672', '0x1', '0x0'] },
+        { from_address: CONTRACT, keys: [LEVEL_VALIDATED, feltHex(C.PLAYER), PILE10_HASH], data: ['0xabd', '0x672', '0x1', '0x1'] },
       ],
     };
     expect(levelValidatedEvents(receipt, CONTRACT)).toEqual([
-      { player: feltHex(C.PLAYER), levelHash: feltHex(PILE10_HASH), inputsHash: '0xabc', score: 1650, won: true },
+      { player: feltHex(C.PLAYER), levelHash: feltHex(PILE10_HASH), inputsHash: '0xabc', score: 1650, won: true, settled: false },
+      { player: feltHex(C.PLAYER), levelHash: feltHex(PILE10_HASH), inputsHash: '0xabd', score: 1650, won: true, settled: true },
     ]);
     expect(receiptGas({ execution_resources: { l1_gas: 0, l1_data_gas: 128, l2_gas: 1_000_000 }, actual_fee: { amount: '0x10', unit: 'FRI' } }))
       .toEqual({ l1Gas: 0, l1DataGas: 128, l2Gas: 1_000_000, fee: '16', unit: 'FRI' });
@@ -138,7 +145,7 @@ describe('submitLevel', () => {
   const deps = (receipt: Receipt) => {
     const execute = vi.fn(async () => ({ transaction_hash: '0xfeed' }));
     const reader = {
-      callContract: async (call: Call) => (call.entrypoint === 'best' ? ['0x672', '0x1', '0xabc', '0x3'] : ['0x1', player, '0x672']),
+      callContract: async (call: Call) => (call.entrypoint === 'best' ? ['0x672', '0x1', '0xabc', '0x3', '0x0'] : ['0x1', player, '0x672']),
     };
     return {
       execute,
@@ -180,7 +187,7 @@ describe('SlingfallContract', () => {
     const reader = {
       callContract: async (call: Call) => {
         calls.push(call);
-        return call.entrypoint === 'best' ? ['0x5', '0x0', '0x1', '0x2'] : ['0x0'];
+        return call.entrypoint === 'best' ? ['0x5', '0x0', '0x1', '0x2', '0x1'] : ['0x0'];
       },
     };
     const contract = new SlingfallContract(CONTRACT, reader);
@@ -196,5 +203,28 @@ describe('SlingfallContract', () => {
     expect(await contract.submit(player, GOLDEN, SIGNATURE)).toBe('0xfeed');
     expect(execute).toHaveBeenCalledWith({ contractAddress: CONTRACT, entrypoint: 'submit', calldata: submitCalldata(GOLDEN, SIGNATURE) });
     await expect(contract.submit({ address: '0x1', execute }, GOLDEN, SIGNATURE)).rejects.toThrow('is not the account');
+
+    const args = ['0x1', '0x2', '0x1', '0x3'];
+    expect(await contract.submitSettled(player, GOLDEN, args)).toBe('0xfeed');
+    expect(execute).toHaveBeenLastCalledWith(submitSettledCall(CONTRACT, GOLDEN, args));
+    await expect(contract.submitSettled({ address: '0x1', execute }, GOLDEN, args)).rejects.toThrow('is not the account');
+  });
+});
+
+describe('settled tier', () => {
+  /** The E3a run of pile10-reference (`fixtures/proofs/atlantic`): its outputs and c1main's argument. */
+  const e3a = JSON.parse(readFileSync(root('fixtures/proofs/atlantic/pile10-reference.json'), 'utf8')) as { args: string[]; outputs: string[] };
+
+  it('lays out submit_settled(outputs, args) as submit does', () => {
+    const call = submitSettledCall(CONTRACT, e3a.outputs, e3a.args);
+    expect(call.entrypoint).toBe('submit_settled');
+    expect(call.calldata).toEqual(submitCalldata(e3a.outputs, e3a.args));
+  });
+
+  it('writes the Inputs felts and the run argument as tracec.py does', () => {
+    const inputs = inputsFelts(feltHex(C.PLAYER), [{ pull_x: -604, pull_y: -392 }]);
+    const level = JSON.parse(readFileSync(root('fixtures/levels/pile10.felts.json'), 'utf8')) as { felts: string[] };
+    expect(runArgs(level.felts, inputs)).toEqual(e3a.args.map(feltHex));
+    expect(inputsFelts('0x1', [{ pull_x: 3, pull_y: -1, delay: 30 }])).toEqual(['0x1', '0x1', '0x3', feltHex(2n ** 251n + 17n * 2n ** 192n), '0x1e', '0x0']);
   });
 });
