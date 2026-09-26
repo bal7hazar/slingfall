@@ -28,6 +28,8 @@ use super::{
     ISlingfallSafeDispatcher, ISlingfallSafeDispatcherTrait, Slingfall,
 };
 
+mod settled;
+
 const ADMIN: felt252 = 'admin';
 const AUTHOR: felt252 = 'author';
 const OTHER: felt252 = 'other';
@@ -226,7 +228,7 @@ fn test_stub_verifier_accepts_the_golden_attestation() {
     let mut spy = spy_events();
     start_cheat_block_number(setup.address, 77);
     setup.game.submit(golden_claim().to_felts(), array![GOLDEN_R, GOLDEN_S]);
-    let expected = Record { score: 1650, won: true, inputs_hash: 0xabc, block: 77 };
+    let expected = Record { score: 1650, won: true, inputs_hash: 0xabc, block: 77, settled: false };
     assert_eq!(setup.game.best(address(PLAYER), PILE10_HASH), expected);
     let event = Slingfall::LevelValidated {
         player: address(PLAYER),
@@ -234,6 +236,7 @@ fn test_stub_verifier_accepts_the_golden_attestation() {
         inputs_hash: 0xabc,
         score: 1650,
         won: true,
+        settled: false,
     };
     spy.assert_emitted(@array![(setup.address, Slingfall::Event::LevelValidated(event))]);
     // snforge's signer derives the same public key as the Python helper.
