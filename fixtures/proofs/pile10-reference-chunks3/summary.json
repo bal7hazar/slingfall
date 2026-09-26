@@ -1,0 +1,112 @@
+{
+  "case": "pile10-reference",
+  "level": "pile10",
+  "shots": [
+    [
+      -604,
+      -392,
+      0
+    ]
+  ],
+  "mode": "chunked K=36",
+  "k": 36,
+  "params": "params.canonical_small.json",
+  "memory_max": "max",
+  "ok": false,
+  "error": "chunk02: a component of this trace has more than 2^20 rows, which the canonical_small preprocessed trace cannot prove (seq columns up to 2^20): prove in chunks, or with --params tools/prove/params.canonical_without_pedersen.json",
+  "wall_total_s": 101.3,
+  "steps_total": 11183849,
+  "maxrss_peak_bytes": 15729156096,
+  "proof_bytes_total": 3808871,
+  "program_hashes": {
+    "init": "0x2fbad83ae98d17fde2a224b810aa5131bb845f035a5d755488682bf60d909d1",
+    "step_chunk": "0x79a883fcc8f3aaba3a921cfc5e1453f661bf41ff7f09901a00fded757e96f7d"
+  },
+  "proofs": [
+    {
+      "label": "init",
+      "program": "init",
+      "proof": "init.proof.bin",
+      "steps": 365371,
+      "exit": 0,
+      "wall_s": 17.7,
+      "maxrss_bytes": 3233476608,
+      "cgroup_base_bytes": 3384066048,
+      "cgroup_peak_bytes": 6600220672,
+      "memory_max": "max",
+      "proof_bytes": 1482302,
+      "verify": "ok",
+      "proof_sha256": "99edb81ae46fdd6bac54311f0c770636ad6e4856e8dbeea750d6a2c27a3a92cc",
+      "public_output": {
+        "n": 3001,
+        "sha256": "9b352326f568a9df499e913966319e6cadd6bf4d625bcd3d521f07396abc1c60"
+      },
+      "input_state": null,
+      "verify_wall_s": 1.4
+    },
+    {
+      "label": "chunk00",
+      "program": "step_chunk",
+      "proof": "chunk00.proof.bin",
+      "steps": 782536,
+      "exit": 0,
+      "wall_s": 17.0,
+      "maxrss_bytes": 3470176256,
+      "cgroup_base_bytes": 3397505024,
+      "cgroup_peak_bytes": 6849863680,
+      "memory_max": "max",
+      "proof_bytes": 1161397,
+      "verify": "ok",
+      "proof_sha256": "3e6908a094d2819efce8fbaab50c12ca487974bc830f9f5b4dad0c4bbf1cdf1b",
+      "public_output": {
+        "n": 3232,
+        "sha256": "86725a3ddeaa6efc68f581a9b56e540e99a9fae354852e7c867d52357c40819f"
+      },
+      "input_state": {
+        "n": 3001,
+        "sha256": "9b352326f568a9df499e913966319e6cadd6bf4d625bcd3d521f07396abc1c60"
+      },
+      "verify_wall_s": 1.5
+    },
+    {
+      "label": "chunk01",
+      "program": "step_chunk",
+      "proof": "chunk01.proof.bin",
+      "steps": 735926,
+      "exit": 0,
+      "wall_s": 17.8,
+      "maxrss_bytes": 3512569856,
+      "cgroup_base_bytes": 3401854976,
+      "cgroup_peak_bytes": 6898737152,
+      "memory_max": "max",
+      "proof_bytes": 1165172,
+      "verify": "ok",
+      "proof_sha256": "fd0360526c1b63790b60cc6464225dc7e2a4b982823cd0dfc29bb32fc361ee63",
+      "public_output": {
+        "n": 3232,
+        "sha256": "24e8cc27fa0d7377303ce7ce1284ab764172baa7acfb810a7e4039e1ca27b0cd"
+      },
+      "input_state": {
+        "n": 3232,
+        "sha256": "86725a3ddeaa6efc68f581a9b56e540e99a9fae354852e7c867d52357c40819f"
+      },
+      "verify_wall_s": 1.5
+    },
+    {
+      "label": "chunk02",
+      "program": "step_chunk",
+      "proof": "chunk02.proof.bin",
+      "steps": 9300016,
+      "exit": 101,
+      "wall_s": 40.4,
+      "maxrss_bytes": 15729156096,
+      "cgroup_base_bytes": 3406671872,
+      "cgroup_peak_bytes": 15991840768,
+      "memory_max": "max",
+      "proof_bytes": null,
+      "verify": "component over 2^20 rows",
+      "public_output": null,
+      "input_state": null
+    }
+  ]
+}

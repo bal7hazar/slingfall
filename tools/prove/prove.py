@@ -21,8 +21,9 @@ Every proof: `--params_json params.canonical_small.json --proof-format binary --
 through `measure.py` (wall, peak RSS), one at a time. Then `verify.py`'s checks on each proof.
 Writes to `--out`: the proofs (`*.proof.bin`), `outputs.json` (the 10 felts, the level and inputs
 felts, the program hash of the executable that produced them), `report.json` (per proof: steps,
-wall, peak RSS, proof bytes and sha256, verify; the chain), the logs. With `--case`, the outputs
-must equal `fixtures/golden/<case>.json`.
+wall, peak RSS, proof bytes and sha256, verify; the chain), `summary.json` (the same without the
+state felts, as `fixtures/proofs/` keeps it), the logs. With `--case`, the outputs must equal
+`fixtures/golden/<case>.json`.
 """
 
 from __future__ import annotations
@@ -154,6 +155,19 @@ class Prover:
         return output
 
 
+def summary(report: dict) -> dict:
+    """`report.json` without the state felts (a chunk's state is hundreds of felts): each
+    `public_output` / `input_state` becomes its length and the sha256 of its hex felts joined by
+    commas. What `fixtures/proofs/` keeps."""
+    def digest(felts):
+        return None if felts is None else {
+            "n": len(felts), "sha256": hashlib.sha256(",".join(felts).encode()).hexdigest()}
+    return {**report, "proofs": [
+        {**p, "public_output": digest(p.get("public_output")), "input_state": digest(p.get("input_state"))}
+        for p in report["proofs"]
+    ]}
+
+
 def run(args) -> int:
     started = time.time()
     golden = None
@@ -229,6 +243,7 @@ def run(args) -> int:
         "proofs": prover.proofs,
     }
     (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+    (out / "summary.json").write_text(json.dumps(summary(report), indent=2) + "\n")
     if error:
         print(f"FAIL {error}", file=sys.stderr)
         return 1

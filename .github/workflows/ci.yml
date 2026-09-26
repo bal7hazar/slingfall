@@ -174,22 +174,12 @@ jobs:
     # Local Stwo proving (tools/prove, lot P1, docs/proving.md): build stwo-cairo's run_and_prove /
     # verify (cached by rev and patches), prove one_block-miss (2.8M steps, ~7 GiB) with the
     # canonical_small preprocessed trace, re-verify it and check its outputs against the golden,
-    # then the tamper tests. Optional: not in `all-checks` (a cold build of the prover alone takes
-    # longer than the 12 minutes a required check may take).
-    name: prove (${{ matrix.case }}, ${{ matrix.mode }})
+    # then the tamper tests. ~3 min with the build cached, ~13 min cold (the prover build alone is
+    # ~9.5 min on the runner's 4 cores): optional, not in `all-checks`. The measurement legs of
+    # the pull request (pile10 / cores3 chunked, fixtures/proofs/) were a matrix on this job.
+    name: prove (one_block-miss)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    continue-on-error: ${{ matrix.measure }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {case: one_block-miss, mode: whole, args: "", measure: false}
-          - {case: pile10-reference, mode: chunks2, args: "--chunks 2", measure: true}
-          - {case: pile10-reference, mode: chunks3, args: "--chunks 3", measure: true}
-          - {case: pile10-reference, mode: k16, args: "--k 16", measure: true}
-          - {case: cores3-reference, mode: chunks3, args: "--chunks 3", measure: true}
-          - {case: cores3-reference, mode: k16, args: "--k 16", measure: true}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       # Restore and save apart, so that the build is cached even when a later step fails.
@@ -218,18 +208,17 @@ jobs:
       - name: Decoding tests
         run: python3 tools/prove/test_prove.py
       - name: Prove and verify
-        run: python3 tools/prove/prove.py --case ${{ matrix.case }} ${{ matrix.args }} --out prove-out
+        run: python3 tools/prove/prove.py --case one_block-miss --out prove-out
       - name: Re-verify every proof of the run
         run: python3 tools/prove/verify.py --run prove-out
       - name: Tamper tests
-        if: startsWith(matrix.mode, 'whole')
         env:
           PROVE_RUN: prove-out
         run: python3 tools/prove/test_prove.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: prove-${{ matrix.case }}-${{ matrix.mode }}
+          name: prove-one_block-miss
           path: |
             prove-out/*.json
             prove-out/*.log

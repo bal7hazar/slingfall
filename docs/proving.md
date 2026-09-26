@@ -189,9 +189,26 @@ component has more than 2^20 rows panics after the commitment phase, whatever th
 `Preprocessed column … "seq_21" is missing from static allocation`. `prove.py` reports this panic
 as a "more than 2^20 rows" error.
 
-The whole pile10 reference shot (10.7M steps) and the whole cores3 reference shot (13.5M) both
-hit it (CI, P1). Such a proof needs `--params tools/prove/params.canonical_without_pedersen.json`,
-which starts at a 7 GiB floor, or chunks.
+On the replay executables, the component that crosses the limit is the **range_check builtin
+segment**, padded to the next power of two. The evidence (P1, CI):
+
+- every failing run used more than 2^20 = 1 048 576 range checks: the pile10 impact chunk of
+  9.6M steps used 1 155 700 (padded to 2^21);
+- every passing run used fewer: pile10's 5.3M-step chunk used 651 635, cores3's 6.5M-step chunk
+  578 535;
+- range checks are ~6-12 % of the steps, depending on the physics.
+
+A proof therefore has to stay under ~1.05M range checks, not under a step count. That is roughly
+8.5M steps during a pile10 impact and more on lighter ticks.
+
+Runs that hit the limit: the whole pile10 reference shot (10.7M steps), the whole cores3
+reference shot (13.5M), and pile10 in 2 or 3 equal-tick chunks (see Measurements). Such a proof
+has two options:
+
+- chunk more finely: K = 16 proves both levels;
+- `--params tools/prove/params.canonical_without_pedersen.json`, whose preprocessed trace alone
+  is ~7 GiB. A whole pile10 or cores3 shot with it killed the 16 GB CI runner, so the whole levels
+  need more than 16 GB.
 
 ## Memory model
 
@@ -212,4 +229,42 @@ The limits that follow:
 - ~11.5M under 20 GiB;
 - ~8.5M on a 16 GB GitHub runner.
 
-Measured figures: P1's report and `fixtures/proofs/`.
+The measurements below agree: 2.8M steps → 6.0 GiB, 5.3M → 9.4 GiB, 6.5M → 12.1 GiB. With
+`canonical_small`, the range-check limit above binds before memory does on a 16-20 GiB machine.
+
+## Measurements (P1)
+
+Setup of these runs:
+
+- GitHub `ubuntu-latest` runners: 4 vCPU, 16 GB, no cgroup limit visible (`memory.max` =
+  `max`), the prover built without `target-cpu=native`;
+- `canonical_small`, binary proofs;
+- steps are `run_and_prove`'s `Num steps`, and the peak is the child's `ru_maxrss`;
+- verify is the separate `verify` binary, ~1.5 s per proof.
+
+Per-run files: `fixtures/proofs/<case>-<mode>/summary.json`.
+
+| case | mode | proofs | steps (sum) | largest proof | wall (sum) | peak RSS | proof bytes (sum) | result |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| one_block-miss | whole | 1 | 2 801 412 | 2 801 412 | 30 s | 6.02 GiB | 1 538 769 | verifies, outputs = golden |
+| pile10-reference | whole | 1 | 10 692 530 | – | 44 s | 14.64 GiB | – | range-check limit (2^21) |
+| pile10-reference | whole, `canonical_without_pedersen` | 1 | 10 692 530 | – | killed at ~54 s | > 16 GB | – | runner out of memory |
+| pile10-reference | `--chunks 2` (K 54) | init + 2 | – | 9 594 383 | – | 14.60 GiB | – | chunk 1: range-check limit |
+| pile10-reference | `--chunks 3` (K 36) | init + 3 | – | 9 300 016 | – | 14.65 GiB | – | chunk 2: range-check limit |
+| pile10-reference | `--k 16` | 9 | 11 806 510 | 5 334 069 | 168 s | 9.41 GiB | 10 592 959 | verifies, outputs = golden |
+| cores3-reference | whole | 1 | 13 537 066 | – | 70 s | 14.73 GiB | – | range-check limit (2^21) |
+| cores3-reference | whole, `canonical_without_pedersen` | 1 | 13 537 066 | – | killed at ~63 s | > 16 GB | – | runner out of memory |
+| cores3-reference | `--chunks 3` (K 60) | 5 | 13 877 995 | 6 473 040 | 176 s | 12.13 GiB | 6 055 264 | verifies, outputs = golden |
+| cores3-reference | `--k 16` | 14 | 14 618 516 | 2 345 691 | 227 s | 5.23 GiB | 16 366 119 | verifies, outputs = golden |
+
+How to read the table:
+
+- **Equal ticks are not equal steps.** On pile10 the first ~70 ticks cost ~25k steps each; the
+  impact ticks average ~330k. With `--chunks 2`, chunk 0 has 1.1M steps and chunk 1 9.6M.
+  Chunks balanced by steps would need a step estimate per tick, which is not done here.
+- **The chunking overhead** is `init` plus the `step_chunk` round trips, plus `outputs`: +10 % on
+  pile10 K = 16, +8 % on cores3 K = 16, +2.5 % on cores3 K = 60.
+- **Proof bytes** are ~1.0-1.5 MB per proof whatever its size, so the total grows with the
+  number of chunks.
+- **Proofs are deterministic**: the same inputs give the same proof bytes. The `init`, `outputs`
+  and `main` proofs had identical sha256 across CI runs.
