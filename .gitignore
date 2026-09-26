@@ -11,6 +11,10 @@ BRIEF.md
 REPORT.md
 LAST_MESSAGE.md
 
+# E3a Atlantic scratch (PIEs, cairo-vm fork build, query logs)
+tools/atlantic/out/
+tools/atlantic/.venv/
+
 # P1 vendored prover build
 tools/prove/vendor/
 tools/prove/out/

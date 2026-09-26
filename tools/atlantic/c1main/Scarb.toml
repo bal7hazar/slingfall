@@ -1,0 +1,31 @@
+[package]
+name = "c1main"
+description = "Slingfall `main` for cairo1-run --append_return_values (lot E3a): the program proven through Atlantic."
+version = "0.1.0"
+edition = "2024_07"
+cairo-version = "2.19.4"
+license = "MIT"
+
+# Outside the root workspace, as crates/slingfall_replay: `cairo1-run` runs a gas-free Sierra program
+# whose `main` takes one `Array<felt252>`. `sierra-replace-ids` keeps the debug names `cairo1-run`
+# uses to find `::main`. Build: `scarb --manifest-path tools/atlantic/c1main/Scarb.toml build`.
+[workspace]
+
+[dependencies]
+# Same pins as crates/slingfall_replay.
+fixed = "0.3.0"
+glam = "0.3.0"
+rapier2d = "=0.1.0-alpha.3"
+slingfall_game = { path = "../../../crates/slingfall_game" }
+slingfall_level = { path = "../../../crates/slingfall_level" }
+slingfall_rules = { path = "../../../crates/slingfall_rules" }
+
+[cairo]
+enable-gas = false
+sierra-replace-ids = true
+
+[lib]
+
+[tool.fmt]
+sort-module-level-items = true
+max-line-length = 100
