@@ -9,8 +9,9 @@ with `scarb execute --executable-name <name>`.
 |---|---|---|---|
 | `main` | `main::main(level, inputs)` | `NoopObserver` (proof build, no prints) | the 10 felts of `Outputs` (D4) |
 | `main_trace` | `trace::main_trace(level, inputs)` | `TraceObserver` (trace lines v1) | the same 10 felts |
-| `init` | `chunk::init(level)` | prints the level header lines | the `ChunkState` felts |
-| `step_chunk` | `chunk::step_chunk(state, inputs, shot, k, trace)` | `TraceObserver` when `trace != 0`, else none | the new `ChunkState` felts |
+| `init` | `chunk::init(level)` | prints the level header lines | `[level_hash]`, then the `ChunkState` felts |
+| `step_chunk` | `chunk::step_chunk(state, inputs, shot, k, trace)` | `TraceObserver` when `trace != 0`, else none | `[state_in_hash, inputs_hash, shot, k]`, then the new `ChunkState` felts |
+| `outputs` | `outputs::outputs(state, inputs)` | none | `[state_in_hash, inputs_hash]`, then the 10 felts of `Outputs` |
 
 A nested package with its own `[workspace]`, outside the root one: executables need
 `enable-gas = false`, which `snforge` refuses, so tests run under the gas-enabled `snforge`
@@ -85,6 +86,28 @@ Every argument is `Serde`: an `Array<felt252>` is its length then its felts; neg
 
 A shot's loop: `state = init(level)`; for `s` in the shots: while `state[1] == s` and `state[2] == 0`,
 `state = step_chunk(state, inputs, s, K, 1)`. The inputs may hold fewer shots than `level.shots`.
+Each `state` there is the returned array **without its binding header** (below).
+
+### Binding header (lot P1b)
+
+The arguments of an executable are private in its proof; only the bytecode and the returned
+array are public. So each chunked executable returns a header that commits to its arguments, then
+its payload (`docs/proving.md`, "Chunk binding"). Header lengths, the constants of
+`slingfall_game::chunk` that the client (`client/src/vm/program.ts`, `BINDING_HEADER`) and the
+tools (`tools/prove/proofdata.py`, `tools/golden/golden.py`) mirror:
+
+| executable | header | length (`*_HEADER_LEN`) | payload |
+|---|---|---:|---|
+| `init` | `[LEVEL_HASH]` | 1 (`INIT_HEADER_LEN`) | the `ChunkState` felts |
+| `step_chunk` | `[STATE_IN_HASH, INPUTS_HASH, shot, k]` | 4 (`STEP_HEADER_LEN`) | the new `ChunkState` felts |
+| `outputs` | `[STATE_IN_HASH, INPUTS_HASH]` | 2 (`OUTPUTS_HEADER_LEN`) | the 10 `Outputs` felts |
+| `main`, `main_trace` | none | 0 | the 10 `Outputs` felts |
+
+A hash is `poseidon_hash_span` of the argument's felts **without** the array's length prefix:
+`LEVEL_HASH` is D4's `level_hash`, `INPUTS_HASH` is `inputs_hash`, `STATE_IN_HASH` is the hash of
+exactly the felts a previous `init` / `step_chunk` returned after its header (= `serde_hash` of the
+`ChunkState`). `slingfall_game::chunk::hash_felts` computes it 16 felts per loop iteration, bit for
+bit the corelib's function.
 
 ## Trace lines v1 (`src/trace.cairo`)
 
@@ -142,6 +165,11 @@ the shot's `step_chunk` steps minus one `k = 0` round trip per chunk:
 Chunked build: `init` 326,991 (pile10) / 191,837 (cores3); a `step_chunk` round trip (`k = 0`:
 decode the state, the level and the inputs, restore and save the world, serialise) 136,301 on
 pile10, 82,705 on cores3. K = 60 on the pre-G3b reference shot: 6 chunks, +584k over `main`.
+
+Binding headers (lot P1b, `scarb execute`, against `main`'s executables before it): `init` +886
+(pile10) / +499 (one_block); each `step_chunk` and `outputs` +17.1-18.5k on pile10 (a 3 001-3 232
+felt state) and +3.6-4.7k on one_block (774 felts), ~5.5 steps per state felt. `main` is
+unchanged.
 
 snforge probes (`steps/slingfall_game/play.snap` for the first two, `steps/slingfall_replay/*.snap`), pile10 reference shot: rules alone (`new` +
 `play_shot` + hash) 32,129,896; `play` + `NoopObserver` 32,133,817 (**+0.012 %**, budget 1 %);
