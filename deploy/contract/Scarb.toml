@@ -1,0 +1,20 @@
+# Deploy build of the registry class `Slingfall` with its CASM: `crates/slingfall_contract` builds
+# Sierra only, and a declare transaction carries the compiled class hash. Its own workspace (as the
+# temporary packages of `tools/classsize/classsize.py`): the pins repeat the root `Scarb.toml`'s.
+# `SlingfallSim` is not built: it is over the CASM limit and not deployable (docs/DESIGN.md D11).
+[workspace]
+
+[package]
+name = "slingfall_deploy"
+version = "0.1.0"
+edition = "2024_07"
+cairo-version = "2.19.4"
+
+[dependencies]
+starknet = "2.19.4"
+slingfall_contract = { path = "../../crates/slingfall_contract" }
+
+[[target.starknet-contract]]
+sierra = true
+casm = true
+build-external-contracts = ["slingfall_contract::submit::Slingfall"]
