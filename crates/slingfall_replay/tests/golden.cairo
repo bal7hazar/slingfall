@@ -135,7 +135,7 @@ fn twin_felts() -> Array<felt252> {
 }
 
 /// pile10-reference: pile10, shots [[-604, -392, 0]];
-/// 20,742,085 Cairo steps in `scarb execute`.
+/// 10,692,530 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_pile10_reference() {
     let inputs = array![
@@ -153,7 +153,7 @@ fn test_golden_pile10_reference() {
 }
 
 /// pile10-three-shots: pile10, shots [[-150, -150, 0], [-200, -200, 0], [-600, -392, 0]];
-/// 38,147,555 Cairo steps in `scarb execute`.
+/// 18,398,236 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_pile10_three_shots() {
     let inputs = array![
@@ -175,7 +175,7 @@ fn test_golden_pile10_three_shots() {
 }
 
 /// cores3-reference: cores3, shots [[-653, -304, 0]];
-/// 22,801,514 Cairo steps in `scarb execute`.
+/// 13,537,066 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_cores3_reference() {
     let inputs = array![
@@ -193,7 +193,7 @@ fn test_golden_cores3_reference() {
 }
 
 /// cores3-three-shots: cores3, shots [[-150, -150, 0], [-200, -200, 0], [-600, -392, 0]];
-/// 31,595,277 Cairo steps in `scarb execute`.
+/// 17,921,749 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_cores3_three_shots() {
     let inputs = array![
@@ -215,7 +215,7 @@ fn test_golden_cores3_three_shots() {
 }
 
 /// cores3-disk-outside: cores3, shots [[-1000, -900, 0]];
-/// 4,422,832 Cairo steps in `scarb execute`.
+/// 2,062,517 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_cores3_disk_outside() {
     let inputs = array![
@@ -233,7 +233,7 @@ fn test_golden_cores3_disk_outside() {
 }
 
 /// one_block-miss: one_block, shots [[-150, -150, 0]];
-/// 4,146,731 Cairo steps in `scarb execute`.
+/// 2,801,412 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_one_block_miss() {
     let inputs = array![
@@ -251,7 +251,7 @@ fn test_golden_one_block_miss() {
 }
 
 /// one_block-delay30: one_block, shots [[-600, -392, 30]];
-/// 2,819,875 Cairo steps in `scarb execute`.
+/// 1,930,282 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_one_block_delay30() {
     let inputs = array![
@@ -269,7 +269,7 @@ fn test_golden_one_block_delay30() {
 }
 
 /// one_block-disk-boundary: one_block, shots [[0, -1024, 0]];
-/// 2,333,285 Cairo steps in `scarb execute`.
+/// 1,696,127 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_one_block_disk_boundary() {
     let inputs = array![
@@ -286,7 +286,7 @@ fn test_golden_one_block_disk_boundary() {
 }
 
 /// tower-reference: tower, shots [[-604, -392, 0]];
-/// 42,399,252 Cairo steps in `scarb execute`.
+/// 27,632,638 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_tower_reference() {
     let inputs = array![
@@ -304,7 +304,7 @@ fn test_golden_tower_reference() {
 }
 
 /// bridge-reference: bridge, shots [[-463, -552, 0]];
-/// 19,090,613 Cairo steps in `scarb execute`.
+/// 11,151,810 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_bridge_reference() {
     let inputs = array![
@@ -322,7 +322,7 @@ fn test_golden_bridge_reference() {
 }
 
 /// twin-reference: twin, shots [[-503, -327, 0], [-543, -472, 0]];
-/// 47,579,795 Cairo steps in `scarb execute`.
+/// 26,765,156 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_twin_reference() {
     let inputs = array![

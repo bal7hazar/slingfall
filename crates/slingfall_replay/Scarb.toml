@@ -16,7 +16,7 @@ repository = "https://github.com/bal7hazar/slingfall"
 # Same pins as the root `Scarb.toml` (two sources of `fixed` would mean two `Fixed` types).
 fixed = "0.3.0"
 glam = "0.3.0"
-rapier2d = "=0.1.0-alpha.1"
+rapier2d = "=0.1.0-alpha.2"
 slingfall_game = { path = "../slingfall_game" }
 slingfall_level = { path = "../slingfall_level" }
 slingfall_rules = { path = "../slingfall_rules" }
