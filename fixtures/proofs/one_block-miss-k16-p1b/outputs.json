@@ -10,7 +10,7 @@
   ],
   "mode": "chunked K=16",
   "program": "outputs",
-  "program_hash": "0x2ee00e85021e893c1e6b0e7efc6e5b383dab8ee4e3eb8b283f80d0f39e7b761",
+  "program_hash": "0xa8f41b36cf8e5d484c9f5f32baa222e3256aec40c79e7dcd13c7bf46471d3f",
   "executables": "crates/slingfall_replay/target/dev",
   "level_felts": [
     "0x1",

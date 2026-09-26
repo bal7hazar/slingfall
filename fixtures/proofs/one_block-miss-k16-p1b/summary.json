@@ -14,30 +14,30 @@
   "memory_max": "23622320128",
   "ok": true,
   "error": null,
-  "wall_total_s": 228.4,
-  "steps_total": 3186596,
-  "maxrss_peak_bytes": 3876921344,
-  "proof_bytes_total": 14635159,
+  "wall_total_s": 212.7,
+  "steps_total": 2821056,
+  "maxrss_peak_bytes": 3777843200,
+  "proof_bytes_total": 14654632,
   "program_hashes": {
-    "init": "0x74a9e5569fb76389f7b81bf396c8ae63629eabd77d4d8106023d8b6d796c304",
-    "step_chunk": "0x40c4eb050499160b97bdda0ae4392477db65888013c4c0d67cc86b48ead6e24",
-    "outputs": "0x2ee00e85021e893c1e6b0e7efc6e5b383dab8ee4e3eb8b283f80d0f39e7b761"
+    "init": "0x6a092dd77a4e6a562ddf053cc7ce2199ed42043a76ad49de44e7c1fa8e7ef9",
+    "step_chunk": "0x28fa5446f08fcbdd5ebf9bed3d6fc3a678f9aade28e5cd9b1ec139e91030010",
+    "outputs": "0xa8f41b36cf8e5d484c9f5f32baa222e3256aec40c79e7dcd13c7bf46471d3f"
   },
   "proofs": [
     {
       "label": "init",
       "program": "init",
       "proof": "init.proof.bin",
-      "steps": 72083,
+      "steps": 71435,
       "exit": 0,
-      "wall_s": 20.4,
-      "maxrss_bytes": 2970828800,
-      "cgroup_base_bytes": 3496452096,
-      "cgroup_peak_bytes": 6153740288,
+      "wall_s": 17.0,
+      "maxrss_bytes": 2929733632,
+      "cgroup_base_bytes": 1181622272,
+      "cgroup_peak_bytes": 3999092736,
       "memory_max": "23622320128",
-      "proof_bytes": 1475496,
+      "proof_bytes": 1494765,
       "verify": "ok",
-      "proof_sha256": "a39205b391c383a5e92349e8144db43ffe6abc7da3798af3accfbc954837fd13",
+      "proof_sha256": "fa0ba495ac992234b102f63bb0ea30a4163cc380f59d1b7e92cc8dde24a84e4e",
       "public_output": {
         "n": 600,
         "sha256": "e5a2bba6219850e39384e50b7925a0f569bebaa9b0b19ae42ce5ede4bb130209"
@@ -52,16 +52,16 @@
       "label": "chunk00",
       "program": "step_chunk",
       "proof": "chunk00.proof.bin",
-      "steps": 268527,
+      "steps": 254913,
       "exit": 0,
-      "wall_s": 20.8,
-      "maxrss_bytes": 3490234368,
-      "cgroup_base_bytes": 3509800960,
-      "cgroup_peak_bytes": 6979174400,
+      "wall_s": 18.9,
+      "maxrss_bytes": 3482173440,
+      "cgroup_base_bytes": 1191657472,
+      "cgroup_peak_bytes": 4657860608,
       "memory_max": "23622320128",
-      "proof_bytes": 1518788,
+      "proof_bytes": 1523506,
       "verify": "ok",
-      "proof_sha256": "7ab924e446015f16a69bbbe1d5f8b5738925904d9cd579cb26571fb4f41df386",
+      "proof_sha256": "bac6b73af64f8754bd3a396f9d4eb660d91b4834300bb1f44d167ded79dc7ee9",
       "public_output": {
         "n": 778,
         "sha256": "8a9a0b785cf2b90c77f0f48e9309af8a98b2240da6f2b53df557252b6482d766"
@@ -76,22 +76,22 @@
         "n": 599,
         "sha256": "f67df088b4e094e80ed8e6e34e48b60bbc7979d9d9431e997dc69556087f9d72"
       },
-      "verify_wall_s": 2.6
+      "verify_wall_s": 2.3
     },
     {
       "label": "chunk01",
       "program": "step_chunk",
       "proof": "chunk01.proof.bin",
-      "steps": 259214,
+      "steps": 245328,
       "exit": 0,
-      "wall_s": 20.7,
-      "maxrss_bytes": 3442524160,
-      "cgroup_base_bytes": 3511435264,
-      "cgroup_peak_bytes": 6936330240,
+      "wall_s": 20.4,
+      "maxrss_bytes": 3503702016,
+      "cgroup_base_bytes": 1197330432,
+      "cgroup_peak_bytes": 4684779520,
       "memory_max": "23622320128",
-      "proof_bytes": 1522981,
+      "proof_bytes": 1525241,
       "verify": "ok",
-      "proof_sha256": "6d2305964add2aadda6e53cb6d989f22d51ec2d6be615ec3242cb9971baea880",
+      "proof_sha256": "ddce6510f4e30b223f60ee57f1501b54e112e8fe8ddfb555c5f6d35b0dade939",
       "public_output": {
         "n": 778,
         "sha256": "b3a4f3f64ebe9a459717ebce3da08f6295b75ae5de7f738e6f6edea14e8af905"
@@ -112,16 +112,16 @@
       "label": "chunk02",
       "program": "step_chunk",
       "proof": "chunk02.proof.bin",
-      "steps": 259214,
+      "steps": 245328,
       "exit": 0,
-      "wall_s": 21.0,
-      "maxrss_bytes": 3443294208,
-      "cgroup_base_bytes": 3515277312,
-      "cgroup_peak_bytes": 6942871552,
+      "wall_s": 19.1,
+      "maxrss_bytes": 3482718208,
+      "cgroup_base_bytes": 1201180672,
+      "cgroup_peak_bytes": 4626501632,
       "memory_max": "23622320128",
-      "proof_bytes": 1512617,
+      "proof_bytes": 1504655,
       "verify": "ok",
-      "proof_sha256": "a0d7f44d30c34f2530a51a250b1dc7dc4dbd788321d4d95913b15c5f362b40ec",
+      "proof_sha256": "e5dd8fa9559d08a61cf56615c6d1cecc85a233c936b49e3d974e13bc9d4d0781",
       "public_output": {
         "n": 778,
         "sha256": "8808190fcf023c0f290235ab154d605d610291bb838dd07202383adf1649c5d6"
@@ -136,22 +136,22 @@
         "n": 774,
         "sha256": "21bb1c779ed6a74503c3eedcc60f54123102317ddb933b585e13d4b357801afe"
       },
-      "verify_wall_s": 2.1
+      "verify_wall_s": 2.2
     },
     {
       "label": "chunk03",
       "program": "step_chunk",
       "proof": "chunk03.proof.bin",
-      "steps": 279174,
+      "steps": 261311,
       "exit": 0,
-      "wall_s": 19.9,
-      "maxrss_bytes": 3467866112,
-      "cgroup_base_bytes": 3517497344,
-      "cgroup_peak_bytes": 6972071936,
+      "wall_s": 20.0,
+      "maxrss_bytes": 3452329984,
+      "cgroup_base_bytes": 1203945472,
+      "cgroup_peak_bytes": 4638638080,
       "memory_max": "23622320128",
-      "proof_bytes": 1527662,
+      "proof_bytes": 1525981,
       "verify": "ok",
-      "proof_sha256": "675abd3086f37171f3c335861b4f3f47a7d3ed716faf9ac940c43e7c0823db34",
+      "proof_sha256": "d7c7284dcc7afc62eb5e3ab05688a94ee388bdd72de6a6de58c55bca8d456766",
       "public_output": {
         "n": 778,
         "sha256": "cc68d381b005cf293f9fa3492579ee12d9b088d2d2cef8979ab7d99dbed48d07"
@@ -166,22 +166,22 @@
         "n": 774,
         "sha256": "49226d6c0a9da65c1efcce04bd67d6bcc93e5acffb310e58ca65960e304ee8d8"
       },
-      "verify_wall_s": 2.1
+      "verify_wall_s": 2.2
     },
     {
       "label": "chunk04",
       "program": "step_chunk",
       "proof": "chunk04.proof.bin",
-      "steps": 562283,
+      "steps": 467718,
       "exit": 0,
-      "wall_s": 20.7,
-      "maxrss_bytes": 3769094144,
-      "cgroup_base_bytes": 3523432448,
-      "cgroup_peak_bytes": 7273123840,
+      "wall_s": 19.5,
+      "maxrss_bytes": 3592077312,
+      "cgroup_base_bytes": 1207029760,
+      "cgroup_peak_bytes": 4780015616,
       "memory_max": "23622320128",
-      "proof_bytes": 1515852,
+      "proof_bytes": 1518803,
       "verify": "ok",
-      "proof_sha256": "84b61f414368aa367a66fd3d4ecfcf8db5a70ed951cced6ecbaf3d5f3d381d09",
+      "proof_sha256": "811e0de43175e71fafa799989bb3c3e7f9fa735cdc48be8ba84dbc7ae76aa2ba",
       "public_output": {
         "n": 778,
         "sha256": "14acd863378dca185f51987e00bda3ad0ed57fa950b5cbf5689eee528a696ee1"
@@ -202,16 +202,16 @@
       "label": "chunk05",
       "program": "step_chunk",
       "proof": "chunk05.proof.bin",
-      "steps": 572734,
+      "steps": 486980,
       "exit": 0,
-      "wall_s": 20.9,
-      "maxrss_bytes": 3876921344,
-      "cgroup_base_bytes": 3525939200,
-      "cgroup_peak_bytes": 7312531456,
+      "wall_s": 19.0,
+      "maxrss_bytes": 3674591232,
+      "cgroup_base_bytes": 1209155584,
+      "cgroup_peak_bytes": 4819922944,
       "memory_max": "23622320128",
-      "proof_bytes": 1514857,
+      "proof_bytes": 1523323,
       "verify": "ok",
-      "proof_sha256": "c497cc17dcc8f93307e6829092eba782e0c62083b7e03b91cc48dc58d1166d43",
+      "proof_sha256": "84693e994cfbd512d7fd713b73e10878193133e51232ca0bdc450e89315b3ddd",
       "public_output": {
         "n": 778,
         "sha256": "50623d1b8e00e322a9e7ebbf1a9c5d0766819d7ac992df655ca6d96e0ab70966"
@@ -226,22 +226,22 @@
         "n": 774,
         "sha256": "4654909727ac0d04ae357f5a801f3543c750f4fcb1f24f1b536fe52555cb5256"
       },
-      "verify_wall_s": 2.2
+      "verify_wall_s": 2.1
     },
     {
       "label": "chunk06",
       "program": "step_chunk",
       "proof": "chunk06.proof.bin",
-      "steps": 572734,
+      "steps": 488202,
       "exit": 0,
-      "wall_s": 23.0,
-      "maxrss_bytes": 3870593024,
-      "cgroup_base_bytes": 3528650752,
-      "cgroup_peak_bytes": 7358001152,
+      "wall_s": 20.3,
+      "maxrss_bytes": 3777843200,
+      "cgroup_base_bytes": 1211498496,
+      "cgroup_peak_bytes": 4972892160,
       "memory_max": "23622320128",
-      "proof_bytes": 1517700,
+      "proof_bytes": 1519319,
       "verify": "ok",
-      "proof_sha256": "8de00bb053374238f67895c144d583aca32e5de22fe0f2c12771b2c19dc19893",
+      "proof_sha256": "6e0ad2c72d391da84e5648a5fadc40bfd825e7bf36a1ff3d258a2ce090096225",
       "public_output": {
         "n": 778,
         "sha256": "5ebb37951bbeba6be451423fd3a9a013ff80af1219e20e64f1cbb2aa8da45c5f"
@@ -256,22 +256,22 @@
         "n": 774,
         "sha256": "e1bad4b5983e657ff92485f9d23c040c264c4d9761de3a60cc34f9a6c42e0642"
       },
-      "verify_wall_s": 2.2
+      "verify_wall_s": 2.1
     },
     {
       "label": "chunk07",
       "program": "step_chunk",
       "proof": "chunk07.proof.bin",
-      "steps": 313016,
+      "steps": 271249,
       "exit": 0,
-      "wall_s": 19.4,
-      "maxrss_bytes": 3471691776,
-      "cgroup_base_bytes": 3531636736,
-      "cgroup_peak_bytes": 6930911232,
+      "wall_s": 19.0,
+      "maxrss_bytes": 3417767936,
+      "cgroup_base_bytes": 1216466944,
+      "cgroup_peak_bytes": 4549640192,
       "memory_max": "23622320128",
-      "proof_bytes": 1525035,
+      "proof_bytes": 1513862,
       "verify": "ok",
-      "proof_sha256": "3bf76578dac98f286d0ec6355d09ffd89700849fafc31d4eec7547cf102ba2cd",
+      "proof_sha256": "2cf707502246b68bc9d4630efbd93da6721d95e39b5c669d9fa97ccea97cfedb",
       "public_output": {
         "n": 692,
         "sha256": "56d20b93cca86d0cb56ee92e5a59e51c7a1f31c843f8fdfe836a68208435e49e"
@@ -292,16 +292,16 @@
       "label": "outputs",
       "program": "outputs",
       "proof": "outputs.proof.bin",
-      "steps": 27617,
+      "steps": 28592,
       "exit": 0,
-      "wall_s": 7.1,
-      "maxrss_bytes": 3180814336,
-      "cgroup_base_bytes": 3534225408,
-      "cgroup_peak_bytes": 6399492096,
+      "wall_s": 5.7,
+      "maxrss_bytes": 3172491264,
+      "cgroup_base_bytes": 1220304896,
+      "cgroup_peak_bytes": 4302114816,
       "memory_max": "23622320128",
-      "proof_bytes": 1004171,
+      "proof_bytes": 1005177,
       "verify": "ok",
-      "proof_sha256": "88c050e54c9227ba869b1c0c7ce277d95e50b741e815193c4cb727117b9d7e6e",
+      "proof_sha256": "7839b6907a534772391c835f28aae1ea519889972d7dbe862b8df41ac46ebebe",
       "public_output": {
         "n": 12,
         "sha256": "f8bc645ac58abe46b782083999db30983b93c30733ce0802ce967e0096a8da49"
@@ -314,7 +314,7 @@
         "n": 688,
         "sha256": "abeff4998aabaeb65e55d241f505eb793672257572dc2c3ac6cdca90bd578596"
       },
-      "verify_wall_s": 0.2
+      "verify_wall_s": 0.3
     }
   ]
 }

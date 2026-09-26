@@ -10,7 +10,7 @@
   ],
   "mode": "whole",
   "program": "main",
-  "program_hash": "0x6ba8179d6dc26c57e1fb681d303c986f5d074e8ee2f7d9cf8771b72cdc972cc",
+  "program_hash": "0x11d8b326a39850ca6ac8937cbc5854f3463c0d2dcee2449e05ab1fe347e052e",
   "executables": "crates/slingfall_replay/target/dev",
   "level_felts": [
     "0x1",

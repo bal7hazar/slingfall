@@ -128,9 +128,9 @@ a function of the `*.executable.json` alone:
 | executable (rapier alpha.3, P1b's binding headers) | program hash |
 |---|---|
 | `main` | `0x11d8b326a39850ca6ac8937cbc5854f3463c0d2dcee2449e05ab1fe347e052e` (the same as without P1b) |
-| `init` | `0x3989a8a4b39608266158e6ac98487fc4cf2bf1531513a1cc397235763c5eea` |
-| `step_chunk` | `0x339a6dc7022208f49bc2d6f95c0ecb8e45fb765942ea97289bb9d6ede31ea20` |
-| `outputs` | `0x53c43f4837a77a87ed9c87bd57fff1839a2d9a796649a4f9385bfdc1ec2b0c5` |
+| `init` | `0x6a092dd77a4e6a562ddf053cc7ce2199ed42043a76ad49de44e7c1fa8e7ef9` |
+| `step_chunk` | `0x28fa5446f08fcbdd5ebf9bed3d6fc3a678f9aade28e5cd9b1ec139e91030010` |
+| `outputs` | `0xa8f41b36cf8e5d484c9f5f32baa222e3256aec40c79e7dcd13c7bf46471d3f` |
 
 The bytecode writes jump offsets as negative numbers (`-0xc`), which are the felts `P - x`. The
 `main` value is the one a CI proof carried.
@@ -175,7 +175,7 @@ before its payload**, so that the public outputs alone tie the proofs together
 argument, **without the array's length prefix**. For a state these are exactly the felts the
 previous proof returned after its header, i.e. `slingfall_level::hash::serde_hash` of the
 `ChunkState`. The same function everywhere: Cairo `hash_felts` (the corelib sponge, 16 felts per
-loop iteration), Python `tools/levelc/poseidon.py` `hash_span`. The executables hash the argument
+loop iteration, without `multi_pop_front`, whose hint the client's cairo-vm cannot run), Python `tools/levelc/poseidon.py` `hash_span`. The executables hash the argument
 felts they received, before decoding them: a proof commits to the exact felts it ran on.
 
 **What a verifier checks** (`verify.py --run`, `verify.check_chain`), from public data only (the
@@ -205,12 +205,12 @@ later proof honestly from it gets valid proofs and consistent outputs, and one b
 `chunkNN: STATE_IN_HASH is not the hash of the previous proof's state`
 (`test_prove.py`, `ChainTamper`, on real proofs; `Chain` on synthetic outputs).
 
-**Cost.** ~5.5 Cairo steps per state felt (`scarb execute`, against `main` before P1b): +17.1k to
-+18.5k per pile10 `step_chunk` / `outputs` (3 001-3 232 felts), +3.6k to +4.7k on one_block
-(774 felts), +0.5-0.9k per `init`. On a K = 16 chunk: +1.4-1.8 % on one_block, +3.8-4.5 % on
-pile10's light pre-impact chunks (~410k steps), +0.3 % on its impact chunks; +1.2 % over the
-whole pile10 K = 16 chain. The corelib `poseidon_hash_span` costs twice as much (probes
-`slingfall_game::chunk::tests::steps_*hash*`).
+**Cost.** ~7 Cairo steps per state felt (`scarb execute`, rapier alpha.3, against `main`'s
+executables): +21.4k to +23.1k per pile10 `step_chunk` / `outputs` (3 001-3 232 felts), +4.5k to
++5.8k on one_block (774 felts), +0.6-1.1k per `init`. On a K = 16 chunk: +1.8-2.4 % on one_block,
++4.9-6.0 % on pile10's light pre-impact chunks (~390k steps), +0.5-0.7 % on its impact chunks;
+**+1.73 % over the whole pile10 K = 16 chain** (9 898 547 → 10 069 549). The corelib
+`poseidon_hash_span` costs ~1.9× as much (probes `slingfall_game::chunk::tests::steps_*hash*`).
 
 A verifier on chain (D9) needs the same checks over the proofs' public outputs, or a recursive
 layer that performs them.
@@ -305,19 +305,22 @@ How to read the table:
 
 ## Measurements (P1b, binding headers)
 
-Setup: rapier alpha.2 (the lot's commits before B2 was merged in; the header costs are the same on
-alpha.3: `scarb execute` gives identical deltas), the shared VPS (8 cores, a 22 GiB systemd unit, no swap), the prover built with
-`setup.sh --native`, `canonical_small` unless stated, one proof at a time; `verify.py --run`
-green on every run. Per-run files: `fixtures/proofs/<case>-<mode>-p1b/summary.json`.
+Setup: rapier alpha.3, the lot's final code, the shared VPS (8 cores, a 22 GiB systemd unit, no
+swap), the prover built with `setup.sh --native`, `canonical_small` unless stated, one proof at a
+time; `verify.py --run` green on every run. Per-run files:
+`fixtures/proofs/<case>-<mode>-p1b/summary.json`.
 
-| case | mode | proofs | steps (sum) | largest proof | wall (sum) | peak RSS | proof bytes (sum) | result |
+| case | mode | proofs | steps (sum) | largest proof | wall (sum of proofs) | peak RSS | proof bytes (sum) | result |
 |---|---|---:|---:|---:|---:|---:|---:|---|
-| one_block-miss | whole | 1 | 2 801 412 | 2 801 412 | 25.5 s | 5.99 GiB | 1 538 769 | verifies, outputs = golden |
-| one_block-miss | `--k 16` | 10 | 3 186 596 | 572 734 | 228 s | 3.61 GiB | 14 635 159 | verifies, chain linked, outputs = golden |
-| pile10-reference | `--k 16` | 9 | 11 942 986 | 5 352 452 | 241 s | 10.67 GiB | 13 188 942 | verifies, chain linked, outputs = golden |
-| pile10-reference | whole, `canonical_without_pedersen` | 1 | 10 692 530 | 10 692 530 | 94.5 s | 21.73 GiB (cgroup 22.00 GiB sampled) | 1 587 683 | verifies, outputs = golden |
+| one_block-miss | whole | 1 | 2 425 011 | 2 425 011 | 27 s | 5.65 GiB | 1 558 919 | verifies, outputs = golden |
+| one_block-miss | `--k 16` | 10 | 2 821 056 | 488 202 | 179 s | 3.52 GiB | 14 654 632 | verifies, chain linked, outputs = golden |
+| pile10-reference | `--k 16` | 9 | 10 069 549 | 4 312 754 | 203 s | 10.17 GiB | 13 225 744 | verifies, chain linked, outputs = golden |
+| pile10-reference | whole, `canonical_without_pedersen` | 1 | 8 783 663 | 8 783 663 | 55 s | 20.53 GiB (cgroup 21.00 GiB sampled) | 1 583 677 | verifies, outputs = golden |
 
-- The headers add 136 476 steps to the pile10 K = 16 chain (+1.16 %: +886 on `init`, +13.5k to
-  +18.4k per chunk, +13.1k on `outputs`), against P1's `pile10-reference-k16`.
-- The whole pile10 shot fits the 22 GiB unit with `canonical_without_pedersen`, just: its peak is
-  at the unit's limit, so it is not a margin to rely on. P1's 16 GB runner was killed on it.
+- The headers add 171 002 steps to the pile10 K = 16 chain (+1.73 %), against the same chain of
+  `main`'s executables (`scarb execute`).
+- Per proof on pile10 K = 16: ~21 s and ~4.3 GiB for a light chunk, 36 s and 10.17 GiB for the
+  4.31M-step impact chunk, 15 s for `outputs`.
+- The whole pile10 shot (alpha.3: 8.78M steps) fits the 22 GiB unit with
+  `canonical_without_pedersen`, ~1.5 GiB under the limit. P1's 16 GB runner was killed on it
+  (alpha.2, 10.7M steps).

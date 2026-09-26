@@ -14,28 +14,28 @@
   "memory_max": "23622320128",
   "ok": true,
   "error": null,
-  "wall_total_s": 29.7,
-  "steps_total": 2801412,
-  "maxrss_peak_bytes": 6429335552,
-  "proof_bytes_total": 1538769,
+  "wall_total_s": 31.7,
+  "steps_total": 2425011,
+  "maxrss_peak_bytes": 6065418240,
+  "proof_bytes_total": 1558919,
   "program_hashes": {
-    "main": "0x6ba8179d6dc26c57e1fb681d303c986f5d074e8ee2f7d9cf8771b72cdc972cc"
+    "main": "0x11d8b326a39850ca6ac8937cbc5854f3463c0d2dcee2449e05ab1fe347e052e"
   },
   "proofs": [
     {
       "label": "main",
       "program": "main",
       "proof": "main.proof.bin",
-      "steps": 2801412,
+      "steps": 2425011,
       "exit": 0,
-      "wall_s": 25.5,
-      "maxrss_bytes": 6429335552,
-      "cgroup_base_bytes": 3502219264,
-      "cgroup_peak_bytes": 9759068160,
+      "wall_s": 27.4,
+      "maxrss_bytes": 6065418240,
+      "cgroup_base_bytes": 1174822912,
+      "cgroup_peak_bytes": 7182839808,
       "memory_max": "23622320128",
-      "proof_bytes": 1538769,
+      "proof_bytes": 1558919,
       "verify": "ok",
-      "proof_sha256": "1d6dec69d6e3105efd38bb1954573fe3f034970ed65d4d3523e99fa5898437ef",
+      "proof_sha256": "702f4b83cc8e0b49a292ecfba87b7f3ce404f593e77f7b40d3ccf3dfb787e110",
       "public_output": {
         "n": 10,
         "sha256": "b50069583b8726dee940e5f115804b91cec2e82b0fc5238deb33c70be5014792"

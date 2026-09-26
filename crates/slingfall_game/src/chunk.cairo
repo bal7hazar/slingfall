@@ -60,12 +60,16 @@ pub const OUTPUTS_HEADER_LEN: u32 = 2;
 
 /// `core::poseidon::poseidon_hash_span(felts)`, bit for bit (the same sponge: absorb two felts
 /// per permutation, then pad with 1), with 16 felts absorbed per loop iteration: on pile10's
-/// 3 001-felt state, 19.1k steps against the corelib's 43.5k (snforge probes
-/// `chunk::tests::steps_*hash*`, the losers in `chunk::tests::alternatives`).
+/// 3 001-felt state, 23.4k steps against the corelib's 43.5k (snforge probes
+/// `chunk::tests::steps_*hash*`, the losers in `chunk::tests::alternatives`). The blocks are
+/// taken with `slice` + `try_into`, not `multi_pop_front` (19.1k): that one compiles to the
+/// `TestLessThanOrEqualAddress` hint, which the client's cairo-vm (`client/vm/runner`) cannot run.
 pub fn hash_felts(felts: Span<felt252>) -> felt252 {
     let mut felts = felts;
     let (mut s0, mut s1, mut s2) = (0, 0, 0);
-    while let Some(block) = felts.multi_pop_front::<16>() {
+    let mut n = felts.len();
+    while n >= 16 {
+        let block: @Box<[felt252; 16]> = felts.slice(0, 16).try_into().unwrap();
         let [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15] = (*block)
             .unbox();
         let (t0, t1, t2) = hades_permutation(s0 + a0, s1 + a1, s2);
@@ -79,6 +83,8 @@ pub fn hash_felts(felts: Span<felt252>) -> felt252 {
         s0 = t0;
         s1 = t1;
         s2 = t2;
+        n -= 16;
+        felts = felts.slice(16, n);
     }
     let (h, _, _) = loop {
         let Some(x) = felts.pop_front() else {

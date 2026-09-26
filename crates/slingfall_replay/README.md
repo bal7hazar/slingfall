@@ -107,7 +107,8 @@ A hash is `poseidon_hash_span` of the argument's felts **without** the array's l
 `LEVEL_HASH` is D4's `level_hash`, `INPUTS_HASH` is `inputs_hash`, `STATE_IN_HASH` is the hash of
 exactly the felts a previous `init` / `step_chunk` returned after its header (= `serde_hash` of the
 `ChunkState`). `slingfall_game::chunk::hash_felts` computes it 16 felts per loop iteration, bit for
-bit the corelib's function.
+bit the corelib's function (with `slice`, not `multi_pop_front`, whose `TestLessThanOrEqualAddress`
+hint the client's cairo-vm cannot run).
 
 ## Trace lines v1 (`src/trace.cairo`)
 
@@ -166,10 +167,10 @@ Chunked build: `init` 326,991 (pile10) / 191,837 (cores3); a `step_chunk` round 
 decode the state, the level and the inputs, restore and save the world, serialise) 136,301 on
 pile10, 82,705 on cores3. K = 60 on the pre-G3b reference shot: 6 chunks, +584k over `main`.
 
-Binding headers (lot P1b, `scarb execute`, against `main`'s executables before it): `init` +886
-(pile10) / +499 (one_block); each `step_chunk` and `outputs` +17.1-18.5k on pile10 (a 3 001-3 232
-felt state) and +3.6-4.7k on one_block (774 felts), ~5.5 steps per state felt. `main` is
-unchanged.
+Binding headers (lot P1b, `scarb execute` on alpha.3, against `main`'s executables before it):
+`init` +1,104 (pile10) / +602 (one_block); each `step_chunk` and `outputs` +21.4-23.1k on pile10
+(a 3 001-3 232 felt state) and +4.5-5.8k on one_block (774 felts), ~7 steps per state felt;
++1.73 % over the pile10 K = 16 chain. `main` is unchanged.
 
 snforge probes (`steps/slingfall_game/play.snap` for the first two, `steps/slingfall_replay/*.snap`), pile10 reference shot: rules alone (`new` +
 `play_shot` + hash) 32,129,896; `play` + `NoopObserver` 32,133,817 (**+0.012 %**, budget 1 %);

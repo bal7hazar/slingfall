@@ -14,35 +14,35 @@
   "memory_max": "23622320128",
   "ok": true,
   "error": null,
-  "wall_total_s": 99.0,
-  "steps_total": 10692530,
-  "maxrss_peak_bytes": 23337472000,
-  "proof_bytes_total": 1587683,
+  "wall_total_s": 58.9,
+  "steps_total": 8783663,
+  "maxrss_peak_bytes": 22048346112,
+  "proof_bytes_total": 1583677,
   "program_hashes": {
-    "main": "0x6ba8179d6dc26c57e1fb681d303c986f5d074e8ee2f7d9cf8771b72cdc972cc"
+    "main": "0x11d8b326a39850ca6ac8937cbc5854f3463c0d2dcee2449e05ab1fe347e052e"
   },
   "proofs": [
     {
       "label": "main",
       "program": "main",
       "proof": "main.proof.bin",
-      "steps": 10692530,
+      "steps": 8783663,
       "exit": 0,
-      "wall_s": 94.5,
-      "maxrss_bytes": 23337472000,
-      "cgroup_base_bytes": 2591113216,
-      "cgroup_peak_bytes": 23619776512,
+      "wall_s": 54.8,
+      "maxrss_bytes": 22048346112,
+      "cgroup_base_bytes": 1204658176,
+      "cgroup_peak_bytes": 22553583616,
       "memory_max": "23622320128",
-      "proof_bytes": 1587683,
+      "proof_bytes": 1583677,
       "verify": "ok",
-      "proof_sha256": "b2b808cc4a5556ab46e80b3cc60634c1c8d61ee9c459c529532416dd98870e8b",
+      "proof_sha256": "6853c25849f614240ad511c15f426edcf740a0aef852fe1453f306cf86d19998",
       "public_output": {
         "n": 10,
         "sha256": "01dfde1c16b5c12e458da5f9ab63cc5ab8c9f973607bb7d3c6cf17044da57a2f"
       },
       "header": {},
       "input_state": null,
-      "verify_wall_s": 2.4
+      "verify_wall_s": 2.0
     }
   ]
 }

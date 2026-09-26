@@ -143,6 +143,154 @@ mod alternatives {
         h
     }
 
+    fn hash_felts_pop8(felts: Span<felt252>) -> felt252 {
+        let mut felts = felts;
+        let (mut s0, mut s1, mut s2) = (0, 0, 0);
+        let (h, _, _) = loop {
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+        };
+        h
+    }
+
+    /// 16 felts per iteration with `multi_pop_front`: the fastest (19.1k), but its
+    /// `TestLessThanOrEqualAddress` hint fails in the client's cairo-vm.
+    fn hash_felts_multi_pop16(felts: Span<felt252>) -> felt252 {
+        let mut felts = felts;
+        let (mut s0, mut s1, mut s2) = (0, 0, 0);
+        while let Some(block) = felts.multi_pop_front::<16>() {
+            let [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15] = (*block)
+                .unbox();
+            let (t0, t1, t2) = hades_permutation(s0 + a0, s1 + a1, s2);
+            let (t0, t1, t2) = hades_permutation(t0 + a2, t1 + a3, t2);
+            let (t0, t1, t2) = hades_permutation(t0 + a4, t1 + a5, t2);
+            let (t0, t1, t2) = hades_permutation(t0 + a6, t1 + a7, t2);
+            let (t0, t1, t2) = hades_permutation(t0 + a8, t1 + a9, t2);
+            let (t0, t1, t2) = hades_permutation(t0 + a10, t1 + a11, t2);
+            let (t0, t1, t2) = hades_permutation(t0 + a12, t1 + a13, t2);
+            let (t0, t1, t2) = hades_permutation(t0 + a14, t1 + a15, t2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+        }
+        let (h, _, _) = loop {
+            let Some(x) = felts.pop_front() else {
+                break hades_permutation(s0 + 1, s1, s2);
+            };
+            let Some(y) = felts.pop_front() else {
+                break hades_permutation(s0 + *x, s1 + 1, s2);
+            };
+            let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+            s0 = t0;
+            s1 = t1;
+            s2 = t2;
+        };
+        h
+    }
+
+    #[test]
+    fn test_alt_hash_felts_pop8_multi_pop16() {
+        let state = to_felts(@init_state(pile10()));
+        assert_eq!(hash_felts_pop8(state.span()), hash_felts(state.span()));
+        assert_eq!(hash_felts_multi_pop16(state.span()), hash_felts(state.span()));
+        let mut felts: Array<felt252> = array![];
+        while felts.len() != 40 {
+            assert_eq!(hash_felts_pop8(felts.span()), poseidon_hash_span(felts.span()));
+            assert_eq!(hash_felts_multi_pop16(felts.span()), poseidon_hash_span(felts.span()));
+            felts.append(felts.len().into() * 7 + 1);
+        }
+    }
+
+    #[test]
+    fn steps_alt_hash_felts_pop8__pile10_init() {
+        let state = to_felts(@init_state(opaque(pile10())));
+        opaque(hash_felts_pop8(opaque(state).span()));
+    }
+
+    #[test]
+    fn steps_alt_hash_felts_multi_pop16__pile10_init() {
+        let state = to_felts(@init_state(opaque(pile10())));
+        opaque(hash_felts_multi_pop16(opaque(state).span()));
+    }
+
     #[test]
     fn test_alt_hash_felts_8() {
         let state = to_felts(@init_state(pile10()));
