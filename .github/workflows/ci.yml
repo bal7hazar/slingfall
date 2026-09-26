@@ -146,23 +146,28 @@ jobs:
         run: npm ci && npm test
 
   golden:
-    # Determinism and budget (tools/golden, lot G5): main, main_trace and chained init / step_chunk
-    # agree on the 10 outputs and equal the committed goldens, `main` stays under its step ceiling,
-    # then a fixed-seed input fuzz. One job per level fixture (`scarb execute` costs ~10 s per call).
-    name: golden (${{ matrix.level }})
+    # Determinism and budget (tools/golden, lot G5): `check`: main, main_trace and chained init /
+    # step_chunk agree on the 10 outputs and equal the committed goldens, `main` stays under its
+    # step ceiling; `fuzz`: a fixed-seed input fuzz. One job per level fixture and kind (`scarb
+    # execute` costs ~10 s per call), so that no leg nears the 8 minutes of cores3's former single leg.
+    name: golden (${{ matrix.level }}, ${{ matrix.kind }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         level: [pile10, cores3, one_block, tower, bridge, twin]
+        kind: [check, fuzz]
     steps:
       - uses: actions/checkout@v7
       - uses: software-mansion/setup-scarb@v1
-      - run: python3 tools/golden/golden.py to-cairo --check
+      - if: matrix.kind == 'check'
+        run: python3 tools/golden/golden.py to-cairo --check
       - run: scarb --manifest-path "$REPLAY" build
       - name: Goldens
+        if: matrix.kind == 'check'
         run: python3 tools/golden/golden.py run --check --no-build --github --level ${{ matrix.level }}
       - name: Input fuzzing (fixed seed)
+        if: matrix.kind == 'fuzz'
         run: python3 tools/golden/golden.py fuzz --seed 5 --n 6 --no-build --level ${{ matrix.level }}
 
   all-checks:

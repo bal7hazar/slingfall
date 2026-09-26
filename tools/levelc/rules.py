@@ -43,7 +43,7 @@ ANGLES = (25, 33, 41, 50)  # degrees above the horizontal
 MAGNITUDES = (600, 720, 850)  # pull length (launch speed 12 / 14.4 / 17 m/s at launch_scale 0.02)
 BUDGET_INTERIM = 100_000_000
 BUDGET_TARGET = 30_000_000
-LEGACY = {"pile10", "cores3", "one_block"}
+LEGACY = {"one_block"}
 PROBE_TICKS = 120
 
 
