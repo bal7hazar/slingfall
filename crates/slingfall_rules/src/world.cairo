@@ -21,7 +21,20 @@ use crate::{damage, score, sling};
 #[cfg(test)]
 pub mod fixtures;
 #[cfg(test)]
+mod jitter;
+#[cfg(test)]
+pub mod levels;
+#[cfg(test)]
 mod tests;
+
+/// Simulation settings, a build-time choice of the crate (lot S1). The two constants below are
+/// the only lines `tools/golden/golden.py` rewrites (in a scratch copy of `crates/`) to build the
+/// other settings of the matrix: `SOLVER_ITERATIONS` 2 / 1 (rapier's "substeps" per step) and
+/// `TICK_DT_RAW` 143165576 (30 Hz). The manifests declare no Scarb feature (they are
+/// orchestrator-owned), so the shipped build is always the default: ×4, 60 Hz.
+pub const SOLVER_ITERATIONS: u32 = 4;
+/// `dt` of one tick, raw Q32.32: `floor(2^32 / 60)`, rapier's default (30 Hz: `143165576`).
+pub const TICK_DT_RAW: i64 = 71582788;
 
 /// Panic messages of the rules (`felt252` short strings, stable API, `AGENTS.md` §7).
 pub mod errors {
@@ -123,17 +136,20 @@ pub struct ShotReport {
 
 #[generate_trait]
 pub impl GameImpl of GameTrait {
-    /// Builds the world of `level`: gravity `(0, gravity_y)`, rapier's default parameters (dt
-    /// 1/60, 4 solver iterations); per `BodyDef`, a fixed body (static) or a dynamic body inserted
-    /// asleep at its stored pose (block, core), and one collider with the material's density,
-    /// friction, restitution and `contact_force_event_threshold = force_threshold`, `user_data` =
+    /// Builds the world of `level`: gravity `(0, gravity_y)`, rapier's default parameters except
+    /// `dt` and `num_solver_iterations` (`TICK_DT_RAW`, `SOLVER_ITERATIONS`: 1/60 and 4 by
+    /// default); per `BodyDef`, a fixed body (static) or a dynamic body inserted asleep at its
+    /// stored pose (block, core), and one collider with the material's density, friction,
+    /// restitution and `contact_force_event_threshold = force_threshold`, `user_data` =
     /// entity index, contact-force events on blocks and cores.
     ///
     /// # Panics
     /// `errors::POLYGON` for a polygon rapier rejects; an out-of-range material index (run
     /// `LevelTrait::validate` first).
     fn new(level: @Level) -> Game {
-        let params: IntegrationParameters = Default::default();
+        let mut params: IntegrationParameters = Default::default();
+        params.dt = Fixed { raw: TICK_DT_RAW };
+        params.num_solver_iterations = SOLVER_ITERATIONS;
         let mut world = WorldTrait::new(Vec2 { x: Fixed { raw: 0 }, y: *level.gravity_y }, params);
         let materials = level.materials.span();
         let mut entities: Array<Entity> = array![];
