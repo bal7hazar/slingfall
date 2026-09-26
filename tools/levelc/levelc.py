@@ -9,7 +9,7 @@ payload. Python 3 standard library only.
 Usage:
     levelc.py to-felts   <level.json> [--out felts.json]
     levelc.py from-felts <felts.json> [--out level.json]
-    levelc.py check      <level.json>... [--strict] [--cairo FIXTURES.cairo]
+    levelc.py check      <level.json>... [--strict] [--cairo FIXTURES.cairo] [--rules [--jobs N] [--budget STEPS] [--pulls PX,PY;...]]
     levelc.py hash       <level.json>
     levelc.py to-cairo   <level.json>... [--out fixtures.cairo] [--check]
 """
@@ -449,6 +449,26 @@ def same_code(a: str, b: str) -> bool:
     return "".join(a.split()) == "".join(b.split())
 
 
+def check_rules(levels: list[Path], args) -> int:
+    """`--rules`: the rule-level validator (`rules.py`); returns the number of failing levels."""
+    import rules  # runs the replay executables: imported on demand
+
+    if not args.no_build:
+        rules.replay.golden.build()
+    failing = 0
+    for path in levels:
+        print(f"rules {path}")
+        pulls = [tuple(int(v) for v in p.split(",")) for p in args.pulls.split(";")] if args.pulls else None
+        report = rules.check_level(path, args.jobs, pulls=pulls, budget=args.budget)
+        for w in report.warnings:
+            print(f"warn {path}: {w}", file=sys.stderr)
+        for f in report.failures:
+            print(f"FAIL {path}: {f}", file=sys.stderr)
+        failing += not report.ok()
+        print(f"{'ok  ' if report.ok() else 'FAIL'} {path} (rules)")
+    return failing
+
+
 def cmd_check(args) -> None:
     failures = 0
     levels = level_paths(args.levels)
@@ -460,6 +480,8 @@ def cmd_check(args) -> None:
         except LevelError as e:
             failures += 1
             print(f"FAIL {name}: {e}", file=sys.stderr)
+    if args.rules:
+        failures += check_rules(levels, args)
     if args.cairo:
         if not same_code(Path(args.cairo).read_text(), cairo_fixtures(levels)):
             failures += 1
@@ -484,6 +506,11 @@ def main() -> None:
     p.add_argument("levels", nargs="+")
     p.add_argument("--strict", action="store_true")
     p.add_argument("--cairo")
+    p.add_argument("--rules", action="store_true", help="also run the rule-level validator (rules.py; needs scarb)")
+    p.add_argument("--jobs", type=int, default=2, help="--rules: parallel `scarb execute` (about 6 GB each)")
+    p.add_argument("--budget", type=int, default=100_000_000, help="--rules: most Cairo steps of the best pull")
+    p.add_argument("--pulls", help="--rules: PX,PY;PX,PY... instead of the 12-pull grid")
+    p.add_argument("--no-build", action="store_true", help="--rules: the replay executables are already built")
     p.set_defaults(fn=cmd_check)
     p = sub.add_parser("hash")
     p.add_argument("level")

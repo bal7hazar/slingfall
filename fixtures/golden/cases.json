@@ -9,6 +9,9 @@
     {"name": "cores3-disk-outside", "level": "cores3", "shots": [[-1000, -900, 0]], "chunks": [[60], [7, 1, 1, 60]]},
     {"name": "one_block-miss", "level": "one_block", "shots": [[-150, -150, 0]], "chunks": [[60, 59, 1, 60], [1, 1, 1, 7, 60]]},
     {"name": "one_block-delay30", "level": "one_block", "shots": [[-600, -392, 30]], "chunks": [[30, 1, 60], [29, 2, 7, 60]]},
-    {"name": "one_block-disk-boundary", "level": "one_block", "shots": [[0, -1024, 0]], "chunks": [[60], [1, 1, 7, 60]]}
+    {"name": "one_block-disk-boundary", "level": "one_block", "shots": [[0, -1024, 0]], "chunks": [[60], [1, 1, 7, 60]]},
+    {"name": "tower-reference", "level": "tower", "shots": [[-604, -392, 0]], "chunks": [[60], [1, 1, 7, 7, 60]]},
+    {"name": "bridge-reference", "level": "bridge", "shots": [[-463, -552, 0]], "chunks": [[60], [1, 7, 7, 7, 60]]},
+    {"name": "twin-reference", "level": "twin", "shots": [[-503, -327, 0], [-543, -472, 0]], "chunks": [[60], [7, 7, 7, 60]]}
   ]
 }

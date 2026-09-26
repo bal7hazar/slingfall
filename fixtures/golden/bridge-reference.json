@@ -1,0 +1,18 @@
+{
+  "case": "bridge-reference",
+  "level": "bridge",
+  "shots": [[-463,-552,0]],
+  "outputs": [
+    "0x1",
+    "0x763c45c9d0f28975bc2d25b6068f9f119379b873224fb0c66f88fd2af16d5dd",
+    "0x0",
+    "0x706c61796572",
+    "0xf2557f68eadd88f30d40a6a9857f5801046ddbd1791f8c80b7f81942722f13",
+    "0x186a",
+    "0x1",
+    "0x1",
+    "0xb4",
+    "0x6ebefab18df429a4b03980996b6ec0fb15205aef5878d5ab409a09e10bdfab8"
+  ],
+  "steps": 19090613
+}
