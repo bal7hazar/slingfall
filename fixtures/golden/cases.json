@@ -2,9 +2,9 @@
   "version": 1,
   "step_margin": 1.1,
   "cases": [
-    {"name": "pile10-reference", "level": "pile10", "shots": [[-600, -392, 0]], "chunks": [[60], [1, 1, 1, 7, 7, 7, 60]]},
+    {"name": "pile10-reference", "level": "pile10", "shots": [[-604, -392, 0]], "chunks": [[60], [1, 1, 1, 7, 7, 7, 60]]},
     {"name": "pile10-three-shots", "level": "pile10", "shots": [[-150, -150, 0], [-200, -200, 0], [-600, -392, 0]], "chunks": [[60], [1, 7, 7, 7, 60]]},
-    {"name": "cores3-reference", "level": "cores3", "shots": [[-600, -392, 0]], "chunks": [[60], [7, 7, 7, 7, 7, 60]]},
+    {"name": "cores3-reference", "level": "cores3", "shots": [[-653, -304, 0]], "chunks": [[60], [7, 7, 7, 7, 7, 60]]},
     {"name": "cores3-three-shots", "level": "cores3", "shots": [[-150, -150, 0], [-200, -200, 0], [-600, -392, 0]], "chunks": [[60], [1, 1, 1, 7, 60]]},
     {"name": "cores3-disk-outside", "level": "cores3", "shots": [[-1000, -900, 0]], "chunks": [[60], [7, 1, 1, 60]]},
     {"name": "one_block-miss", "level": "one_block", "shots": [[-150, -150, 0]], "chunks": [[60, 59, 1, 60], [1, 1, 1, 7, 60]]},

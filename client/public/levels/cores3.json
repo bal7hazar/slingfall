@@ -4,40 +4,42 @@
   "seed": 0,
   "gravity_y": -9.81,
   "shots": 5,
-  "tick_cap": 360,
+  "tick_cap": 180,
   "bounds": {"min_x": -10, "min_y": -10, "max_x": 50, "max_y": 40},
   "sling_anchor": {"x": 3, "y": 2.5},
   "pull_radius": 1024,
   "launch_scale": 0.02,
   "projectiles": [0, 0, 0, 0, 0],
   "materials": [
-    {"density": 1, "friction": 0.6, "restitution": 0.1, "hp": 100, "force_threshold": 40, "damage_per_impulse_dt": 1, "score": 50},
-    {
-      "density": 2.5,
-      "friction": 0.8,
-      "restitution": 0.05,
-      "hp": 300,
-      "force_threshold": 120,
-      "damage_per_impulse_dt": 0.3333333333,
-      "score": 150
-    },
-    {"density": 0.9, "friction": 0.05, "restitution": 0.2, "hp": 40, "force_threshold": 15, "damage_per_impulse_dt": 2, "score": 100},
+    {"density": 1, "friction": 0.6, "restitution": 0.1, "hp": 100, "force_threshold": 150, "damage_per_impulse_dt": 0.15, "score": 50},
+    {"density": 2.5, "friction": 0.8, "restitution": 0.05, "hp": 300, "force_threshold": 350, "damage_per_impulse_dt": 0.15, "score": 150},
+    {"density": 0.9, "friction": 0.05, "restitution": 0.2, "hp": 40, "force_threshold": 40, "damage_per_impulse_dt": 2, "score": 100},
     {"density": 1, "friction": 0.6, "restitution": 0.1, "hp": 30, "force_threshold": 10, "damage_per_impulse_dt": 1, "score": 1000}
   ],
   "bodies": [
-    {"kind": "static", "shape": {"type": "half_space", "normal": {"x": 0, "y": 1}}, "pose": {"x": 0, "y": 0, "angle_deg": 0}, "material": 1},
+    {
+      "kind": "static",
+      "shape": {"type": "half_space", "normal": {"x": 0, "y": 1}},
+      "pose": {"x": 0, "y": 0, "re": 1, "im": 0},
+      "material": 1
+    },
     {
       "kind": "static",
       "shape": {"type": "polygon", "points": [{"x": -1, "y": -0.5}, {"x": 1, "y": -0.5}, {"x": 0, "y": 0.5}]},
-      "pose": {"x": 10, "y": 0.5, "angle_deg": 0},
+      "pose": {"x": 10, "y": 0.5, "re": 1, "im": 0},
       "material": 1
     },
-    {"kind": "static", "shape": {"type": "cuboid", "hx": 1, "hy": 0.2}, "pose": {"x": 14, "y": 1, "angle_deg": 20}, "material": 1},
-    {"kind": "block", "shape": {"type": "cuboid", "hx": 0.25, "hy": 1.5}, "pose": {"x": 20.5, "y": 1.5, "angle_deg": 0}, "material": 0},
-    {"kind": "block", "shape": {"type": "cuboid", "hx": 0.25, "hy": 1.5}, "pose": {"x": 23.5, "y": 1.5, "angle_deg": 0}, "material": 0},
-    {"kind": "block", "shape": {"type": "cuboid", "hx": 2.5, "hy": 0.25}, "pose": {"x": 22, "y": 3.25, "angle_deg": 0}, "material": 1},
-    {"kind": "core", "shape": {"type": "ball", "radius": 0.4}, "pose": {"x": 20.5, "y": 3.9, "angle_deg": 0}, "material": 3},
-    {"kind": "core", "shape": {"type": "ball", "radius": 0.4}, "pose": {"x": 22, "y": 3.9, "angle_deg": 0}, "material": 3},
-    {"kind": "core", "shape": {"type": "ball", "radius": 0.4}, "pose": {"x": 23.5, "y": 3.9, "angle_deg": 0}, "material": 3}
+    {
+      "kind": "static",
+      "shape": {"type": "cuboid", "hx": 1, "hy": 0.2},
+      "pose": {"x": 14, "y": 1, "re": 0.939692621, "im": 0.3420201433},
+      "material": 1
+    },
+    {"kind": "block", "shape": {"type": "cuboid", "hx": 0.25, "hy": 1.5}, "pose": {"x": 20.5, "y": 1.5, "re": 1, "im": 0}, "material": 0},
+    {"kind": "block", "shape": {"type": "cuboid", "hx": 0.25, "hy": 1.5}, "pose": {"x": 23.5, "y": 1.5, "re": 1, "im": 0}, "material": 0},
+    {"kind": "block", "shape": {"type": "cuboid", "hx": 2.5, "hy": 0.25}, "pose": {"x": 22, "y": 3.249, "re": 1, "im": 0}, "material": 1},
+    {"kind": "core", "shape": {"type": "ball", "radius": 0.4}, "pose": {"x": 20.5, "y": 3.899, "re": 1, "im": 0}, "material": 3},
+    {"kind": "core", "shape": {"type": "ball", "radius": 0.4}, "pose": {"x": 22, "y": 3.899, "re": 1, "im": 0}, "material": 3},
+    {"kind": "core", "shape": {"type": "ball", "radius": 0.4}, "pose": {"x": 23.5, "y": 3.899, "re": 1, "im": 0}, "material": 3}
   ]
 }

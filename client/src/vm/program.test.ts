@@ -52,7 +52,7 @@ describe('felts', () => {
   });
 
   it('reads the level fields of pile10', () => {
-    expect(levelInfo(PILE10)).toEqual({ seed: '0', shots: 3, tickCap: 360 });
+    expect(levelInfo(PILE10)).toEqual({ seed: '0', shots: 3, tickCap: 180 });
   });
 });
 
@@ -98,9 +98,9 @@ describe('ChunkState header', () => {
   });
 
   it('bounds the ticks left of a shot until the header ends it', () => {
-    // Cap 360 + the longest delay (60), minus the shot's ticks so far.
-    expect(slingfallProgram.remainingTicks(PILE10, state(0, 0), 0)).toBe(420);
-    expect(slingfallProgram.remainingTicks(PILE10, state(0, 0, 100), 0)).toBe(320);
+    // Cap 180 + the longest delay (60), minus the shot's ticks so far.
+    expect(slingfallProgram.remainingTicks(PILE10, state(0, 0), 0)).toBe(240);
+    expect(slingfallProgram.remainingTicks(PILE10, state(0, 0, 100), 0)).toBe(140);
     expect(slingfallProgram.remainingTicks(PILE10, state(0, 0, 500), 0)).toBe(1);
     // Shot 0 is over when shots_used is 1; nothing to step when the level is over.
     expect(slingfallProgram.remainingTicks(PILE10, state(1, 0), 0)).toBe(0);
@@ -116,7 +116,7 @@ describe('outputs', () => {
     expect(outputs.version).toBe('1');
     expect(BigInt(outputs.level_hash)).toBe(BigInt(json('fixtures/levels/pile10.felts.json').level_hash));
     expect(outputs.player).toBe(DEFAULT_PLAYER);
-    expect([outputs.score, outputs.won, outputs.shots_used, outputs.ticks_run]).toEqual(['5350', '1', '1', '191']);
+    expect([outputs.score, outputs.won, outputs.shots_used, outputs.ticks_run]).toEqual(['5200', '1', '1', '109']);
     expect(() => decodeOutputs(felts.slice(1))).toThrow('outputs: 9 felts, expected 10');
   });
 });

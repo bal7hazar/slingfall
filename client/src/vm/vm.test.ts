@@ -190,14 +190,14 @@ describe.skipIf(!hasPkg)('slingfall replay on cairo-vm wasm (pkg-node)', () => {
       // Bit-exact with the uninterrupted native run: every frame and every event.
       expect(frames).toEqual(expected.frames.slice(1));
       expect(source.events).toEqual(expected.events as TraceEvent[]);
-      expect(readChunkHeader(result.state)).toMatchObject({ shotsUsed: 1, over: true, tick: 191, score: 5350 });
+      expect(readChunkHeader(result.state)).toMatchObject({ shotsUsed: 1, over: true, tick: 109, score: 5200 });
 
       const t1 = performance.now();
       const outputs = await client.outputs(result.state, REFERENCE);
       const outputsMs = performance.now() - t1;
       const recordedOutputs = RECORDED().split('Program output:')[1].trim().split(/\s+/).slice(1);
       expect(outputs.state).toEqual(recordedOutputs);
-      expect(decodeOutputs(outputs.state)).toMatchObject({ won: '1', score: '5350', ticks_run: '191' });
+      expect(decodeOutputs(outputs.state)).toMatchObject({ won: '1', score: '5200', ticks_run: '109' });
 
       const peak = Math.max(...chunks.map((c) => c.wasmBytes)) / 2 ** 20;
       console.log(

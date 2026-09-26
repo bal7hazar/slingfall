@@ -71,8 +71,10 @@ Runs the level through the replay executables (`tools/levelc/rules.py`):
    as on a two-pile level, one grid pull per core, one shot each) must win in `main`; steps under
    `--budget` (default 1e8, interim) and, per shot, a warning above D10's 3e7.
 
-`pile10`, `cores3` and `one_block` (hand-placed before this tooling; their poses and goldens are
-frozen) are `LEGACY` in `rules.py`: the awake test is a warning for them, not a failure.
+`pile10`, `cores3` and `one_block` were hand-placed before this tooling, so `rules.py` lists them as
+`LEGACY` (the awake test is a warning for them, not a failure). Lot G8b retuned and pre-settled
+`pile10` and `cores3`: both now pass the awake test with no warning (`one_block` has a single block
+and is still `LEGACY`; its poses and goldens are unchanged).
 
 ```sh
 python3 tools/levelc/levelc.py check fixtures/levels/tower.json fixtures/levels/bridge.json \
@@ -81,13 +83,13 @@ python3 tools/levelc/levelc.py check fixtures/levels/tower.json fixtures/levels/
 ```
 
 It is **not** in CI: a level costs 6-8 minutes on the free runners (12 grid shots of 20-45 M steps
-and 6 GB each), which is more than the `golden` job's budget. The goldens of the three new levels
-(`fixtures/golden/{tower,bridge,twin}-reference.json`) are checked by the `golden` job's
-`golden.py run --check` once its matrix lists the levels (an orchestrator file, see REPORT.md).
+and 6 GB each), which is more than the `golden` job's budget. The goldens of all five levels and
+`one_block` are checked by the `golden` job's `golden.py run --check` (one matrix leg per level,
+G8b).
 
 ## Materials
 
-Tuned on the three new levels (`materials` of each level; `Material`'s layout is unchanged). D12's
+Tuned on the three new levels and, in G8b, applied unchanged to `pile10` and `cores3` (`materials` of each level; `Material`'s layout is unchanged). D12's
 values are in brackets. `damage_per_impulse_dt` is D6's factor: `hp -= floor((F - force_threshold) *
 damage_per_impulse_dt)` per contact event and tick, F in newtons (one tick of contact force).
 
@@ -122,12 +124,13 @@ not committed):
   destruction and the two after): tower, low flat pulls (-836, -147) and (-800, -200): 1 timber and
   1-2 frost; bridge (-463, -552): 1 timber and 1 frost, 3 timber in the whole shot; the steeper
   pulls of the grid hit frost and cores first (frost 1-2, cores). Slate is never destroyed by the
-  grid pulls of the new levels. (`pile10` / `cores3` keep the old values: 3-4 timber, slate and
-  frost in a hit.)
+  grid pulls of the new levels. (`pile10` / `cores3` had the old D12 values: 3-4 timber, slate and
+  frost in a hit. With the tuned values, `pile10`'s winning pulls destroy 2 frost and the core in the
+  first hit, `cores3`'s one timber post at most.)
 
 ## Tick cap
 
-`pile10` and `cores3` have `tick_cap` 360; the three new levels 180. A rolling core or
+Every level has `tick_cap` 180 (`pile10` and `cores3` had 360 before G8b). A rolling core or
 pebble never calms (D5, no damping), so a shot that does not end by itself runs to the cap: 360
 ticks of a busy pile cost 70 M steps (tower, measured), 180 ticks 42 M. The validator only requires
 140 or more (a pebble takes about 100 ticks to arrive and settle).
@@ -135,14 +138,16 @@ ticks of a busy pile cost 70 M steps (tower, measured), 180 ticks 42 M. The vali
 ## The five levels
 
 Blocks / cores exclude the ground. Settle tick and drift: `settle.py`, first round. Reference =
-what `check --rules` chose (steps: `main`, the proof build, one `scarb execute`). `pile10` and
-`cores3` carry their historic golden pulls (the validator's own best pulls: (-386, -460), 18.8 M
-steps, 5 700 points on `pile10`; (-770, -359), 8.8 M, 11 250 on `cores3`).
+what `check --rules` chose (steps: `main`, the proof build, one `scarb execute`). G8b retuned and
+pre-settled `pile10` and `cores3` (G8's materials, `tick_cap` 180): their historic golden pull
+(-600, -392) no longer suits them, so the references are the validator's pulls, (-604, -392) on
+`pile10` (one shot wins; 31.5 M steps, 5 350 points before) and (-653, -304) on `cores3` (7.4 M
+steps, 11 250 points before).
 
 | level | id | blocks | cores | structure | settle tick | drift (m) | reference pull(s) | steps | score | ticks |
 |---|---:|---:|---:|---|---:|---:|---|---:|---:|---:|
-| `pile10` | 2 | 9 | 1 | pyramid of timber, slate, frost | not pre-settled | - | (-600, -392) | 31 487 873 | 5 350 | 191 |
-| `cores3` | 3 | 3 | 3 | two timber posts, a slate deck, three cores | not pre-settled | - | (-600, -392) | 7 394 341 | 11 250 | 143 |
+| `pile10` | 2 | 9 | 1 | pyramid of timber, slate, frost | 32 | 0.006 | (-604, -392) | 20 742 085 | 5 200 | 107 |
+| `cores3` | 3 | 3 | 3 | two timber posts, a slate deck, three cores | 32 | 0.004 | (-653, -304) | 22 801 514 | 11 050 | 180 |
 | `tower` | 4 | 8 | 2 | slate slab, timber columns, slate slab, frost, timber slab and block, a core on top; a lone core on the ground | 32 | 0.027 | (-604, -392) | 42 399 252 | 6 200 | 180 |
 | `bridge` | 5 | 8 | 2 | two slate pillars, a timber deck, a frost / timber hut under a timber roof holding a core, a timber stack with a core on the deck's right end | 32 | 0.014 | (-463, -552) | 19 090 613 | 6 250 | 180 |
 | `twin` | 6 | 10 | 2 | a three-row pyramid with a core (x 15-18) and a stack with a slate board (x 25-26): two piles | 32 | 0.023 | (-503, -327) then (-543, -472) | 47 579 795 (2 shots) | 4 200 | 306 |
@@ -152,6 +157,15 @@ steps, 5 700 points on `pile10`; (-770, -359), 8.8 M, 11 250 on `cores3`).
 - `bridge`: the reference shot also destroys 3 timber blocks and 1 frost block: 19.1 M steps.
 - `twin`: no single pull wins (the piles are 6.5 m apart); each shot costs about 24 M steps. Score:
   two cores, two frost and one unused shot.
-- `pile10` and `cores3` fail the awake test (`pile10`: 45 damage lines; `cores3`: bodies destroyed
-  while settling), so `check --rules` warns and passes them: retuning their thresholds or
-  settling them changes their level hash and every golden built on them, which G8 must not touch.
+- `pile10`: 5 200 = core 1 000 + frost 2 x 100 + two unused shots (2 x 2 000). Only some pulls win
+  (of the grid: (-453, -394), (-653, -304) and (-604, -392)); the shot ends by the calm rule at
+  tick 107.
+- `cores3`: the reference shot (-653, -304) destroys the three cores and one timber post and runs
+  to the cap (180 ticks): 11 050 = 3 x 1 000 + 50 + four unused shots (4 x 2 000). Three of the
+  twelve grid pulls win.
+- G8b settled both (`settle.py`, 2 rounds: drift 6 mm on `pile10`, 4 mm on `cores3`) and gave them
+  G8's materials, so their level hashes and every golden built on them changed (G8b's PR lists
+  each). Before, they failed the awake test (`pile10`: 45 damage lines; `cores3`: bodies
+  destroyed while settling).
+- Budget: every reference shot is under the interim 1e8 steps; those above D10's 3e7 are `tower`
+  (42.4 M) and `twin` (2 shots, 47.6 M in all, about 24 M each, so each shot is under 3e7).

@@ -12,7 +12,7 @@ import { OUTPUT_FIELDS, type Outputs } from './vm/program';
 import { VmClient } from './vm/index';
 
 /** Levels served from `public/levels/` (copies of `fixtures/levels/`). */
-const LEVELS = ['pile10', 'cores3', 'one_block'];
+const LEVELS = ['pile10', 'cores3', 'tower', 'bridge', 'twin', 'one_block'];
 const TRACE_URL = '/traces/pile10.json';
 const CONTROLS_HEIGHT = 44;
 const INSETS = { top: 0, bottom: CONTROLS_HEIGHT };
