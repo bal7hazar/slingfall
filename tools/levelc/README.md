@@ -7,6 +7,7 @@ felts of `slingfall_level::level::Level` (`docs/DESIGN.md` D2). Python 3 standar
 python3 tools/levelc/levelc.py to-felts   fixtures/levels/pile10.json [--out pile10.felts.json]
 python3 tools/levelc/levelc.py from-felts fixtures/levels/pile10.felts.json [--out level.json]
 python3 tools/levelc/levelc.py check      fixtures/levels/*.json [--strict] [--cairo FIXTURES.cairo]
+python3 tools/levelc/levelc.py check      fixtures/levels/tower.json --rules [--jobs 3] [--budget 1e8] [--pulls=PX,PY;...] [--no-build]
 python3 tools/levelc/levelc.py hash       fixtures/levels/pile10.json
 python3 tools/levelc/levelc.py to-cairo   fixtures/levels/*.json --out crates/slingfall_level/src/level/fixtures.cairo [--check]
 python3 tools/levelc/test_levelc.py       # unit tests
@@ -21,6 +22,11 @@ python3 tools/levelc/test_levelc.py       # unit tests
   that it is up to date (felts and hash). `*.felts.json` arguments (a shell glob of `*.json`) are
   skipped. `--strict` also requires the source JSON to be canonical (no `angle_deg`, shortest
   decimals). `--cairo` checks that the generated Cairo fixtures are current.
+- `check --rules` (lot G8, `rules.py`; needs the built replay executables and `scarb`) also runs the level
+  through the replay: nothing destroyed at rest and while every pile is woken up (the static-load note of
+  `crates/slingfall_rules/README.md`), poses already settled (`tools/settle/settle.py`), every core
+  destroyed by one of 12 grid pulls, the reference shots winning under the step budget. Minutes per
+  level, so not in CI; `docs/levels.md` describes each check.
 - `hash` prints `level_hash`. `poseidon.py` is a standard-library Starknet Poseidon
   (`poseidon_hash_span`, about 50 lines); the Cairo tests check every fixture golden against
   `core::poseidon::poseidon_hash_span`, so both agree.

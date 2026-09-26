@@ -16,6 +16,10 @@ import poseidon  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = sorted((ROOT / "fixtures" / "levels").glob("*.json"))
 LEVELS = [p for p in FIXTURES if not p.name.endswith(".felts.json")]
+# The levels of `crates/slingfall_level/src/level/fixtures.cairo`: the Cairo unit tests know these
+# only; the levels added since (lot G8: tower, bridge, twin) have JSON, felts and goldens
+# (`fixtures/golden`), and get their Cairo module the day a crate needs them.
+CAIRO_LEVELS = [p for p in LEVELS if p.stem in ("cores3", "one_block", "pile10")]
 P = levelc.P
 
 
@@ -77,7 +81,7 @@ class Poseidon(unittest.TestCase):
 
     def test_fixture_hashes_are_the_cairo_goldens(self):
         cairo = (ROOT / "crates/slingfall_level/src/level/fixtures.cairo").read_text()
-        for path in LEVELS:
+        for path in CAIRO_LEVELS:
             felts = levelc.level_to_felts(levelc.load_level(path))
             golden = f"{path.stem.upper()}_HASH:felt252={hex(poseidon.hash_span(felts))};"
             self.assertIn(golden, "".join(cairo.split()))
@@ -124,18 +128,18 @@ class Levels(unittest.TestCase):
             levelc.pose_felts({**raw, "angle_deg": D(0)})
 
     def test_cairo_fixtures_are_current(self):
-        want = levelc.cairo_fixtures(LEVELS)
+        want = levelc.cairo_fixtures(CAIRO_LEVELS)
         got = (ROOT / "crates/slingfall_level/src/level/fixtures.cairo").read_text()
         self.assertTrue(levelc.same_code(got, want))
 
     def test_to_cairo_check_flags_a_stale_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "fixtures.cairo"
-            args = argparse.Namespace(levels=[str(p) for p in LEVELS], out=str(out), check=True)
+            args = argparse.Namespace(levels=[str(p) for p in CAIRO_LEVELS], out=str(out), check=True)
             out.write_text("stale\n")
             with self.assertRaises(SystemExit):
                 levelc.cmd_to_cairo(args)
-            out.write_text(levelc.cairo_fixtures(LEVELS))
+            out.write_text(levelc.cairo_fixtures(CAIRO_LEVELS))
             levelc.cmd_to_cairo(args)
 
 
