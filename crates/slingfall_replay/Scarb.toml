@@ -27,7 +27,7 @@ snforge_std = "0.61.0"
 assert_macros = "2.19.4"
 slingfall_testing = { path = "../slingfall_testing" }
 
-# Four executables of the same package (`scarb execute --executable-name <name>`), plus the library
+# Five executables of the same package (`scarb execute --executable-name <name>`), plus the library
 # target the tests use.
 [lib]
 
@@ -46,6 +46,10 @@ function = "slingfall_replay::chunk::init"
 [[target.executable]]
 name = "step_chunk"
 function = "slingfall_replay::chunk::step_chunk"
+
+[[target.executable]]
+name = "outputs"
+function = "slingfall_replay::outputs::outputs"
 
 [cairo]
 enable-gas = false

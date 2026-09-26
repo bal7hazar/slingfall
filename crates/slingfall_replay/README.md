@@ -33,7 +33,7 @@ trace.json` turns the printed lines into trace format v1 (`client/README.md`).
 Lot G4b moved the logic below into the library crate `slingfall_game` (root workspace, snforge-tested
 with `snforge test -p slingfall_game`): `play`, `step_shot`, `Observer`, `NoopObserver`, `decode`,
 `outputs`, `errors` and the `ChunkState` logic (`chunk::{init_state, step_state}`). This package keeps the
-four executables and `TraceObserver`; the contract's `simulate` calls the same `play`.
+five executables and `TraceObserver`; the contract's `simulate` calls the same `play`.
 
 `play<O, +Observer<O>>(level: @Level, inputs: @Inputs, ref obs: O) -> Outputs`: `LevelTrait::validate`,
 `InputsTrait::validate`, `obs.on_level`, `GameTrait::new` (settle step included), then per shot

@@ -4,24 +4,22 @@
 #   main_trace.executable.json   crates/slingfall_replay: the whole level in one run, trace lines
 #   init.executable.json         crates/slingfall_replay: init(level) -> ChunkState
 #   step_chunk.executable.json   crates/slingfall_replay: step_chunk(state, inputs, shot, k, trace)
-#   outputs.executable.json      client/vm/fixtures/outputs: outputs(state, inputs) -> D4 outputs
+#   outputs.executable.json      crates/slingfall_replay: outputs(state, inputs) -> D4 outputs
 #
 #   client/vm/scripts/fetch-executables.sh [--build]
 #
-#   --build   run `scarb build` on both packages first (~3 min cold)
+#   --build   run `scarb build` on the replay package first (~3 min cold)
 set -euo pipefail
 
 VM="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$(cd "$VM/../.." && pwd)"
 REPLAY="$ROOT/crates/slingfall_replay"
-OUTPUTS="$VM/fixtures/outputs"
 DEST="$VM/fixtures/replay"
 
 for arg in "$@"; do
   case "$arg" in
     --build)
       nice -n 10 scarb --manifest-path "$REPLAY/Scarb.toml" build
-      nice -n 10 scarb --manifest-path "$OUTPUTS/Scarb.toml" build
       ;;
     *) sed -n '2,11p' "$0"; exit 64 ;;
   esac
@@ -33,5 +31,4 @@ copy() {
   cp "$1" "$DEST/"
   echo "$DEST/$(basename "$1") ($(wc -c <"$1") bytes)"
 }
-for name in main_trace init step_chunk; do copy "$REPLAY/target/dev/$name.executable.json"; done
-copy "$OUTPUTS/target/dev/outputs.executable.json"
+for name in main_trace init step_chunk outputs; do copy "$REPLAY/target/dev/$name.executable.json"; done

@@ -16,8 +16,7 @@ Promoted from the spike `pm/spikes/wasm-vm` (docs/research/03 and 04).
 | `scripts/fetch-executables.sh` | copies the replay executables into `fixtures/replay/` (`--build` builds them first) |
 | `scripts/worker-check.mjs` | lot G6b: page side + `worker_threads` worker on pile10, the page's figures in Node |
 | `scripts/browser-check.py` | lot G6b: headless Firefox on `dist/` (console + screenshot); not run yet |
-| `fixtures/replay/` | the executables the client runs: `init`, `step_chunk` (crates/slingfall_replay, lot G4), `outputs` (below), and `main_trace` (tests) |
-| `fixtures/outputs/` | the `outputs(state, inputs)` executable's source: slingfall_replay's `state_outputs` (lot G6b) |
+| `fixtures/replay/` | the executables the client runs: `init`, `step_chunk`, `outputs` and `main_trace` (tests), all four built from `crates/slingfall_replay` (lots G4, G4c) |
 | `fixtures/pile10-reference.main_trace.txt` | `scarb execute` of `main_trace` on pile10, reference shot (the lines and outputs the tests compare with) |
 | `fixtures/pile10-*.args.json` | `tools/tracec/tracec.py args` on pile10 (the argument-encoding tests) |
 | `fixtures/ball_drop/` | the G1c stand-in executable's source (spike G1b copy, registry `rapier2d`) |
@@ -58,9 +57,10 @@ cairo-vm's `cairo-lang-casm` 2.12.0-dev.0.
 was produced with `slingfall-run client/vm/fixtures/ball_drop.executable.json "3 3 120 0 0"`.
 
 **Replay executables.** `client/vm/scripts/fetch-executables.sh --build` builds
-`crates/slingfall_replay` and `client/vm/fixtures/outputs`, then copies `init`, `step_chunk`,
-`main_trace` and `outputs` into `fixtures/replay/` (committed: 28 MB of JSON, the app serves the
-first three and `outputs`). Rebuild them whenever the replay or its dependencies change: the
+`crates/slingfall_replay`, then copies `init`, `step_chunk`, `main_trace` and `outputs` into
+`fixtures/replay/` (committed: 28 MB of JSON, the app serves `init`, `step_chunk` and `outputs`).
+Rebuild them whenever the replay or its dependencies change: the `vm` CI job rebuilds them and
+fails on `git diff --exit-code client/vm/fixtures/replay/` (lot G4c), and the
 tests compare them with `fixtures/pile10-reference.main_trace.txt`, recorded with
 `scarb execute --executable-name main_trace --arguments-file client/vm/fixtures/pile10-reference.args.json
 --print-program-output` (the args from `tracec.py args fixtures/levels/pile10.felts.json
@@ -131,7 +131,7 @@ worker loads both. Arguments (decimal felts, `-x` = P - x; the full layout is in
 - With `trace = 1`, one line per tick, `frame <tick> (<handle> <x> <y> <re> <im> <asleep>)*`, and
   the event lines `damage`, `destroyed`, `score`, `shot_end` (all start with the tick after the tag);
   the pebble of shot `s` has handle `bodies + s`.
-- `outputs` (lot G6b, `fixtures/outputs/`): `<len S> <S...> <len I> <I...>` → the 10 felts of
+- `outputs` (lots G6b, G4c; `slingfall_replay::outputs::outputs`): `<len S> <S...> <len I> <I...>` → the 10 felts of
   `Outputs` (D4): slingfall_replay's own `chunk::state_outputs` (≈ 41k steps on pile10), so that
   `level_hash`, `inputs_hash` and `final_state_hash` are the Poseidon hashes of the replay's code.
   `main` / `main_trace` over the whole level would need one VM run of all its ticks (47M steps on
