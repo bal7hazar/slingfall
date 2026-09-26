@@ -123,5 +123,21 @@
         "score": 5200
       }
     ]
+  },
+  "translation": {
+    "note": "E3c: `atlantic.py translate` (deploy/slingfall.ts translate), sent after the settled submit; Atlantic's own translation never ran (PROOF_VERIFICATION_ON_L2)",
+    "satellite": "0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e",
+    "sharp_fact_hash": "0xced287cec5913129f3dbf6fa4fe74b70315d473203d40e62dd137c88af3fb5d6",
+    "integrity_fact_hash": "0x5c02aa91c84c8327369262330dfe47a1082feb2b256df3ea445a7f2aa99caf5",
+    "transaction_hash": "0x40c081d32d2b150122c0e2ad25178b16681bd95b91de290a3e4247c30f0a624",
+    "gas": {
+      "l1Gas": 0,
+      "l1DataGas": 288,
+      "l2Gas": 13731733,
+      "fee": "289978735513629264",
+      "unit": "FRI"
+    },
+    "isCairoFactValid": true,
+    "security_bits": 96
   }
 }

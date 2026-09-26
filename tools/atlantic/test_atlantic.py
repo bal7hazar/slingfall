@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -198,6 +201,119 @@ class Submit(unittest.TestCase):
             src.write_text(json.dumps(["0x2", "0x5", "-0x1"]))
             atlantic.cmd_c1_input(argparse.Namespace(args=str(src), out=str(dst)))
             self.assertEqual(dst.read_text(), f"[2 5 {encoding.P - 1}]\n")
+
+
+class Translate(unittest.TestCase):
+    """`translateFactHash` (lot E3c): calldata, the run's output, and the checks before the transaction.
+    The Satellite's two reads are faked; the transaction is a recording sender."""
+
+    SEPOLIA = "pile10-reference-sepolia"  # E3b: keccak fact bridged, Poseidon fact not (until E3c)
+
+    def setUp(self):
+        self.doc = load_case(self.SEPOLIA)
+        self.output = atlantic.fixture_output(self.doc)
+        self.sharp = int(self.doc["run"]["sharp_fact_hash"], 16)
+        self.integrity = int(self.doc["run"]["integrity_fact_hash"], 16)
+        self.state = {"keccak": True, "cairo": False}
+        self.calls: list[tuple] = []
+        self.sent: list[list[int]] = []
+        real = atlantic.starknet_call
+
+        def fake_call(contract, entry_point, calldata):
+            self.calls.append((entry_point, calldata))
+            if entry_point == "isCairoFactValid":
+                self.assertEqual(calldata, [self.integrity, 0])
+                return [int(self.state["cairo"])]
+            if entry_point == "isKeccakVerifiedFactHashValid":
+                self.assertEqual(calldata, [self.sharp & ((1 << 128) - 1), self.sharp >> 128])
+                return [int(self.state["keccak"])]
+            raise AssertionError(entry_point)
+
+        atlantic.starknet_call = fake_call
+        self.addCleanup(setattr, atlantic, "starknet_call", real)
+
+    def sender(self, output, satellite):
+        self.sent.append(output)
+        self.state["cairo"] = True
+        return {"transaction_hash": "0x1", "gas": {"l2Gas": 1}}
+
+    def test_output_of_the_sepolia_run_hashes_to_its_facts(self):
+        # E3b kept no metadata for this run: the output is re-derived from level, inputs, outputs.
+        boot = encoding.ATLANTIC_BOOTLOADER_PROGRAM_HASH
+        self.assertEqual(encoding.sharp_fact_hash(boot, self.output), self.sharp)
+        self.assertEqual(encoding.translated_fact_hash(boot, self.output), self.integrity)
+        self.assertEqual(len(self.output), 172)
+        # And the recorded one of E3a's run is used as is.
+        e3a = load_case("pile10-reference")
+        self.assertEqual(atlantic.fixture_output(e3a), felts(e3a["atlantic"]["output"]))
+
+    def test_calldata_is_program_hash_span_and_is_mocked(self):
+        data = atlantic.translate_calldata(self.output)
+        self.assertEqual(data[:2], [encoding.ATLANTIC_BOOTLOADER_PROGRAM_HASH, 172])
+        self.assertEqual(data[2:-1], self.output)
+        self.assertEqual(data[-1], 0)
+        self.assertEqual(atlantic.translate_calldata([-1])[2], encoding.P - 1)
+
+    def test_translates_a_bridged_fact(self):
+        result = atlantic.translate(self.sharp, self.output, sender=self.sender)
+        self.assertEqual(result["action"], "translated")
+        self.assertEqual(self.sent, [self.output])
+        self.assertTrue(result["isCairoFactValid"])
+        self.assertEqual(result["integrity_fact_hash"], hex(self.integrity))
+        self.assertEqual(result["calldata_felts"], 175)
+
+    def test_dry_run_sends_nothing(self):
+        result = atlantic.translate(self.sharp, self.output, send=False, sender=self.sender)
+        self.assertEqual((result["action"], self.sent), ("dry run: would translate", []))
+
+    def test_already_translated_sends_nothing(self):
+        self.state["cairo"] = True
+        result = atlantic.translate(self.sharp, self.output, sender=self.sender)
+        self.assertEqual((result["action"], self.sent), ("already translated", []))
+
+    def test_refuses_an_unbridged_fact(self):
+        self.state["keccak"] = False
+        with self.assertRaisesRegex(atlantic.AtlanticError, "KECCAK_FACT_HASH_NOT_SAVED"):
+            atlantic.translate(self.sharp, self.output, sender=self.sender)
+        self.assertEqual(self.sent, [])
+
+    def test_refuses_an_output_that_is_not_the_facts(self):
+        with self.assertRaisesRegex(atlantic.AtlanticError, "hashes to the keccak fact"):
+            atlantic.translate(self.sharp, [*self.output[:-1], self.output[-1] + 1], sender=self.sender)
+        self.assertEqual((self.sent, self.calls), ([], []))  # checked before any read
+
+    def test_a_transaction_that_does_not_translate_is_an_error(self):
+        with self.assertRaisesRegex(atlantic.AtlanticError, "isCairoFactValid"):
+            atlantic.translate(self.sharp, self.output, sender=lambda o, s: {"transaction_hash": "0x2"})
+
+    def test_account_env_needs_rpc_address_and_key(self):
+        keys = ["STARKNET_RPC", "STARKNET_RPC_URL", "SLINGFALL_ACCOUNT_ADDRESS", "STARKNET_ACCOUNT_ADDRESS",
+                "SLINGFALL_PRIVATE_KEY", "STARKNET_PRIVATE_KEY"]
+        saved = {k: os.environ.pop(k) for k in keys if k in os.environ}
+        try:
+            self.assertIsNone(atlantic.account_env())
+            os.environ.update(STARKNET_RPC_URL="http://rpc", STARKNET_ACCOUNT_ADDRESS="0x1")
+            self.assertIsNone(atlantic.account_env())
+            os.environ["STARKNET_PRIVATE_KEY"] = "0x2"
+            self.assertEqual(atlantic.account_env(), {"STARKNET_RPC": "http://rpc", "SLINGFALL_ACCOUNT_ADDRESS": "0x1",
+                                                      "SLINGFALL_PRIVATE_KEY": "0x2"})
+        finally:
+            for k in keys:
+                os.environ.pop(k, None)
+            os.environ.update(saved)
+
+    def test_cli_dry_run_builds_the_call(self):
+        # deploy/slingfall.ts translate --dry-run: no account, no network; needs client/node_modules.
+        if not (HERE.parents[1] / "client" / "node_modules" / "starknet").is_dir() or shutil.which("node") is None:
+            self.skipTest("node or client/node_modules missing")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "output.json"
+            path.write_text(json.dumps([hex(x) for x in self.output]))
+            run = subprocess.run(["node", str(atlantic.SLINGFALL_CLI), "translate", "--output", str(path), "--dry-run"],
+                                 capture_output=True, text=True, timeout=120, check=False)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout), {"entrypoint": "translateFactHash", "satellite": hex(atlantic.SATELLITE_SEPOLIA),
+                                                  "calldata_felts": len(atlantic.translate_calldata(self.output))})
 
 
 if __name__ == "__main__":
