@@ -234,6 +234,31 @@ jobs:
             prove-out/*.json
             prove-out/*.log
 
+  e2e:
+    # Lot G9 (docs/e2e.md): attest.py unit tests, then deploy/e2e.sh on a local starknet-devnet
+    # (release binary): deploy, replay the pile10 reference shot for the devnet account, attest,
+    # submit, best / leaderboard, the nullifier. Optional: not in `all-checks` (external devnet).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: attest.py unit tests
+        run: python3 -m unittest discover -s services/attest -v
+      - uses: software-mansion/setup-scarb@v1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm --prefix client ci
+      - run: scarb --manifest-path "$REPLAY" build
+      - name: End to end on the devnet
+        run: deploy/e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e
+          path: deploy/out/
+
   all-checks:
     # The single required check: green only when every job above is.
     if: always()

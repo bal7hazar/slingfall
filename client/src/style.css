@@ -123,3 +123,40 @@ canvas {
   gap: 10px;
   margin-top: 10px;
 }
+
+.submit {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.submit h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.submit-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.submit input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.submit-status {
+  margin-top: 6px;
+  word-break: break-all;
+}
+
+.submit-board {
+  margin: 0;
+  font: 12px/1.5 ui-monospace, monospace;
+}
+
+.submit-board li.mine {
+  color: #9fd8e8;
+}

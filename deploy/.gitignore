@@ -1,0 +1,8 @@
+# Build of the deploy class, and what the scripts write for a local run.
+contract/target/
+out/
+devnet.json
+devnet.env
+sepolia.json
+sepolia.env
+.devnet/
