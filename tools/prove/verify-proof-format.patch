@@ -1,0 +1,98 @@
+diff --git a/stwo_cairo_prover/crates/dev_utils/src/bin/verify.rs b/stwo_cairo_prover/crates/dev_utils/src/bin/verify.rs
+index 67d57f91..4bf2fff1 100644
+--- a/stwo_cairo_prover/crates/dev_utils/src/bin/verify.rs
++++ b/stwo_cairo_prover/crates/dev_utils/src/bin/verify.rs
+@@ -1,9 +1,13 @@
+-use std::path::PathBuf;
++use std::fs::File;
++use std::path::{Path, PathBuf};
+ 
+ use anyhow::Result;
++use cairo_air::utils::{binary_deserialize_from_file, get_verification_output, ProofFormat};
+ use cairo_air::verifier::verify_cairo;
+ use cairo_air::CairoProofForRustVerifier;
+ use clap::Parser;
++use serde::de::DeserializeOwned;
++use stwo::core::channel::MerkleChannel;
+ use stwo::core::vcs_lifted::blake2_merkle::{
+     Blake2sM31MerkleChannel, Blake2sM31MerkleHasher, Blake2sMerkleChannel, Blake2sMerkleHasher,
+ };
+@@ -30,6 +34,11 @@ struct Args {
+     /// Hash variant to use for verification (blake2s, blake2s_m31, or poseidon252)
+     #[arg(long = "channel_hash", default_value = "blake2s")]
+     channel_hash: String,
++
++    /// slingfall P1 patch: the proof's format (json, binary, extended-binary), as written by
++    /// `run_and_prove --proof-format`.
++    #[arg(long = "proof_format", value_enum, default_value_t = ProofFormat::Json)]
++    proof_format: ProofFormat,
+ }
+ 
+ fn parse_channel_hash(hash_str: &str) -> Result<ChannelHash> {
+@@ -43,21 +52,25 @@ fn parse_channel_hash(hash_str: &str) -> Result<ChannelHash> {
+     }
+ }
+ 
+-fn verify_blake2s_proof(proof: String) -> Result<()> {
+-    let proof: CairoProofForRustVerifier<Blake2sMerkleHasher> = sonic_rs::from_str(&proof)?;
+-    verify_cairo::<Blake2sMerkleChannel>(proof)?;
+-    Ok(())
+-}
+-
+-fn verify_blake2s_m31_proof(proof: String) -> Result<()> {
+-    let proof: CairoProofForRustVerifier<Blake2sM31MerkleHasher> = sonic_rs::from_str(&proof)?;
+-    verify_cairo::<Blake2sM31MerkleChannel>(proof)?;
+-    Ok(())
++/// slingfall P1 patch: reads a JSON or binary (bz2 + bincode) proof.
++fn load<H>(path: &Path, format: &ProofFormat) -> Result<CairoProofForRustVerifier<H>>
++where
++    H: stwo::core::vcs_lifted::MerkleHasherLifted,
++    CairoProofForRustVerifier<H>: DeserializeOwned,
++{
++    match format {
++        ProofFormat::Json => Ok(sonic_rs::from_str(&std::fs::read_to_string(path)?)?),
++        ProofFormat::Binary => Ok(binary_deserialize_from_file(&File::open(path)?)?),
++        _ => anyhow::bail!("unsupported proof format {format:?} (json or binary)"),
++    }
+ }
+ 
+-fn verify_poseidon252_proof(proof: String) -> Result<()> {
+-    let proof: CairoProofForRustVerifier<Poseidon252MerkleHasher> = sonic_rs::from_str(&proof)?;
+-    verify_cairo::<Poseidon252MerkleChannel>(proof)?;
++/// slingfall P1 patch: prints the program hash and the public output the proof commits to (one
++/// line, `VERIFICATION_OUTPUT <json>`), then verifies.
++fn print_output_and_verify<MC: MerkleChannel>(proof: CairoProofForRustVerifier<MC::H>) -> Result<()> {
++    let output = get_verification_output(&proof.claim.public_data.public_memory);
++    println!("VERIFICATION_OUTPUT {}", serde_json::to_string(&output)?);
++    verify_cairo::<MC>(proof)?;
+     Ok(())
+ }
+ 
+@@ -71,13 +84,23 @@ fn main() -> Result<()> {
+     log::info!("Verifying a {:?} proof", args.channel_hash);
+     log::info!("Proof path: {}", args.proof_path.display());
+ 
+-    let proof = std::fs::read_to_string(&args.proof_path)?;
+     let channel = parse_channel_hash(&args.channel_hash)?;
++    let path = &args.proof_path;
++    let format = args.proof_format;
+ 
+     let result = match channel {
+-        ChannelHash::Blake2s => verify_blake2s_proof(proof),
+-        ChannelHash::Blake2sM31 => verify_blake2s_m31_proof(proof),
+-        ChannelHash::Poseidon252 => verify_poseidon252_proof(proof),
++        ChannelHash::Blake2s => {
++            let proof: CairoProofForRustVerifier<Blake2sMerkleHasher> = load(path, &format)?;
++            print_output_and_verify::<Blake2sMerkleChannel>(proof)
++        }
++        ChannelHash::Blake2sM31 => {
++            let proof: CairoProofForRustVerifier<Blake2sM31MerkleHasher> = load(path, &format)?;
++            print_output_and_verify::<Blake2sM31MerkleChannel>(proof)
++        }
++        ChannelHash::Poseidon252 => {
++            let proof: CairoProofForRustVerifier<Poseidon252MerkleHasher> = load(path, &format)?;
++            print_output_and_verify::<Poseidon252MerkleChannel>(proof)
++        }
+     };
+     match result {
+         Ok(_) => log::info!("✅ Proof verified successfully!"),
