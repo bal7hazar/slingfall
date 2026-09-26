@@ -6,7 +6,16 @@
 //! (`step_chunk` has no level argument) and the rules' `GameState`. [`step_state`] restores the
 //! game and runs `crate::play::step_shot`, the per-shot stepping of `play` itself, with a tick
 //! budget: chaining chunks of any sizes gives `main`'s run bit for bit.
+//!
+//! Chunk binding (lot P1b, `docs/proving.md`): an executable's arguments are private in its proof,
+//! so each chunked executable's public output starts with a header that commits to them
+//! ([`init_header`], [`step_header`], [`outputs_header`]). A hash of an argument is
+//! `poseidon_hash_span` ([`hash_felts`]) of its `Serde` felts, **without** the array's length
+//! prefix: for a state, exactly the felts that `init` / `step_chunk` output after their header, and
+//! the same function as `slingfall_level::hash::serde_hash` on the decoded value (`level_hash`,
+//! `inputs_hash`).
 
+use core::poseidon::hades_permutation;
 use slingfall_level::inputs::{Inputs, InputsTrait};
 use slingfall_level::level::{Level, LevelTrait};
 use slingfall_level::outputs::Outputs;
@@ -40,6 +49,74 @@ pub struct ChunkState {
     pub score: u32,
     pub level: Level,
     pub game: GameState,
+}
+
+/// Felts of `init`'s header: `[LEVEL_HASH]`.
+pub const INIT_HEADER_LEN: u32 = 1;
+/// Felts of `step_chunk`'s header: `[STATE_IN_HASH, INPUTS_HASH, shot, k]`.
+pub const STEP_HEADER_LEN: u32 = 4;
+/// Felts of `outputs`' header: `[STATE_IN_HASH, INPUTS_HASH]`.
+pub const OUTPUTS_HEADER_LEN: u32 = 2;
+
+/// `core::poseidon::poseidon_hash_span(felts)`, bit for bit (the same sponge: absorb two felts
+/// per permutation, then pad with 1), with 16 felts absorbed per loop iteration: on pile10's
+/// 3 001-felt state, 23.4k steps against the corelib's 43.5k (snforge probes
+/// `chunk::tests::steps_*hash*`, the losers in `chunk::tests::alternatives`). The blocks are
+/// taken with `slice` + `try_into`, not `multi_pop_front` (19.1k): that one compiles to the
+/// `TestLessThanOrEqualAddress` hint, which the client's cairo-vm (`client/vm/runner`) cannot run.
+pub fn hash_felts(felts: Span<felt252>) -> felt252 {
+    let mut felts = felts;
+    let (mut s0, mut s1, mut s2) = (0, 0, 0);
+    let mut n = felts.len();
+    while n >= 16 {
+        let block: @Box<[felt252; 16]> = felts.slice(0, 16).try_into().unwrap();
+        let [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15] = (*block)
+            .unbox();
+        let (t0, t1, t2) = hades_permutation(s0 + a0, s1 + a1, s2);
+        let (t0, t1, t2) = hades_permutation(t0 + a2, t1 + a3, t2);
+        let (t0, t1, t2) = hades_permutation(t0 + a4, t1 + a5, t2);
+        let (t0, t1, t2) = hades_permutation(t0 + a6, t1 + a7, t2);
+        let (t0, t1, t2) = hades_permutation(t0 + a8, t1 + a9, t2);
+        let (t0, t1, t2) = hades_permutation(t0 + a10, t1 + a11, t2);
+        let (t0, t1, t2) = hades_permutation(t0 + a12, t1 + a13, t2);
+        let (t0, t1, t2) = hades_permutation(t0 + a14, t1 + a15, t2);
+        s0 = t0;
+        s1 = t1;
+        s2 = t2;
+        n -= 16;
+        felts = felts.slice(16, n);
+    }
+    let (h, _, _) = loop {
+        let Some(x) = felts.pop_front() else {
+            break hades_permutation(s0 + 1, s1, s2);
+        };
+        let Some(y) = felts.pop_front() else {
+            break hades_permutation(s0 + *x, s1 + 1, s2);
+        };
+        let (t0, t1, t2) = hades_permutation(s0 + *x, s1 + *y, s2);
+        s0 = t0;
+        s1 = t1;
+        s2 = t2;
+    };
+    h
+}
+
+/// `init(level)`'s header: `[poseidon(level felts)]`, the D4 `level_hash` of the level.
+pub fn init_header(level: Span<felt252>) -> Array<felt252> {
+    array![hash_felts(level)]
+}
+
+/// `step_chunk(state, inputs, shot, k)`'s header: `[poseidon(state felts), poseidon(inputs
+/// felts), shot, k]`.
+pub fn step_header(
+    state: Span<felt252>, inputs: Span<felt252>, shot: u8, k: u32,
+) -> Array<felt252> {
+    array![hash_felts(state), hash_felts(inputs), shot.into(), k.into()]
+}
+
+/// `outputs(state, inputs)`'s header: `[poseidon(state felts), poseidon(inputs felts)]`.
+pub fn outputs_header(state: Span<felt252>, inputs: Span<felt252>) -> Array<felt252> {
+    array![hash_felts(state), hash_felts(inputs)]
 }
 
 /// Saves `game` with its header.

@@ -37,6 +37,8 @@ CASES = {
     "one_block-1": ("one_block", [REFERENCE]),
 }
 STEPS_RE = re.compile(r"^\s*steps:\s*([\d,]+)", re.M)
+# Felts of each chunked executable's binding header (`README.md`).
+BINDING_HEADER = {"init": 1, "step_chunk": 4, "outputs": 2}
 
 
 def execute(name: str, felts: list[int]) -> tuple[int, list[int], list[str]]:
@@ -57,7 +59,8 @@ def execute(name: str, felts: list[int]) -> tuple[int, list[int], list[str]]:
     body = rest.split("Resources:", 1)[0].split()
     # `[len, felt...]`, printed as signed decimals.
     values = [int(v) % P for v in body]
-    returned = values[1 : 1 + values[0]]
+    # Without the binding header of the chunked executables (lot P1b): the state, or the outputs.
+    returned = values[1 + BINDING_HEADER.get(name, 0) : 1 + values[0]]
     steps = int(STEPS_RE.search(rest).group(1).replace(",", ""))
     lines = [l for l in head.splitlines() if l and not l.lstrip().startswith(("Compiling", "Finished", "Executing"))]
     return steps, returned, lines

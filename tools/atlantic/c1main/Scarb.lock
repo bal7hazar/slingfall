@@ -30,9 +30,9 @@ dependencies = [
 
 [[package]]
 name = "rapier2d"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:c7b8e92824aebe2376f6d958634ce1e9762136b24050c771bdd1f8bb5ab15142"
+checksum = "sha256:6d348c3f02589e3ec24f8d552d193e68b7db0510f5cc3773f7d01779436586b8"
 dependencies = [
  "fixed",
  "glam",
