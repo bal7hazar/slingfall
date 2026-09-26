@@ -62,22 +62,22 @@ pub impl CalmImpl of CalmTrait {
         let mut all_calm = true;
         let mut index = 0;
         for entity in game.entities.span() {
-            if *entity.alive && *entity.kind != KIND_STATIC {
+            if *entity.alive
+                && *entity.kind != KIND_STATIC
+                && !game.world.is_sleeping(*entity.body).unwrap() {
                 let body = game.world.body(*entity.body).unwrap();
-                if !body.is_sleeping() {
-                    if outside(body.translation(), bounds) {
-                        out_of_bounds.append(index);
-                    } else {
-                        all_asleep = false;
-                        all_calm = all_calm && is_calm(@body);
-                    }
+                if outside(body.translation(), bounds) {
+                    out_of_bounds.append(index);
+                } else {
+                    all_asleep = false;
+                    all_calm = all_calm && is_calm(@body);
                 }
             }
             index += 1;
         }
         if let Some(pebble) = game.pebble {
-            let body = game.world.body(pebble).unwrap();
-            if !body.is_sleeping() {
+            if !game.world.is_sleeping(pebble).unwrap() {
+                let body = game.world.body(pebble).unwrap();
                 if outside(body.translation(), bounds) {
                     let _ = game.world.remove_body(pebble);
                     game.pebble = None;
@@ -146,8 +146,8 @@ pub fn sleep_all(ref game: Game) {
 }
 
 fn sleep_body(ref game: Game, handle: rapier2d::prelude::Handle) {
-    let mut body = game.world.body(handle).unwrap();
-    if !body.is_sleeping() {
+    if !game.world.is_sleeping(handle).unwrap() {
+        let mut body = game.world.body(handle).unwrap();
         body.sleep();
         let _ = game.world.set_body(handle, body);
     }

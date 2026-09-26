@@ -125,12 +125,12 @@ The **program hash** is stwo's own (`get_verification_output`):
 The program section is the executable's bytecode (`initial_pc .. initial_ap - 2`), so the hash is
 a function of the `*.executable.json` alone:
 
-| executable (rapier alpha.2, P1b's binding headers) | program hash |
+| executable (rapier alpha.3, P1b's binding headers) | program hash |
 |---|---|
-| `main` | `0x6ba8179d6dc26c57e1fb681d303c986f5d074e8ee2f7d9cf8771b72cdc972cc` (unchanged by P1b) |
-| `init` | `0x74a9e5569fb76389f7b81bf396c8ae63629eabd77d4d8106023d8b6d796c304` |
-| `step_chunk` | `0x40c4eb050499160b97bdda0ae4392477db65888013c4c0d67cc86b48ead6e24` |
-| `outputs` | `0x2ee00e85021e893c1e6b0e7efc6e5b383dab8ee4e3eb8b283f80d0f39e7b761` |
+| `main` | `0x11d8b326a39850ca6ac8937cbc5854f3463c0d2dcee2449e05ab1fe347e052e` (the same as without P1b) |
+| `init` | `0x3989a8a4b39608266158e6ac98487fc4cf2bf1531513a1cc397235763c5eea` |
+| `step_chunk` | `0x339a6dc7022208f49bc2d6f95c0ecb8e45fb765942ea97289bb9d6ede31ea20` |
+| `outputs` | `0x53c43f4837a77a87ed9c87bd57fff1839a2d9a796649a4f9385bfdc1ec2b0c5` |
 
 The bytecode writes jump offsets as negative numbers (`-0xc`), which are the felts `P - x`. The
 `main` value is the one a CI proof carried.
@@ -305,7 +305,8 @@ How to read the table:
 
 ## Measurements (P1b, binding headers)
 
-Setup: the shared VPS (8 cores, a 22 GiB systemd unit, no swap), the prover built with
+Setup: rapier alpha.2 (the lot's commits before B2 was merged in; the header costs are the same on
+alpha.3: `scarb execute` gives identical deltas), the shared VPS (8 cores, a 22 GiB systemd unit, no swap), the prover built with
 `setup.sh --native`, `canonical_small` unless stated, one proof at a time; `verify.py --run`
 green on every run. Per-run files: `fixtures/proofs/<case>-<mode>-p1b/summary.json`.
 
