@@ -15,11 +15,11 @@ Promoted from the spike `pm/spikes/wasm-vm` (docs/research/03 and 04).
 | `scripts/bench.mjs` | the Node figures below |
 | `scripts/fetch-executables.sh` | copies the replay executables into `fixtures/replay/` (`--build` builds them first) |
 | `scripts/worker-check.mjs` | lot G6b: page side + `worker_threads` worker on pile10, the page's figures in Node |
-| `scripts/browser-check.py` | lot G6b: headless Firefox on `dist/` (console + screenshot); not run yet |
+| `scripts/browser-check.py` | lot G6b, H1: headless Firefox on `dist/` (console + screenshot); `--firefox <path>`, `--timeout`; never run (below) |
 | `fixtures/replay/` | the executables the client runs: `init`, `step_chunk`, `outputs` and `main_trace` (tests), all four built from `crates/slingfall_replay` (lots G4, G4c) |
 | `fixtures/pile10-reference.main_trace.txt` | `scarb execute` of `main_trace` on pile10, reference shot (the lines and outputs the tests compare with) |
 | `fixtures/pile10-*.args.json` | `tools/tracec/tracec.py args` on pile10 (the argument-encoding tests) |
-| `fixtures/ball_drop/` | the G1c stand-in executable's source (spike G1b copy, registry `rapier2d`) |
+| `fixtures/ball_drop/` | the G1c stand-in executable's source (spike G1b copy, registry `rapier2d` `=0.1.0-alpha.2`, lot H1) |
 | `fixtures/ball_drop.executable.json` | its build (the runner's bit-exactness tests and `bench.mjs` load it) |
 | `fixtures/pile12-mode3-120.state.txt` | golden: pile12's state after 120 uninterrupted ticks (`mode 3`, native) |
 | `../src/vm/` | TypeScript: sizing rule, chunk loop, worker, `WorkerTraceSource` |
@@ -54,7 +54,9 @@ cairo-vm's `cairo-lang-casm` 2.12.0-dev.0.
 
 **Native.** `runner/target/release/slingfall-run <executable.json> "<args>" [--reserve=CELLS]
 [--quiet-prints]` prints the ticks, `returned: <felts>` and a summary on stderr. The golden state
-was produced with `slingfall-run client/vm/fixtures/ball_drop.executable.json "3 3 120 0 0"`.
+was produced with `slingfall-run client/vm/fixtures/ball_drop.executable.json "3 3 120 0 0"` (lot H1 regenerated it
+with `scarb --manifest-path client/vm/fixtures/ball_drop/Scarb.toml execute --arguments 3,3,120,0,0
+--print-program-output`: drop the first printed felt, the array length, and write negatives as `P - x`).
 
 **Replay executables.** `client/vm/scripts/fetch-executables.sh --build` builds
 `crates/slingfall_replay`, then copies `init`, `step_chunk`, `main_trace` and `outputs` into
@@ -72,6 +74,17 @@ for the golden state. Arguments: `mode scene steps trace <len> <state felts..>`;
 `init(scene)`, 2 = `step_chunk(state, steps)`, 3 = build + `steps` ticks + save (the
 bit-exactness reference); scene 0 = ball_drop, 3 = pile12 (12 boxes hit by a ball). With
 `trace = 1` every tick prints `tick <i> y <raw>` (y of the ball).
+
+**Browser check.** `client/vm/scripts/browser-check.py` serves `client/dist/` (after `build.sh` and
+`npm run build`) and shoots it with `firefox --headless --screenshot`, printing the page's console:
+
+```sh
+python3 client/vm/scripts/browser-check.py --firefox /path/to/firefox --timeout 180 --out shot.png
+```
+
+`--firefox` defaults to `$FIREFOX`, then `firefox` on `PATH`; Firefox is killed `--timeout` seconds
+after `--hold`. Neither G6b nor H1 could run it: their sandboxes refused to launch Firefox (and H1's
+could not fetch cairo-vm to build `pkg/`). Run it where Firefox launches.
 
 ## JS API (wasm-bindgen, `pkg/` and `pkg-node/`)
 
@@ -195,7 +208,7 @@ Whole pile12 shot (120 ticks, trace on, warmed-up engine; every row ends on the 
 
 The rule's K per chunk: `5 6 6 6 6 6 6 7 15 13 13 14 14 3`, i.e. 2.7-3.8M steps per chunk
 (0.8M for the last one). Native `slingfall-run` (release): the uninterrupted 120-tick run (mode 3)
-takes 8.1 s at 4.9M steps/s (39.99M steps).
+takes 8.1 s at 4.9M steps/s (39.99M steps on rapier2d alpha.1; **22.76M** on alpha.2, `scarb execute`, lot H1).
 Wasm memory never shrinks; the allocator reuses it, so a worker plateaus at its largest chunk
 (baseline ≈ 197 MB after load and warm-up, plus ≈ 32 B per reserved cell). The absolute seconds
 are pessimistic for an idle machine. A 4e7-step shot stays at ≈ 12 s on this VPS, as in the

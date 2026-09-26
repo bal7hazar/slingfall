@@ -16,10 +16,10 @@ license = "MIT"
 # `ContactPair` and the set traits are not in `rapier2d::prelude` (spike escalation E3).
 fixed = "0.3.0"
 glam = "0.3.0"
-rapier2d = "=0.1.0-alpha.1"
-rapier_core = "=0.1.0-alpha.1"
-rapier_math = "=0.1.0-alpha.1"
-rapier_dynamics2d = "=0.1.0-alpha.1"
+rapier2d = "=0.1.0-alpha.2"
+rapier_core = "=0.1.0-alpha.2"
+rapier_math = "=0.1.0-alpha.2"
+rapier_dynamics2d = "=0.1.0-alpha.2"
 cairo_execute = "2.19.4"
 
 [executable]
