@@ -21,6 +21,9 @@
     "vitest": "^5.0.2"
   },
   "dependencies": {
-    "pixi.js": "^8.21.0"
+    "@cartridge/controller": "^0.14.2",
+    "@starknet-io/get-starknet": "^4.0.8",
+    "pixi.js": "^8.21.0",
+    "starknet": "^10.8.0"
   }
 }
