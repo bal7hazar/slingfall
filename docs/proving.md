@@ -410,10 +410,10 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
    recomputed locally by `atlantic.py program-hash`). `c1main` on alpha.3 (B2, 459 803 felts):
    `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` (Atlantic's, E3b's Sepolia run).
    It changes with any change to the game, the engine, `c1main` or the Cairo compiler: pin it per
-   release ("Program hash history" below). The Sepolia deployment (`deploy/sepolia.json`) pins the
-   current release's hash, re-pinned by an admin `set_satellite_config` each bump: proofs made with
-   an earlier program's hash can no longer settle after a re-pin (by design — the fact commits to the
-   program that produced it).
+   release ("Program hash history" below). The Sepolia deployment (`deploy/sepolia.json`, contract v2
+   since lot D2) pins the current release's hash with `pin_program(hash, grace_s)`: a proof made with
+   an earlier program's hash settles only while that program is inside its grace period (the fact
+   commits to the program that produced it; on v1 a re-pin voided it at once).
 3. **Bootloader output** (Atlantic's bootloader, `ATLANTIC_BOOTLOADER_PROGRAM_HASH =
    0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09`, a 728-felt program):
    `output = [0, pedersen(0, 0), 1, len(task) + 2, CHILD_PROGRAM_HASH, task…]`; `pedersen(0, 0) =
@@ -434,12 +434,13 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
 
 `c1main`'s `child_program_hash` (`atlantic.py program-hash`, cairo-lang's Pedersen
 `compute_program_hash_chain` over the compiled program's felts): pinned per release in
-`deploy/slingfall.ts`'s `CHILD_PROGRAM_HASH`. On the v1 Sepolia deployment it is
-`deploy/sepolia.json`'s `satellite.child_program_hash` (one admin `set_satellite_config`
-transaction), and a proof made against an earlier hash no longer settles once the contract is
+`deploy/slingfall.ts`'s `CHILD_PROGRAM_HASH`. On the v1 Sepolia deployment (retired by lot D2) it was
+`deploy/sepolia.json`'s `v1.satellite.child_program_hash` (one admin `set_satellite_config`
+transaction), and a proof made against an earlier hash no longer settled once the contract was
 re-pinned: the fact commits to the exact program.
 
-Contract v2 (lot V2, `docs/contract-v2.md`; wired by lot W1, not deployed yet) replaces the single pin
+Contract v2 (lot V2, `docs/contract-v2.md`; wired by lot W1, deployed on Sepolia by lot D2: `deploy/sepolia.json`'s
+`program`) replaces the single pin
 with a set: `pin_program(hash, grace_s)` keeps the previous hash valid for `grace_s` seconds,
 `revoke_program(hash)` voids one at once, and `submit_settled(outputs, args, child_program_hash)` names
 the hash the proof was made with. A proof in flight across a re-pin therefore settles until the grace
@@ -457,7 +458,7 @@ is refused with `'submit: program'` after it.
 | alpha.2 | E3a | 454 101 | `0x128791df23988bef1c8aef3be7ce36ad68278d19878369e5fb7ed2515d5b053` | no (E3a: local / Atlantic round trip only, before the Sepolia deployment) |
 | alpha.3 | B2 / E3b | 459 803 | `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` | 2026-09-26 (E3b's deployment) |
 | alpha.5 | B3 | 582 399 | `0x3f961b5c5b590fbc720048672b0ddeda96aa52ab16b56365f6d1583c5ed27ec` | 2026-09-27 (`set_satellite_config` tx `0x1f3652885aec68ea61add59bb3814dbd44e55669f8e5727d74c347dc28a1447`) |
-| alpha.6 | B4 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` | 2026-09-27 (`set_satellite_config` tx `0x4a77159da8decd6f2659649e642b488d154e737618566e4219ea589845d4bdf`) |
+| alpha.6 | B4 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` | 2026-09-27 (v1: `set_satellite_config` tx `0x4a77159da8decd6f2659649e642b488d154e737618566e4219ea589845d4bdf`; v2, lot D2: `pin_program(hash, 0)` in the `configure` tx `0x6079548cffbd0d81aae63468e0fb4a36833b0377983982b2e150461eb4fe3b0`) |
 
 The felt count jumps 26.6 % from alpha.3 to alpha.5 (CC1 + CC2 + LO2 + SH2a: shape casts, the CCD
 solver, Polyline / HeightField), well past a rapier2d MINOR version's usual size drift; none of it
@@ -562,6 +563,20 @@ to the service's. `submit_settled` `0x636874a6904bee1882e14b65663080bef78525bc8e
 account; a first record and leaderboard row); `best` = `{5200, won, settled}`, the leaderboard lists
 the account. The whole deployment (declare 22.9 STRK, deploy, configure, six levels, the submit):
 31.81 STRK.
+
+Sepolia, contract v2 (2026-09-27, lot D2; `deploy/sepolia.json`,
+`fixtures/proofs/atlantic/pile10-reference-sepolia-v2.json`, `docs/e2e.md` "Sepolia, contract v2"):
+`Slingfall` `0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02` (class
+`0x256e46a924bc9e435d8de5015fd6ec1b1bbe0e1eaf84d887a75961ea82a749f`), verifier `Stub` (both tiers),
+program alpha.6. The pile10 reference for the admin account, first attested (`submit` 5,494,931 L2 gas,
+0.118 STRK, 18 s from the attestation request), then proven through the prover service (`POST /prove`,
+`serve --relay --no-translate`): PIE 100 s, Atlantic query `01M3J20R8B8P1VSQSWSS8D1Y94` (declared L, ran as
+S; trace 86 s, SHARP 3 966 s, bridge 224 s: 71.3 min), Atlantic's facts equal to the service's, keccak fact
+`0x4be7eef9…77a69` on the Satellite; the relay sent `submit_settled`
+`0x369d3bde2bfb4447c1774135fa7370086d64a7b0ea54df8565354a5ed97a8fe` 29 s after the bridge (32 s to the block):
+17,746,555 L2 gas, 896 L1 data gas, **0.381 STRK** (the upgrade of the attested attempt on the keccak path:
+`best` marked settled, `best_settled` and the settled board written). `POST /prove` to the settled
+record: 73.5 min. The whole v2 deployment and both tiers: 40.25 STRK (declare 30.96).
 
 ### Client / service flow
 
@@ -679,7 +694,10 @@ numbers bound: the real Satellite costs about 6.85M L2 gas more than the fake ov
 (18.82M against 11.97M), so the Poseidon path on Sepolia is at most about 4.45M + 6.85M ≈ 11.3M (an
 inference, not a measurement), below the keccak path's 18.8M in any case. The translation itself is a
 transaction of 13.7M L2 gas that the service pays: translating moves cost from the player's settlement
-to the service, it does not reduce the total.
+to the service, it does not reduce the total. Contract v2 on Sepolia (lot D2) settled on the keccak path
+again, by design of the brief (no translation transaction): 17,746,555 L2 gas for the upgrade of an
+attested attempt (v2 on the devnet: 13,994,080; the real Satellite about 3.75M more), so the Poseidon path
+on Sepolia remains unmeasured.
 
 ### Runs, latency, cost
 

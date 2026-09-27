@@ -38,7 +38,7 @@ Satellite` the attested tier is closed and only `submit_settled` records.
 | `deploy/outputs.py` | a golden case replayed with `scarb execute` (`main`) for another player; its inputs, its `c1main` argument and (`--child-hash`) its Atlantic facts |
 | `deploy/e2e.sh` | the scripted check below |
 | `deploy/sepolia.sh` | Sepolia: `deploy`, `pin` (explicit grace), `revoke`, `set-attestation-key`, `set-admin` / `accept-admin`, `upgrade`, `settle JOB`, `translate JOB`; keys from the environment |
-| `deploy/sepolia.json` | the v1 Sepolia deployment (lot E3b; a v2 deployment is a later lot) |
+| `deploy/sepolia.json` | the v2 Sepolia deployment (lot D2) and its transactions; the v1 deployment (lot E3b) under `"v1"` |
 | `services/attest/attest.py` | the attestation service (`serve --execute | --verify-cmd | --no-verify`, `sign`, `pubkey`, `request`), Python standard library, signing with `crates/slingfall_contract/tools/vectors.py` |
 | `services/prove/prove_service.py`, `relay.py` | the prover service of the settled tier (`serve [--relay]`, `prove`, `status`, `translate`, `relay`), Python standard library on `tools/atlantic` |
 | `deploy/snfoundry.toml` | `sncast` profiles for manual calls |
@@ -155,11 +155,12 @@ program)` (the level felts read back with `level_data`). Wallets:
 
 ## Sepolia
 
-The deployment of lot E3b (`deploy/sepolia.json`, addresses and transaction hashes; the transcript is
-in `docs/proving.md` "Settled submit") is **contract v1**: `verifier = Satellite`, the four-field
-`SatelliteConfig`, no program set. The client and scripts of this branch speak v2 and are meant for
-the v2 deployment of a later lot. From the owner's environment (`STARKNET_RPC_URL`,
-`STARKNET_ACCOUNT_ADDRESS`, `STARKNET_PRIVATE_KEY`; never on a command line), a v2 deployment is:
+`deploy/sepolia.json` is **contract v2** since lot D2 (below: addresses, every transaction, gas and
+latencies of both tiers); the v1 deployment of lot E3b (`verifier = Satellite`, the four-field
+`SatelliteConfig`; transcript in `docs/proving.md` "Settled submit") is kept under its `"v1"` key, its
+levels deactivated. From the owner's environment (`STARKNET_RPC_URL`, `STARKNET_ACCOUNT_ADDRESS`,
+`STARKNET_PRIVATE_KEY`; never on a command line), a v2 deployment is (`deploy` overwrites `$SEPOLIA_OUT`,
+default `deploy/sepolia.json`: point it elsewhere to keep the previous record, then merge):
 
 ```sh
 SLINGFALL_ATTESTATION_KEY=<public key> deploy/sepolia.sh deploy   # key + pin + Satellite + levels
@@ -190,6 +191,85 @@ npm run build:sepolia    # dist/ for Sepolia; node scripts/smoke-sepolia.mjs che
 
 On Sepolia the wallet list is Cartridge Controller and get-starknet (the devnet account is hidden), the
 page links the contract and the player's `LevelValidated` transactions on Voyager Sepolia and shows the
-on-chain hash of the level. Until the v2 deployment, the v1 contract's reads (`best` with 5 felts, no
-`leaderboard_provisional`) do not match this client: point it at a v2 deployment. Playing, the two
-tiers, the statuses and the known limits: [`testers.md`](testers.md).
+on-chain hash of the level. `client/.env.sepolia` points at the v2 deployment (lot D2) with its deploy
+block; the retired v1 contract's reads (`best` with 5 felts, no `leaderboard_provisional`) do not match
+this client. Playing, the two tiers, the statuses and the known limits: [`testers.md`](testers.md).
+
+### Sepolia, contract v2 (lot D2, 2026-09-27)
+
+The dry run first: `deploy/e2e.sh` and `E2E_SETTLE=keccak deploy/e2e.sh` on starknet-devnet 0.10.0, both
+green (devnet L2 gas: attested `submit` 5,182,960; relayed `submit_settled` 7,034,080 on the translated
+fact, 13,994,080 on the keccak fact). Then `deploy/sepolia.sh deploy` with `SLINGFALL_VERIFIER=stub`
+and the attestation public key, from the admin account `0x59b1a0…3753` (Braavos).
+
+| | |
+|---|---|
+| `Slingfall` v2 | `0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02`, block 15 729 982 |
+| class | `0x256e46a924bc9e435d8de5015fd6ec1b1bbe0e1eaf84d887a75961ea82a749f` |
+| verifier / key / epoch | `Stub` (both tiers) / `0x66ca673bb9a69e143f1072eda143886e2349baf4c996f200b06f7e3d4ddbf4` / 1 |
+| program | `current_program` = c1main alpha.6 `0x580ef5d1…edf75a`, `program_valid_until` = `u64::MAX` |
+| `satellite_config` | Atlantic bootloader `0x288ba129…b668f09`, SHARP bootloader `0x5ab580b0…2db07`, Satellite `0x421cd95f…676e` (v1's constants) |
+| levels | the six fixture levels, same hashes as v1, active; `expire_delay` 86 400 s |
+| v1 | `0x4b645f…0ae2`: its six levels `set_level_active(false)` in one multicall |
+
+Everything above was read back from the chain after the deployment (`admin`, `verifier`,
+`current_program`, `program_valid_until`, `attestation_epoch`, `attestation_key`, `satellite_config`,
+`level` / `level_data` of each level, both boards empty).
+
+Transactions (fee in STRK; L2 gas; every one estimated first):
+
+| transaction | hash | L2 gas | L1 data gas | fee (STRK) |
+|---|---|--:|--:|--:|
+| declare Slingfall | [`0x3d680d3c…1350`](https://sepolia.voyager.online/tx/0x3d680d3c735d12fcb844b794f8a6fefc2dede0a34fbd4808ebacd9c34911350) | 1,440,278,835 | 192 | 30.9569 |
+| deploy Slingfall | [`0x66caecc6…a999`](https://sepolia.voyager.online/tx/0x66caecc68080197860b525f076328cc27aff8a711590d2c2022edcad8a2a999) | 2,933,135 | 512 | 0.0635 |
+| configure | [`0x6079548c…e3b0`](https://sepolia.voyager.online/tx/0x6079548cffbd0d81aae63468e0fb4a36833b0377983982b2e150461eb4fe3b0) | 5,232,105 | 864 | 0.1126 |
+| register_level bridge | [`0x497a5e55…e532`](https://sepolia.voyager.online/tx/0x497a5e551049f781c1a82c122dfb9ed54ecaf7fb99b2b79d35542add05fe532) | 70,463,038 | 12,096 | 1.5172 |
+| register_level cores3 | [`0x325e10d0…be42`](https://sepolia.voyager.online/tx/0x325e10d062ced454c8197a8916d337032b0a771e19c0aa73dbefb746b58be42) | 63,936,822 | 10,944 | 1.3831 |
+| register_level one_block | [`0x2444710d…06d5`](https://sepolia.voyager.online/tx/0x2444710d4294de5d4a3203403e4e64977fa11621a55e2ee4ae438b1405206d5) | 37,750,242 | 6,528 | 0.8167 |
+| register_level pile10 | [`0x1b9dd8e1…e340`](https://sepolia.voyager.online/tx/0x1b9dd8e1d3277b5294ec800c8fc252adcc51232c58f9c6cfd1031cef883e340) | 71,913,979 | 12,384 | 1.5557 |
+| register_level tower | [`0xbbd1347e…aa99`](https://sepolia.voyager.online/tx/0xbbd1347e8c44a322c750136fbb15407539a61bf029ed78cdad39b4e4ddaa99) | 70,905,038 | 12,192 | 1.5267 |
+| register_level twin | [`0x3cbfb788…2286`](https://sepolia.voyager.online/tx/0x3cbfb788728970bbad057ee7184978cee46695db989e0cb0ce9e5a0a3862286) | 79,272,447 | 13,632 | 1.7148 |
+| submit (attested) pile10 | [`0x29b3289b…1651`](https://sepolia.voyager.online/tx/0x29b3289bf65b2d6fad40e263b76d94ec9c000bd5cd6d1b39b7d07e4c791651) | 5,494,931 | 864 | 0.1182 |
+| submit_settled f55cabf2 (relayed) | [`0x369d3bde…a8fe`](https://sepolia.voyager.online/tx/0x369d3bde2bfb4447c1774135fa7370086d64a7b0ea54df8565354a5ed97a8fe) | 17,746,555 | 896 | 0.3808 |
+| v1: set_level_active false x6 | [`0x2f94fbcc…12b7`](https://sepolia.voyager.online/tx/0x2f94fbccfafdc2e3e67da0e825862b4c9127d16dfbb6781c34153a91bba12b7) | 4,655,975 | 576 | 0.1001 |
+| **total** | | | | **40.2463** |
+
+The whole lot spent 40.25 STRK (the account's balance fell by exactly that), 30.96 of it on the
+declaration of the 563 kB class.
+
+**Provisional tier** (the pile10 reference shot of the admin account, `deploy/outputs.py`; the
+attestation service `attest.py serve --execute` on 127.0.0.1, key from the environment):
+
+| stage | seconds |
+|---|--:|
+| `POST /attest` (the service re-executes the replay with `scarb execute`, 8.7M steps, and signs) | 12.2 |
+| sign and send `submit(outputs, [program_hash, expiry, r, s])` | 0.7 |
+| inclusion (receipt) | 5.1 |
+| **request attestation → provisional record on chain** | **18.0** |
+
+`submit` `0x29b3289b…1651`: 5,494,931 L2 gas, 864 L1 data gas, **0.118 STRK**; one `LevelValidated
+{settled: false, program_hash: alpha.6}`; `best` provisional, the live board `[(admin, 5200)]`, the
+settled board empty.
+
+**Settled tier, relayed** (the same attempt; `prove_service.py serve --relay --no-translate` on 127.0.0.1,
+relayer = the admin account; `POST /prove` from a script, as the page does):
+
+| stage | measured |
+|---|--:|
+| `POST /prove` → PIE built (`cairo1-run`, 8,735,395 steps, 41 MB, 96 s), facts, submitted to Atlantic | 100 s |
+| Atlantic `TRACE_AND_METADATA_GENERATION` (declared L, ran as S) | 86 s |
+| `PROOF_GENERATION_AND_VERIFICATION` (SHARP, Stwo, verified on Ethereum Sepolia) | 3,966 s (66.1 min) |
+| `BRIDGE_FACT_HASH` (keccak fact to the Satellite) | 224 s |
+| bridge done → relay pass (`/status` settleable on the keccak fact, `attempt`, simulation, send) | 29 s |
+| relay send → block | 3 s |
+| **`POST /prove` → settled record on chain** | **4,408 s (73.5 min)** |
+
+Atlantic query `01M3J20R8B8P1VSQSWSS8D1Y94` (job `f55cabf2…`), keccak fact
+`0x4be7eef9…77a69` valid on the Satellite, the Poseidon fact `0x6ddf4d19…3b4b` not (no translation
+sent). The relay's `submit_settled` `0x369d3bde…a8fe`, sent by the admin account for `claim.player`
+(the same account here), is the **upgrade** of the attested attempt on the **keccak** path: 17,746,555 L2
+gas (3.23x the attested `submit`; v1's first keccak settlement: 18,819,885), 896 L1 data gas, **0.381
+STRK**, one `LevelValidated {settled: true}`. After it: `attempt` = 2 (settled); `best` = the attested
+record (block 15 730 073) marked `settled`; `best_settled` = `{5200, won}` at block 15 732 681; both
+boards `[(admin, 5200)]` (`deploy/slingfall.ts boards`). Record: `deploy/sepolia.json`
+`settled_submits`, `fixtures/proofs/atlantic/pile10-reference-sepolia-v2.json`.

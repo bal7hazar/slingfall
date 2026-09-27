@@ -30,6 +30,15 @@ describe('client/.env.sepolia', () => {
     expect(SEPOLIA.chain_id).toBe('0x534e5f5345504f4c4941'); // SN_SEPOLIA
   });
 
+  it('is the contract v2 deployment (lot D2), both tiers open, v1 kept under "v1"', () => {
+    expect(SEPOLIA.contract_version).toBe(2);
+    expect(SEPOLIA.verifier).toBe('Stub');
+    expect(BigInt(SEPOLIA.program.current)).toBe(0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75an); // c1main alpha.6
+    expect(BigInt(SEPOLIA.v1.address)).toBe(0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2n);
+    expect(BigInt(SEPOLIA.v1.address)).not.toBe(BigInt(SEPOLIA.address));
+    expect(Number(env.VITE_DEPLOY_BLOCK)).toBe(SEPOLIA.deploy_block);
+  });
+
   it('uses the public RPC and Voyager Sepolia, no service by default', () => {
     expect(config.rpcUrl).toBe('https://starknet-sepolia-rpc.publicnode.com');
     expect(config.explorerUrl).toBe('https://sepolia.voyager.online');

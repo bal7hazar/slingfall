@@ -1,0 +1,172 @@
+{
+  "case": "pile10-reference-sepolia-v2",
+  "level": "pile10",
+  "shots": [
+    [
+      -604,
+      -392
+    ]
+  ],
+  "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+  "note": "D2: pile10-reference proven for the v2 Sepolia deployment's admin account (deploy/sepolia.json), requested with POST /prove to services/prove serve --relay --no-translate; settled by the relay on the bridged keccak fact, as an upgrade of the attested attempt.",
+  "job": {
+    "id": "f55cabf258957879050b4616e0889afb",
+    "store": "services/prove/out",
+    "result": "PROOF_VERIFICATION_ON_L2",
+    "created_at": "2026-09-27T18:27:04Z"
+  },
+  "inputs": [
+    "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+    "0x1",
+    "0x800000000000010fffffffffffffffffffffffffffffffffffffffffffffda5",
+    "0x800000000000010fffffffffffffffffffffffffffffffffffffffffffffe79",
+    "0x0",
+    "0x0"
+  ],
+  "outputs": [
+    "0x1",
+    "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+    "0x0",
+    "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+    "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+    "0x1450",
+    "0x1",
+    "0x1",
+    "0x6b",
+    "0x3d6ed9e717b0eead27d130562b4bcdda7df5cbd9e1769a970dded582a69db9f"
+  ],
+  "run": {
+    "steps": 8735395,
+    "pie_bytes": 41324874,
+    "run_seconds": 96.3,
+    "child_program_hash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a",
+    "integrity_fact_hash": "0x6ddf4d1928f8343353e6892ff13b2833ccfcfa7b79d3f8c8a6ca4183b993b4b",
+    "sharp_fact_hash": "0x4be7eef9b6d23e42f385fcc7ef43eb397c4e4001af3826230bf9a64f5ad77a69"
+  },
+  "atlantic": {
+    "query_id": "01M3J20R8B8P1VSQSWSS8D1Y94",
+    "declaredJobSize": "L",
+    "dedupId": "slingfall-f55cabf258957879050b4616e0889afb",
+    "status": "DONE",
+    "step": "BRIDGE_FACT_HASH",
+    "jobSize": "S",
+    "integrityFactHash": "0x6ddf4d1928f8343353e6892ff13b2833ccfcfa7b79d3f8c8a6ca4183b993b4b",
+    "sharpFactHash": "0x4be7eef9b6d23e42f385fcc7ef43eb397c4e4001af3826230bf9a64f5ad77a69",
+    "errorReason": null,
+    "createdAt": "2026-09-27T18:28:44.110Z",
+    "completedAt": "2026-09-27T19:39:59.981Z",
+    "totalSeconds": 4275.9,
+    "stages": [
+      {
+        "job": "TRACE_AND_METADATA_GENERATION",
+        "status": "COMPLETED",
+        "createdAt": "2026-09-27T18:28:44.140Z",
+        "completedAt": "2026-09-27T18:30:10.350Z",
+        "seconds": 86.2
+      },
+      {
+        "job": "PROOF_GENERATION_AND_VERIFICATION",
+        "status": "COMPLETED",
+        "createdAt": "2026-09-27T18:30:10.551Z",
+        "completedAt": "2026-09-27T19:36:16.380Z",
+        "seconds": 3965.8
+      },
+      {
+        "job": "BRIDGE_FACT_HASH",
+        "status": "COMPLETED",
+        "createdAt": "2026-09-27T19:36:16.398Z",
+        "completedAt": "2026-09-27T19:39:59.864Z",
+        "seconds": 223.5
+      }
+    ]
+  },
+  "starknet": {
+    "contract": "0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02",
+    "job": "f55cabf258957879050b4616e0889afb",
+    "atlantic_query": "01M3J20R8B8P1VSQSWSS8D1Y94",
+    "level": "pile10",
+    "child_program_hash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a",
+    "integrity_fact_hash": "0x6ddf4d1928f8343353e6892ff13b2833ccfcfa7b79d3f8c8a6ca4183b993b4b",
+    "sharp_fact_hash": "0x4be7eef9b6d23e42f385fcc7ef43eb397c4e4001af3826230bf9a64f5ad77a69",
+    "satellite": {
+      "satellite": "0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e",
+      "isCairoFactValid": false,
+      "isKeccakVerifiedFactHashValid": true
+    },
+    "path": "keccak (no translation)",
+    "relayed": true,
+    "relayer": "0x059b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+    "transaction_hash": "0x369d3bde2bfb4447c1774135fa7370086d64a7b0ea54df8565354a5ed97a8fe",
+    "block": 15732681,
+    "level_validated": [
+      {
+        "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+        "levelHash": "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+        "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+        "score": 5200,
+        "won": true,
+        "settled": true,
+        "programHash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a"
+      }
+    ],
+    "gas": {
+      "l1Gas": 0,
+      "l1DataGas": 896,
+      "l2Gas": 17746555,
+      "fee": "380829621048879849",
+      "unit": "FRI"
+    },
+    "attempt": 2,
+    "best": {
+      "score": 5200,
+      "won": true,
+      "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+      "block": 15730073,
+      "timestamp": 1790533600,
+      "settled": true,
+      "programHash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a"
+    },
+    "best_settled": {
+      "score": 5200,
+      "won": true,
+      "inputsHash": "0x7bfd5be62fa6d6b11c2865ad8b4506f36d1421b70eb380c56e802e6f522e829",
+      "block": 15732681,
+      "timestamp": 1790538032,
+      "settled": true,
+      "programHash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a"
+    },
+    "boards": {
+      "settled": [
+        {
+          "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+          "score": 5200,
+          "programHash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a",
+          "settled": true
+        }
+      ],
+      "provisional": [
+        {
+          "player": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
+          "score": 5200,
+          "programHash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a",
+          "settled": true
+        }
+      ],
+      "currentProgram": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a"
+    }
+  },
+  "latency": {
+    "prove_request_at": "2026-09-27T18:27:04Z",
+    "atlantic_submitted_at": "2026-09-27T18:28:44.110Z",
+    "pie_and_submit_s": 100,
+    "cairo1_run_s": 96.3,
+    "trace_s": 86.2,
+    "sharp_s": 3965.8,
+    "bridge_s": 223.5,
+    "atlantic_total_s": 4275.9,
+    "bridge_done_at": "2026-09-27T19:39:59.981Z",
+    "relay_attempt_at": "2026-09-27T19:40:29Z",
+    "relay_block_timestamp": 1790538032,
+    "request_to_settled_s": 4408
+  }
+}

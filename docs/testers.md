@@ -14,20 +14,18 @@ Nothing here needs a private key in a file. Wallet keys stay in your wallet; the
 | | |
 |---|---|
 | network | Starknet Sepolia (`SN_SEPOLIA`) |
-| contract `Slingfall` | `0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2` ([Voyager](https://sepolia.voyager.online/contract/0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2)) |
-| verifier | **Satellite**: only a *settled* submission is accepted (Herodotus Atlantic proof, its fact on the Satellite) |
-| levels | `bridge`, `cores3`, `one_block`, `pile10`, `tower`, `twin` (hashes in `deploy/sepolia.json`) |
+| contract `Slingfall` | **v2** `0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02` ([Voyager](https://sepolia.voyager.online/contract/0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02)), deployed 2026-09-27 at block 15 729 982 (lot D2) |
+| verifier | **Stub**: both tiers open. *Provisional*: `submit` with an attestation of the key `0x66ca673bb9a69e143f1072eda143886e2349baf4c996f200b06f7e3d4ddbf4` (epoch 1); *settled*: `submit_settled` on a Herodotus Atlantic proof, its fact on the Satellite |
+| engine release | `c1main` rapier2d alpha.6, `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` (`current_program`, no grace: the first pin) |
+| levels | `bridge`, `cores3`, `one_block`, `pile10`, `tower`, `twin` (hashes in `deploy/sepolia.json`, the same as v1's) |
+| v1 (retired) | `0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2` (lot E3b, `verifier = Satellite`): its six levels are deactivated (`set_level_active(false)`), its records stay readable; `deploy/sepolia.json` keeps it under `"v1"` |
 
 Everything in `deploy/sepolia.json` is the source of truth; `client/.env.sepolia` is checked against it
-by `client/src/chain/config.test.ts`.
-
-**Contract v1 on Sepolia, a v2 client.** The deployment above is contract v1 (lot E3b): `verifier =
-Satellite`, no attested tier, no program set. Since lot W1 the client, the services and the scripts
-speak **contract v2** (`docs/contract-v2.md`: two tiers, a relay, a program set with a grace
-period); a v2 Sepolia deployment is a later lot, and until it exists the page's reads do not match the
-v1 contract. Everything below describes the v2 flow, which runs today on the devnet of
-[`e2e.md`](e2e.md). On a deployment whose verifier is `Satellite` (the attested tier closed) the page
-offers **Prove (settled)** instead of **Submit**.
+by `client/src/chain/config.test.ts`. The deployment has been exercised end to end on both tiers with
+the pile10 reference shot of the admin account (`e2e.md` "Sepolia (contract v2, lot D2)"). No hosted
+attestation or prover service exists yet: sections 4 and 5 run them locally. On a deployment whose
+verifier is `Satellite` (the attested tier closed) the page offers **Prove (settled)** instead of
+**Submit**.
 
 ## 1. Open the client
 
@@ -222,6 +220,8 @@ Look at:
   nothing else. Use your own endpoint via `VITE_STARKNET_RPC_URL`.
 * **One record per attempt.** The contract's nullifier accepts one submission per (level, player, inputs)
   and tier (attested, then settled).
-* **Cost and delay.** About 0.4 STRK of gas for `submit_settled` with the keccak fact (less with the translated
-  one; paid by the relay's account when the service relays), and 1 to 1.5 hours between the proof request and
-  the settlement. The provisional record takes one attested `submit` (seconds of replay, one transaction).
+* **Cost and delay** (measured on the v2 deployment, lot D2, pile10 reference). Provisional: 18 s from the
+  attestation request to the record on chain (12 s of them the service's replay), 0.12 STRK for `submit`.
+  Settled: 73.5 min from the proof request to the record (PIE 100 s, Atlantic 71 min, of which SHARP 66
+  min, then the relay within a minute), 0.38 STRK for the relayed `submit_settled` on the keccak fact
+  (less with the translated one; paid by the relay's account when the service relays).
