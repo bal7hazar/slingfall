@@ -200,16 +200,18 @@ class Service(unittest.TestCase):
         self.assertEqual(self.translations, [])
         self.assertTrue(self.service.store.load(jid)["translation"]["translated"])
 
-    def test_without_an_account_the_keccak_path_is_reported(self):
+    def test_without_an_account_translation_is_reported_off(self):
         jid = self.submitted_job()
         self.service.translator = None
+        # m13: reported `off` at once, not `grace` for ten minutes and then a dead end.
+        self.assertEqual(self.service.status(jid)["translation"]["state"], "off")
         self.atl = {"status": "DONE", "completedAt": DONE_AT, "stages": []}
         self.on_chain["isKeccakVerifiedFactHashValid"] = True
         self.now = ps.parse_time(DONE_AT) + 7200
         self.assertEqual(self.service.translate_due(), 0)
         status = self.service.status(jid)
         self.assertEqual((status["settleable"], status["settleable_keccak"], status["settleable_poseidon"]), (True, True, False))
-        self.assertEqual(status["translation"]["state"], "no-account")
+        self.assertEqual(status["translation"]["state"], "off")
 
     def test_failed_translation_backs_off_and_gives_up(self):
         jid = self.submitted_job()
@@ -268,6 +270,85 @@ class Service(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_program_check_is_skipped_before_the_first_run(self):
+        self.assertIsNone(self.service.runner.known_child_program_hash())
+        self.service.config_of = lambda: (_ for _ in ()).throw(AssertionError("must not be called yet"))
+        self.service.check_program_match()  # the service does not know its own hash yet: no-op
+        job, _ = self.service.create("pile10", INPUTS)  # create() calls it too: still no-op
+        self.assertEqual(job["state"], "queued")
+
+    def test_program_mismatch_refuses_new_jobs_and_blocks_settling_existing_ones(self):
+        # M6: once the service knows its own hash (from a completed run) and the contract's differs,
+        # `POST /prove` refuses at once, and a job whose fact is already on the Satellite can no
+        # longer be reported settleable (the contract would recompute a different fact and revert
+        # with 'submit: proof', as B3's re-pin did in the QA run).
+        job, _ = self.service.create("pile10", INPUTS)
+        self.service.work(job["id"])
+        child = int(self.service.store.load(job["id"])["run"]["child_program_hash"], 16)
+
+        self.service.config_of = lambda: {"child_program_hash": hex(child)}
+        status = self.service.status(job["id"])
+        self.assertEqual((status["program_hash"], status["contract_program_hash"], status["program_match"]),
+                         (hex(child), hex(child), True))
+
+        self.service.config_of = lambda: {"child_program_hash": hex(child + 1)}
+        self.service._config_cache = None  # bypass the cache: a fresh read for this test
+        with self.assertRaises(ps.ProveError) as ctx:
+            self.service.create("one_block", [hex(PLAYER), "0x1", "0x1", "0x1", "0x0", "0x0"])
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertEqual(ctx.exception.extra, {"program_hash": hex(child), "contract_program_hash": hex(child + 1)})
+
+        self.on_chain.update(isKeccakVerifiedFactHashValid=True, isCairoFactValid=True)
+        status = self.service.status(job["id"])
+        self.assertFalse(status["program_match"])
+        self.assertEqual((status["settleable"], status["settleable_poseidon"], status["settleable_keccak"]), (False, False, False))
+
+        # Re-pinned back: the same job settles again, no new proof needed.
+        self.service.config_of = lambda: {"child_program_hash": hex(child)}
+        self.service._config_cache = None
+        status = self.service.status(job["id"])
+        self.assertEqual((status["settleable"], status["program_match"]), (True, True))
+
+    def test_program_check_fails_open_on_an_unreachable_rpc(self):
+        job, _ = self.service.create("pile10", INPUTS)
+        self.service.work(job["id"])
+
+        def broken():
+            raise ps.atlantic.AtlanticError("rpc down")
+
+        self.service.config_of = broken
+        self.service._config_cache = None
+        self.service.check_program_match()  # a confirmed own hash, but the contract's cannot be read: never blocks
+        self.on_chain.update(isKeccakVerifiedFactHashValid=True)
+        status = self.service.status(job["id"])
+        self.assertIsNone(status["contract_program_hash"])
+        self.assertIsNone(status["program_match"])
+        self.assertTrue(status["settleable"])
+
+    def test_health_reports_the_program_hashes(self):
+        self.assertEqual(
+            {"result": ps.DEFAULT_RESULT, "submit": True, "queued": 0, "program_hash": None,
+             "contract_program_hash": None, "program_match": None},
+            self._health(),
+        )
+        job, _ = self.service.create("pile10", INPUTS)
+        self.service.work(job["id"])
+        child = int(self.service.store.load(job["id"])["run"]["child_program_hash"], 16)
+        self.service.config_of = lambda: {"child_program_hash": hex(child)}
+        health = self._health()
+        self.assertEqual((health["program_hash"], health["contract_program_hash"], health["program_match"]),
+                         (hex(child), hex(child), True))
+
+    def _health(self) -> dict:
+        server = ps.ThreadingHTTPServer(("127.0.0.1", 0), ps.make_handler(self.service, log=open(os.devnull, "w")))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/health", timeout=10) as resp:
+                return json.loads(resp.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+
 
 class TranslationDecision(unittest.TestCase):
     CHAIN = {"isCairoFactValid": False, "isKeccakVerifiedFactHashValid": True}
@@ -280,12 +361,15 @@ class TranslationDecision(unittest.TestCase):
             ("DONE", 0.0, None, 9999, True, None, "unknown"),
             ("DONE", 0.0, {"error": "rpc"}, 9999, True, None, "unknown"),
             ("DONE", 0.0, {**self.CHAIN, "isCairoFactValid": True}, 9999, True, None, "translated"),
+            ("DONE", 0.0, {**self.CHAIN, "isCairoFactValid": True}, 9999, False, None, "translated"),
+            # m13: no account (or --no-translate) is reported `off` at once, not after a wait.
+            ("IN_PROGRESS", None, self.CHAIN, 9999, False, None, "off"),
             ("IN_PROGRESS", None, self.CHAIN, 9999, True, None, "waiting"),
             ("DONE", 0.0, {**self.CHAIN, "isKeccakVerifiedFactHashValid": False}, 9999, True, None, "waiting"),
             ("DONE", 0.0, self.CHAIN, 599, True, None, "grace"),
             ("DONE", None, self.CHAIN, 9999, True, None, "grace"),
             ("DONE", 0.0, self.CHAIN, 600, True, None, "translate"),
-            ("DONE", 0.0, self.CHAIN, 600, False, None, "no-account"),
+            ("DONE", 0.0, self.CHAIN, 600, False, None, "off"),
             ("DONE", 0.0, self.CHAIN, 1000, True, attempts, "backoff"),
             ("DONE", 0.0, self.CHAIN, 1300, True, attempts, "translate"),
             ("DONE", 0.0, self.CHAIN, 99999, True, {"attempts": ps.TRANSLATE_ATTEMPTS, "last_attempt": 0}, "gave-up"),
@@ -318,6 +402,19 @@ class Helpers(unittest.TestCase):
         self.assertEqual(ps.parse_program_output("Program Output : [1 2\n3]\n"), [1, 2, 3])
         with self.assertRaises(ps.ProveError):
             ps.parse_program_output("nothing")
+
+    def test_contract_address_defaults_to_the_sepolia_deployment(self):
+        old = os.environ.pop("SLINGFALL_ADDRESS", None)
+        try:
+            sepolia = json.loads((ps.ROOT / "deploy" / "sepolia.json").read_text())
+            self.assertEqual(ps.contract_address(), int(sepolia["address"], 16))
+            os.environ["SLINGFALL_ADDRESS"] = "0x1"
+            self.assertEqual(ps.contract_address(), 1)
+        finally:
+            if old is None:
+                os.environ.pop("SLINGFALL_ADDRESS", None)
+            else:
+                os.environ["SLINGFALL_ADDRESS"] = old
 
 
 if __name__ == "__main__":
