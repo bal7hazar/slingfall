@@ -3,11 +3,12 @@
 `docs/proving.md` "Atlantic + Integrity"). Python 3 standard library; reuses `tools/atlantic`.
 
     prove_service.py serve [--host H] [--port N] [--store DIR] [--result R] [--no-submit]
-                           [--no-translate] [--translate-grace SECONDS]
+                           [--no-translate] [--translate-grace SECONDS] [--relay]
     prove_service.py prove (--level NAME|HASH) (--inputs FELT,... | --player FELT --shot PX,PY[,D]...)
                            [--store DIR] [--result R] [--no-submit] [--watch [--interval S]]
     prove_service.py status <job-id> [--store DIR] [--watch [--interval S]] [--no-chain]
     prove_service.py translate <job-id> [--store DIR] [--dry-run]
+    prove_service.py relay <job-id> [--store DIR]
 
 `serve`: HTTP on `--host:--port` (default 127.0.0.1:8549).
 
@@ -16,23 +17,35 @@
   (`c1main` under `cairo1-run` of the patched fork, as `atlantic.py c1-input` + the E3a
   command), checks the run's outputs, computes the facts (`encoding.slingfall_fact`) and submits
   the PIE to Atlantic (`declaredJobSize` by the run's steps, `dedupId` = the job id). One PIE at a
-  time. **M6**: before any of that, once this service's own `child_program_hash` is known (a run
-  has computed it), a read-only `satellite_config()` of the deployed contract (`SLINGFALL_ADDRESS`,
-  else `deploy/sepolia.json`'s `address`) is compared to it; a mismatch (the contract was re-pinned
-  to another `c1main`, `docs/proving.md` "Program hash history") answers `409` with both hashes
-  (`program_hash`, `contract_program_hash`) instead of spending an hour on a proof the contract will
-  refuse. The check never blocks on an unreachable RPC or before the service's first run (`--no-
-  program-check` disables it).
+  time. **M6** (contract v2's program set, `docs/contract-v2.md` "Programs"): before any of that,
+  once this service's own `child_program_hash` is known (a run has computed it), the deployed
+  contract (`SLINGFALL_ADDRESS`, else `deploy/sepolia.json`'s `address`) is asked
+  `program_valid_until(hash)`; unless it is after the latest block's timestamp (the current
+  program, or a former one still in its grace period), the contract will refuse the proof, and the
+  service answers `409` with `program_hash`, `contract_program_hash` (`current_program()`) and
+  `program_valid_until` instead of spending an hour on it. The check never blocks on an
+  unreachable RPC or before the service's first run (`--no-program-check` disables it).
 * `GET /status/<id>`: the job, Atlantic's status and stages, and the Satellite's answer for its
   facts (`isCairoFactValid` / `isKeccakVerifiedFactHashValid`): `"settleable_poseidon"` (the
   translated fact: the cheap `submit_settled`), `"settleable_keccak"` (the bridged keccak fact
   only: the dearer one) and `"settleable"` (either: `submit_settled(outputs, inputs)` would pass);
-  all three are also gated on `"program_match"` (M6: the job's `"program_hash"` against the
-  contract's current `"contract_program_hash"`, `null` when either side is unknown), since a fact
-  that exists on the Satellite still cannot settle once the contract has been re-pinned away from
-  the program that produced it. `"translation"`: what the service does about the Poseidon fact
-  (below).
-* `GET /health`: also carries `"program_hash"` / `"contract_program_hash"` / `"program_match"`.
+  all three are also gated on `"program_match"` (M6: the job's `"program_hash"` is valid on the
+  contract now, `program_valid_until > now`; `null` when unknown), since a fact that exists on the
+  Satellite still cannot settle once its program is past its grace period or revoked
+  (`"program_valid_until"`, and the contract's `"contract_program_hash"` beside it). The Satellite
+  read is the one of the contract's `satellite_config()` (Herodotus's on Sepolia, the devnet's
+  `FakeSatellite`). `"translation"`: what the service does about the Poseidon fact (below);
+  `"relay"` / `"relayed"` / `"relay_transaction_hash"`: what the relay did (below).
+* `GET /health`: also carries `"program_hash"` / `"contract_program_hash"` / `"program_match"` /
+  `"program_valid_until"` and `"relay"` (the relay account, or `null`).
+
+Relay (contract v2, QA S10; `relay.py`), off by default: with `serve --relay` and an account in the
+environment (the one of the translations), a background thread sends `submit_settled(outputs, args,
+child_program_hash)` for `claim.player` once a job is `settleable`, the attempt is not settled yet
+(`attempt(...)`) and a simulation of the transaction succeeds; at most 3 attempts, 5 minutes apart.
+`/status` then reports `"relayed": true` and the transaction hash. The player can still settle
+themselves (the relay then records `"state": "settled"` and sends nothing). `relay <job>` runs one
+relay pass for a job now (backoff ignored).
 
 Translation (lot E3c). Atlantic's `PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION` stalled (E3a, E3b),
 so the queries ask for `PROOF_VERIFICATION_ON_L2`, which ends with the keccak fact bridged to the
@@ -54,9 +67,9 @@ the jobs whose PIE was not submitted yet.
 `status` reads a stored job. `--no-submit` stops after the PIE and the facts (tests, dry runs).
 
 Environment (never printed): `ATLANTIC_API_KEY` (submit, status), `STARKNET_RPC_URL` (the
-Satellite's reads, and M6's `satellite_config()` read), the account of the translations (above).
-`SLINGFALL_ADDRESS`: the deployed `Slingfall` to check `satellite_config()` against (default
-`deploy/sepolia.json`'s `address`). Paths: `PROVE_CAIRO1_RUN` (default the fork build of `docs/proving.md`,
+Satellite's reads, and M6's program reads), the account of the translations and of the relay
+(above). `SLINGFALL_ADDRESS`: the deployed `Slingfall` (v2) whose programs, Satellite and records
+the service reads and relays to (default `deploy/sepolia.json`'s `address`). Paths: `PROVE_CAIRO1_RUN` (default the fork build of `docs/proving.md`,
 `tools/atlantic/out/starkware-cairo-vm/target/release/cairo1-run`), `PROVE_SIERRA` (default
 `tools/atlantic/c1main/target/dev/c1main.sierra.json`, built by `scarb --manifest-path
 tools/atlantic/c1main/Scarb.toml build`).
@@ -84,13 +97,16 @@ sys.path.insert(0, str(ROOT / "tools" / "atlantic"))
 import atlantic  # noqa: E402
 import encoding  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import relay as relaying  # noqa: E402
+
 P = encoding.P
 LEVELS = ROOT / "fixtures" / "levels"
 DEFAULT_STORE = ROOT / "services" / "prove" / "out"
 DEFAULT_CAIRO1_RUN = ROOT / "tools" / "atlantic" / "out" / "starkware-cairo-vm" / "target" / "release" / "cairo1-run"
 DEFAULT_SIERRA = ROOT / "tools" / "atlantic" / "c1main" / "target" / "dev" / "c1main.sierra.json"
-# M6: the deployment whose `satellite_config()` a proof must match; `deploy/sepolia.json` is the
-# only Satellite deployment today (read only: this service never writes to it).
+# M6: the deployment whose programs a proof must match; `deploy/sepolia.json` is the only
+# Satellite deployment today (read only: this service never writes to it).
 DEFAULT_SEPOLIA_CONFIG = ROOT / "deploy" / "sepolia.json"
 # The result that completes today (E3a); `..._WITH_TRANSLATION` stalled after trace generation on
 # 2026-09-26 (`docs/proving.md`) and is accepted by `--result`.
@@ -231,8 +247,8 @@ def declared_size(steps: int) -> str:
 
 
 def contract_address() -> int | None:
-    """The deployed `Slingfall` to check `satellite_config()` against (M6): `SLINGFALL_ADDRESS`,
-    else `deploy/sepolia.json`'s `address` (read only). `None`: the check is skipped."""
+    """The deployed `Slingfall` whose programs are checked (M6): `SLINGFALL_ADDRESS`, else
+    `deploy/sepolia.json`'s `address` (read only). `None`: the check is skipped."""
     env = os.environ.get("SLINGFALL_ADDRESS")
     if env:
         return int(env, 0)
@@ -241,13 +257,19 @@ def contract_address() -> int | None:
     return None
 
 
-def contract_satellite_config(contract: int) -> dict[str, str]:
-    """`ISlingfallSatellite::satellite_config()` read from the chain (`STARKNET_RPC_URL`): the
-    pinned `child_program_hash` and the other three `SatelliteConfig` felts, in the order the
-    `Serde` struct returns them."""
-    child, atlantic_hash, sharp_hash, satellite = atlantic.starknet_call(contract, "satellite_config", [])
-    return {"child_program_hash": hex(child), "atlantic_bootloader_hash": hex(atlantic_hash),
-            "sharp_bootloader_hash": hex(sharp_hash), "satellite_address": hex(satellite)}
+def contract_program(contract: int, program_hash: int) -> dict:
+    """Contract v2's view of a program (`STARKNET_RPC_URL`): `program_valid_until(hash)`,
+    `current_program()` and the latest block's timestamp (the contract's `now`)."""
+    [valid_until] = atlantic.starknet_call(contract, "program_valid_until", [program_hash])
+    [current] = atlantic.starknet_call(contract, "current_program", [])
+    block = atlantic.rpc("starknet_getBlockWithTxHashes", {"block_id": "latest"})
+    return {"current_program": hex(current), "valid_until": valid_until, "now": int(block["timestamp"])}
+
+
+def contract_satellite(contract: int) -> int:
+    """The Satellite of `satellite_config()` (v2: `atlantic_bootloader_hash, sharp_bootloader_hash,
+    satellite_address`)."""
+    return atlantic.starknet_call(contract, "satellite_config", [])[2]
 
 
 # --------------------------------------------------------------------------- the run
@@ -411,51 +433,54 @@ class Service:
     def __init__(self, store: Store, runner: Runner, result: str = DEFAULT_RESULT, submit: bool = True,
                  chain: bool = True, submitter=submit_pie, status_of=atlantic_status, facts_of=satellite_facts,
                  translator=None, grace: float = DEFAULT_TRANSLATE_GRACE, clock=time.time,
-                 config_of=None, config_ttl: float = 30.0):
+                 program_of=None, program_ttl: float = 30.0, relayer=None):
         """`translator(sharp_fact, output) -> dict` sends `translateFactHash` (None: no account, the
         service only reports the keccak path); `grace` in seconds; `clock` is injectable for tests.
-        `config_of() -> dict` reads the deployed contract's `satellite_config()` (M6; `None`: no
-        contract configured, the program-hash check never runs), cached for `config_ttl` seconds."""
+        `program_of(hash) -> {"current_program", "valid_until", "now"}` reads the deployed
+        contract's view of a program (`contract_program`; M6; `None`: no contract configured, the
+        check never runs), cached for `program_ttl` seconds. `relayer`: a `relay.NodeRelay` (or a
+        fake with `address`, `tier`, `simulate`, `send`); `None`: the relay is off."""
         self.store, self.runner, self.result, self.submit, self.chain = store, runner, result, submit, chain
         self.submitter, self.status_of, self.facts_of = submitter, status_of, facts_of
         self.translator, self.grace, self.clock = translator, grace, clock
-        self.config_of, self.config_ttl = config_of, config_ttl
-        self._config_cache: tuple[float, dict] | None = None
+        self.program_of, self.program_ttl, self.relayer = program_of, program_ttl, relayer
+        self._program_cache: dict[int, tuple[float, dict]] = {}
         self.translate_lock = threading.Lock()
+        self.relay_lock = threading.Lock()
         self.queue: queue.Queue[str] = queue.Queue()
 
-    def contract_config(self) -> dict | None:
-        """`satellite_config()` of the deployed contract (M6), cached for `config_ttl` seconds.
-        `None` when unconfigured; on a failed read, the last known value (or `None`) so that a
-        flaky RPC never blocks proving on its own (fail open: refuse only a *known* mismatch)."""
-        if self.config_of is None:
-            return None
+    def program_state(self, program_hash: int | None) -> dict:
+        """M6 for one program: `{"contract_program_hash", "program_valid_until", "program_match"}`,
+        `program_match` being `valid_until > now` on the contract (the current program, or a former
+        one in its grace period). `None` values when unknown: no program yet, no contract
+        configured, or the read failed with nothing cached (fail open: only a *known* invalid
+        program refuses); a failed read keeps the last known answer."""
+        unknown = {"contract_program_hash": None, "program_valid_until": None, "program_match": None}
+        if program_hash is None or self.program_of is None:
+            return unknown
         now = self.clock()
-        if self._config_cache is not None and now - self._config_cache[0] < self.config_ttl:
-            return self._config_cache[1]
-        try:
-            config = self.config_of()
-        except Exception:
-            return self._config_cache[1] if self._config_cache is not None else None
-        self._config_cache = (now, config)
-        return config
+        cached = self._program_cache.get(program_hash)
+        if cached is None or now - cached[0] >= self.program_ttl:
+            try:
+                self._program_cache[program_hash] = cached = (now, self.program_of(program_hash))
+            except Exception:  # noqa: BLE001  (an unreachable RPC never blocks on its own)
+                if cached is None:
+                    return unknown
+        view = cached[1]
+        return {"contract_program_hash": view["current_program"], "program_valid_until": view["valid_until"],
+                "program_match": view["valid_until"] > view["now"]}
 
     def check_program_match(self) -> None:
-        """M6: refuse a proof the contract will not accept because it was re-pinned to another
-        `c1main` since this service last proved (`docs/proving.md` "Program hash history"). Skipped
-        when either hash is not known yet (the service's very first job, or no contract configured,
-        or the RPC read failed): never blocks on uncertainty, only on a confirmed mismatch."""
+        """M6: refuse a proof the contract will not accept because this service's `c1main` is not
+        valid there (re-pinned away past the grace period, or revoked; `docs/proving.md` "Program
+        hash history"). Skipped when the service's own hash is not known yet (its very first job) or
+        the contract cannot be read: never blocks on uncertainty, only on a confirmed refusal."""
         own = self.runner.known_child_program_hash()
-        if own is None:
-            return
-        config = self.contract_config()
-        if config is None:
-            return
-        pinned = int(config["child_program_hash"], 16)
-        if pinned != own:
-            raise ProveError(409, f"prove: program mismatch (this service proves {hex(own)}, the "
-                                  f"contract accepts {hex(pinned)})",
-                             program_hash=hex(own), contract_program_hash=hex(pinned))
+        state = self.program_state(own)
+        if state["program_match"] is False:
+            raise ProveError(409, f"prove: program mismatch (this service proves {hex(own)}, which the contract "
+                                  f"no longer accepts; its current program is {state['contract_program_hash']})",
+                             program_hash=hex(own), **state)
 
     def create(self, level: object, inputs: object) -> tuple[dict, bool]:
         """(job, created). The job is queued when new or not yet submitted."""
@@ -614,21 +639,86 @@ class Service:
                 print(f"prove: translator: {e}", file=sys.stderr, flush=True)
             time.sleep(interval)
 
+    def relay_job(self, jid: str, force: bool = False) -> dict | None:
+        """One relay pass over a job (S10): once it is `settleable` and its attempt not settled
+        yet, simulate `submit_settled` and send it for `claim.player` (`force`: whatever the
+        backoff and the attempts). Recorded in `job["relay"]`: `state` `relayed` (with
+        `transaction_hash`, `gas`), `settled` (someone, the player most likely, settled first),
+        `gave-up`, or the last `error`. Returns the stored job."""
+        with self.relay_lock:
+            job = self.store.load(jid)
+            if job is None or self.relayer is None or job.get("state") != "submitted" or "run" not in job:
+                return job
+            state = job.get("relay") or {}
+            if state.get("state") in ("relayed", "settled"):
+                return job
+            if not self.status(jid)["settleable"]:
+                return job
+            now = self.clock()
+            if not force:
+                if state.get("attempts", 0) >= relaying.RELAY_ATTEMPTS:
+                    return job
+                if now - state.get("last_attempt", -relaying.RELAY_RETRY) < relaying.RELAY_RETRY:
+                    return job
+            stage = "attempt"
+            try:
+                if self.relayer.tier(job) == relaying.SETTLED:
+                    state.update({"state": "settled", "error": None})
+                else:
+                    state.update({"attempts": state.get("attempts", 0) + 1, "last_attempt": now,
+                                  "relayer": self.relayer.address})
+                    stage = "simulate"
+                    self.relayer.simulate(job)
+                    stage = "send"
+                    result = self.relayer.send(job)
+                    state.update({"state": "relayed", "error": None, "transaction_hash": result.get("transaction_hash"),
+                                  "gas": result.get("gas")})
+            except relaying.RelayError as e:
+                state["error"] = f"{stage}: {e}"
+                if state.get("attempts", 0) >= relaying.RELAY_ATTEMPTS:
+                    state["state"] = "gave-up"
+            job["relay"] = state
+            return self.store.save(job)
+
+    def relay_due(self) -> int:
+        """One pass of the relay thread over the submitted jobs; returns the transactions sent."""
+        sent = 0
+        for job in self.store.all():
+            if job.get("state") != "submitted" or (job.get("relay") or {}).get("state") in ("relayed", "settled", "gave-up"):
+                continue
+            try:
+                after = (self.relay_job(job["id"]) or {}).get("relay") or {}
+            except Exception as e:  # noqa: BLE001  (a bad job does not stop the others)
+                print(f"prove: relay {job['id']}: {e}", file=sys.stderr, flush=True)
+                continue
+            sent += after.get("state") == "relayed"
+        return sent
+
+    def relay_loop(self, interval: float = relaying.RELAY_INTERVAL) -> None:
+        while True:
+            try:
+                self.relay_due()
+            except Exception as e:  # noqa: BLE001  (a thread never dies)
+                print(f"prove: relay: {e}", file=sys.stderr, flush=True)
+            time.sleep(interval)
+
     def status(self, jid: str) -> dict:
         job = self.store.load(jid)
         if job is None:
             raise ProveError(404, "unknown job")
         answer = dict(job)
         answer.update({"settleable": False, "settleable_poseidon": False, "settleable_keccak": False})
-        # M6: the job's own program hash (as proven) against the contract's current pin; `None`
-        # ("unknown") on either side never blocks settling, only a *confirmed* mismatch does.
+        # M6: the job's own program (as proven) must be valid on the contract now; `None`
+        # ("unknown") never blocks settling, only a *confirmed* refusal does.
         program_hash = (job.get("run") or {}).get("child_program_hash")
-        config = self.contract_config()
-        contract_hash = config["child_program_hash"] if config else None
-        program_match = (program_hash == contract_hash) if (program_hash and contract_hash) else None
+        state = self.program_state(int(program_hash, 16) if program_hash else None)
+        program_match = state["program_match"]
         answer["program_hash"] = program_hash
-        answer["contract_program_hash"] = contract_hash
-        answer["program_match"] = program_match
+        answer.update(state)
+        relay = job.get("relay") or {}
+        answer["relay"] = {**relay, "state": relay.get("state", "waiting" if self.relayer else "off")}
+        answer["relayed"] = relay.get("state") == "relayed"
+        answer["relay_transaction_hash"] = relay.get("transaction_hash")
         atl, chain = self.observe(job)
         if atl is not None:
             answer["atlantic_status"] = atl
@@ -675,13 +765,10 @@ def make_handler(service: Service, log=sys.stderr):
             try:
                 if self.path == "/health":
                     own = service.runner.known_child_program_hash()
-                    config = service.contract_config()
-                    contract_hash = config["child_program_hash"] if config else None
-                    program_hash = hex(own) if own is not None else None
                     return self.answer(200, {
                         "result": service.result, "submit": service.submit, "queued": service.queue.qsize(),
-                        "program_hash": program_hash, "contract_program_hash": contract_hash,
-                        "program_match": (program_hash == contract_hash) if (program_hash and contract_hash) else None,
+                        "program_hash": hex(own) if own is not None else None, **service.program_state(own),
+                        "relay": service.relayer.address if service.relayer else None,
                     })
                 if self.path.startswith("/status/"):
                     return self.answer(200, service.status(self.path[len("/status/"):]))
@@ -719,13 +806,29 @@ def make_service(args) -> Service:
     if grace is None:
         grace = float(os.environ.get("TRANSLATE_GRACE", DEFAULT_TRANSLATE_GRACE))
     # A translator only with an account (`atlantic.account_env`), else the keccak path alone.
-    translator = send_translation if atlantic.account_env() and not getattr(args, "no_translate", False) else None
-    # M6: the satellite_config() check, unless disabled or no contract can be resolved.
-    contract = None if getattr(args, "no_program_check", False) else contract_address()
-    config_of = (lambda: contract_satellite_config(contract)) if contract is not None else None
+    account = atlantic.account_env()
+    translator = send_translation if account and not getattr(args, "no_translate", False) else None
+    # M6: the program check, unless disabled or no contract can be resolved.
+    contract = contract_address()
+    checked = None if getattr(args, "no_program_check", False) else contract
+    program_of = (lambda h: contract_program(checked, h)) if checked is not None else None
+    # The Satellite of the contract's `satellite_config()` (read once), else Herodotus's on Sepolia.
+    satellite: list[int] = []
+
+    def facts_of(integrity: int, sharp: int) -> dict:
+        if not satellite:
+            satellite.append(contract_satellite(contract) if contract is not None else atlantic.SATELLITE_SEPOLIA)
+        return satellite_facts(integrity, sharp, satellite[0])
+
+    relayer = None
+    if getattr(args, "relay", False):
+        if account is None or contract is None:
+            sys.exit("prove: --relay needs an account (STARKNET_ACCOUNT_ADDRESS, STARKNET_PRIVATE_KEY, "
+                     "STARKNET_RPC_URL) and a contract (SLINGFALL_ADDRESS)")
+        relayer = relaying.NodeRelay(contract, account)
     return Service(Store(Path(args.store)), runner, args.result, submit=not args.no_submit,
-                   chain=not getattr(args, "no_chain", False), translator=translator, grace=grace,
-                   config_of=config_of)
+                   chain=not getattr(args, "no_chain", False), facts_of=facts_of, translator=translator,
+                   grace=grace, program_of=program_of, relayer=relayer)
 
 
 def watch(service: Service, jid: str, interval: float) -> dict:
@@ -748,11 +851,14 @@ def cmd_serve(args) -> int:
     threading.Thread(target=service.worker, daemon=True).start()
     if service.translator is not None:
         threading.Thread(target=service.translator_loop, daemon=True).start()
+    if service.relayer is not None:
+        threading.Thread(target=service.relay_loop, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), make_handler(service))
     print(f"prove: listening on http://{args.host}:{server.server_address[1]} (store {args.store}, "
           f"result {args.result}, submit {not args.no_submit}, {resumed} job(s) resumed, translation "
           f"{'after ' + str(int(service.grace)) + ' s' if service.translator else 'off (no account or --no-translate)'}, "
-          f"program check {'against ' + hex(contract_address()) if service.config_of else 'off (--no-program-check or no contract configured)'})",
+          f"program check {'against ' + hex(contract_address()) if service.program_of else 'off (--no-program-check or no contract configured)'}, "
+          f"relay {'from ' + service.relayer.address if service.relayer else 'off'})",
           file=sys.stderr, flush=True)
     try:
         server.serve_forever()
@@ -809,6 +915,18 @@ def cmd_translate(args) -> int:
     return 0
 
 
+def cmd_relay(args) -> int:
+    args.relay = True
+    service = make_service(args)
+    job = service.relay_job(args.job, force=True)
+    if job is None:
+        raise ProveError(404, "unknown job")
+    status = service.status(args.job)
+    print(json.dumps({"relay": status["relay"], "relayed": status["relayed"], "settleable": status["settleable"],
+                      "program_match": status["program_match"]}, indent=2))
+    return 0 if status["relay"]["state"] in ("relayed", "settled") else 1
+
+
 def parse_shot(text: str) -> tuple[int, int, int]:
     parts = [int(p) for p in text.split(",")]
     if len(parts) not in (2, 3):
@@ -832,6 +950,8 @@ def main(argv: list[str]) -> int:
     p.add_argument("--no-translate", action="store_true", help="never send translateFactHash (keccak path only)")
     p.add_argument("--translate-grace", type=float, help=f"seconds to wait for Atlantic's translation "
                    f"(default $TRANSLATE_GRACE or {int(DEFAULT_TRANSLATE_GRACE)})")
+    p.add_argument("--relay", action="store_true", help="send submit_settled for the player once settleable "
+                   "(the account of the environment pays)")
     p.set_defaults(run=cmd_serve)
 
     p = sub.add_parser("prove", parents=[common], help="one job in the foreground")
@@ -854,6 +974,10 @@ def main(argv: list[str]) -> int:
     p.add_argument("job")
     p.add_argument("--dry-run", action="store_true", help="check only, send nothing")
     p.set_defaults(run=cmd_translate)
+
+    p = sub.add_parser("relay", parents=[common], help="relay one job's submit_settled now")
+    p.add_argument("job")
+    p.set_defaults(run=cmd_relay)
 
     args = parser.parse_args(argv)
     if args.cmd == "prove" and not args.inputs and not args.shot:
