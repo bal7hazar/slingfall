@@ -103,12 +103,17 @@ A Cairo panic or VM error throws (`Error` with the VM message and the panic data
 ## TypeScript (`client/src/vm/`)
 
 - `sizing.ts`, the **chunk sizing rule**: the first stepping chunk has `firstTicks` = 5 ticks;
-  after that, K = floor(`targetSteps` / previous chunk's steps per tick), clamped to [1, 60]
+  after that, K = floor(`targetSteps` / previous chunk's steps per tick), clamped to [1, 20]
   and to the ticks left; `targetSteps` = 3.5M (D8: 2-5M). The execution segment is reserved at
   `reserveFactor` x the previous chunk's execution-segment cells per tick x K (1.25; the first
-  chunk assumes 700k cells per tick). D8 says 1.1. Measured, 1.1 is overrun when steps per tick
+  chunk assumes 700k cells per tick), between a floor and a ceiling of 5M cells (K is lowered
+  until the reserve fits the ceiling). D8 says 1.1. Measured, 1.1 is overrun when steps per tick
   rise by more than 10 % from one chunk to the next, and the segment then doubles (556 MB instead
-  of 330 MB).
+  of 330 MB). `ContactCut` (lot Q2, below) ends the flight chunk just before the predicted
+  contact tick.
+- `cut.ts` (lot Q2): the predicted contact tick of a shot, from the aim arc (`src/aim/arc.ts`) and
+  the level felts; loaded by the worker only (its `aim/` imports have no `.ts` extension, so plain
+  Node cannot load it; `serve.ts` and `shot.ts` take a predictor).
 - `program.ts`: the `ChunkProgram` interface (`init` / `step_chunk` / `outputs` arguments, ticks
   left of a shot, the line parser) and two programs: `slingfallProgram` (lot G6b: the replay's
   argument layouts, `ChunkState` header, trace lines v1, `Outputs` decoding) and
@@ -116,7 +121,8 @@ A Cairo panic or VM error throws (`Error` with the VM message and the panic data
 - `shot.ts`: `runInit`, `runShot(engine, program, level, inputs, { shot, state, ... })` (the chunk
   loop, from a given state) and `runOutputs` (pure, used by the worker, the tests and
   `bench.mjs`). A `VmEngine` holds one `Runner` per executable (`chunk`, `init`, `outputs`).
-- `worker.ts` (module Web Worker) + `serve.ts` (its message loop) + `protocol.ts`; `index.ts`:
+- `worker.ts` (module Web Worker; gives `serve.ts` the `cut.ts` predictor) + `serve.ts` (its
+  message loop; keeps the last frame of a shot for the next shot's prediction) + `protocol.ts`; `index.ts`:
   `VmClient` (one persistent worker: `ready`, `init(level)`, `shot(request, handlers)`,
   `outputs(state, inputs)`; frames, events and chunk reports stream while a request runs) and
   `WorkerTraceSource(client, request, { level, onChunk })` (a `TraceSource` of kind `'worker'`,
@@ -157,9 +163,69 @@ cells against a 4.5M reserve, so the segment doubles (602-820 MB of wasm). The f
 memory (the worker already plateaus at the first chunk's 4.4M-cell reserve) and 20 ticks of
 impact (4.2M steps, 4.5M cells, the worst chunk measured) fit in it.
 
+**Contact cut and reserve ceiling, lot Q2** (QA M4; the figures below). The floor did not hold on
+alpha.5: the flight chunks are sized on cheap flight ticks (K = 20) and the chunk that enters the
+impact needed 5.4-7.9M cells against the 5M reserve, so the segment doubled (352 -> 673-681 MB on
+pile10, tower, twin, the owner's and the cap shot). A shot's cost jumps in one tick, at the
+pebble's first contact with a block or a core (K = 1 runs: ~35k cells per flight tick, ~480-630k on
+the contact tick, 300-490k after it). Now:
+
+1. **Cut at the contact.** The worker predicts the contact tick from the aim arc (bit-exact with
+   the engine's free flight; `cut.ts`): the first arc point inside a block's or core's box grown
+   by the pebble's radius (0.25 m), delay included, on the poses of the last frame of the previous
+   shot (destroyed bodies dropped). Predicted vs first costly tick: owner 42 / 43, cap 42 / 43,
+   pile10 reference 82 / 83, cores3 79 / 80, tower 78 / 79, bridge 120 / 120, twin 77 / 77 and
+   118 / 119. The flight chunk ends `contactLead` = 1 tick before the predicted tick; the chunks
+   after it run `impactTicks` = 8 at most until one of them measures the impact (steps per tick
+   >= 2x the flight's) or `impactWatch` = 16 ticks have passed.
+2. **Reserve ceiling = floor = 5M cells.** A reserve above the largest block the worker already
+   holds cannot reuse it: the owner's shot once asked 5.20M cells (4.02M used) and grew the worker
+   from 352 to 510 MB. K is lowered until 1.25 x cells per tick x K fits 5M, so every chunk reserves
+   the same block.
+
+Outputs are bit-identical (chunk boundaries never change results): `vm.test.ts` runs every
+`fixtures/golden` case through the worker with the cut and compares the D4 outputs with `main`'s,
+and checks that no chunk exceeds its reserve nor the ceiling.
+
 Measured with `scarb execute` (native): a chunk's fixed cost (state decode, `WorldState` round
 trip, level, inputs, serialisation) is ≈ 50k steps on pile10 (K = 1 over the reference shot adds
 ≈ 17M steps to its 43M); `init` ≈ 0.33M.
+
+## Figures, lot Q2 (rapier2d `=0.1.0-alpha.5`; Node 24.21, `pkg-node`, 2026-09-27)
+
+Shared VPS (8 vCPU, load average 5-16 during the runs, `nice -n 10`). One process per case (wasm
+memory only grows), the three executables loaded (199 MB of wasm before any chunk). A = the G6b
+sizing (no cut, no ceiling), B = lot Q2's; each pair ran at the same time, 3 times. CPU = the
+process's user time (load and `init` included, the same in A and B).
+
+| case (pulls) | steps A -> B | peak wasm A -> B | wall median A / B | B/A wall (sum) | B/A CPU (sum) |
+|---|---:|---:|---:|---:|---:|
+| pile10 owner (-1022, -63) | 16.07M -> 16.25M (+1.1 %) | 673 -> **368 MB** | 13.49 / 10.24 s | 0.928 | 1.016 |
+| pile10 cap (-1019, -72), 180 ticks | 49.48M -> 49.67M (+0.4 %) | 673 -> **368 MB** | 37.02 / 25.75 s | 0.714 | 0.948 |
+| pile10 reference (-604, -392) | 10.78M -> 10.96M (+1.7 %) | 673 -> **368 MB** | 4.86 / 4.84 s | 1.024 | 1.019 |
+| pile10 three shots (QA's) | 21.66M -> 21.84M (+0.8 %) | 673 -> **368 MB** | 12.68 / 12.17 s | 1.110 | 0.999 |
+| cores3 reference (-653, -304) | 14.41M -> 14.52M (+0.8 %) | 352 -> 352 MB | 6.58 / 6.57 s | 0.917 | 1.017 |
+| tower reference (-604, -392) | 26.33M -> 26.50M (+0.6 %) | 673 -> **368 MB** | 10.30 / 9.96 s | 0.968 | 1.007 |
+| bridge reference (-463, -552) | 12.43M -> 12.58M (+1.2 %) | 368 -> 352 MB | 4.61 / 4.54 s | 0.999 | 1.009 |
+| twin reference (2 shots) | 27.88M -> 28.39M (+1.8 %) | 681 -> **376 MB** | 11.95 / 12.07 s | 1.004 | 1.031 |
+| one_block (-600, -392, delay 30) | 2.62M -> 2.62M | 352 -> 352 MB | 1.69 / 1.73 s | 0.845 | 1.007 |
+| one_block miss (-150, -150) | 3.14M -> 3.14M | 352 -> 352 MB | 1.79 / 1.69 s | 1.047 | 1.019 |
+| all ten | +0.0 to +1.8 % | **<= 376 MB** | | **0.908** | **0.998** |
+
+The wall medians of single cases swing ±30 % with the load; the sums and the CPU times agree
+that the cut costs < 3.1 % (1-3 more chunks, ~50k steps of round trip each) and the doubling it
+removes saved more on the costly shots. Browser (Playwright's Chromium, headless, Linux, `dist/`
+served by `vite preview`, `docs/qa/harness/memory.mjs --autoshot`): the same K and steps, peak
+wasm 368 MB (pile10 owner, cap, reference, three shots; tower), 376 (twin), 352 (cores3, bridge,
+one_block). Owner's shot, K per chunk `5 20 15 | 8 15 14 15 16` (the cut after tick 40), against
+G6b's `5 20 20 20 15 15 16` whose third 20 ran into the impact (5.44M cells, 673 MB).
+
+**Losers.** (b) a 7.5M-cell floor (QA S2's alternative), no cut: 428-484 MB on every case and the
+cap shot still doubles (7.88M cells: 934 MB); the ceiling alone, no cut: 673-681 MB (the flight
+chunk runs into the impact whatever its reserve). (c) a fresh wasm instance per shot: the peak is
+inside a shot (199 MB loaded + 153 MB for 5M cells), so it only frees memory between shots, for
+0.8-0.9 s of instantiation and executable parsing plus 0.15-0.18 s of `init` per shot (Node,
+3 rounds): not adopted. The plateau is now 199 MB of loaded executables + ~32 B per reserved cell.
 
 ## Figures, lot G6b (pile10, the slingfall replay; Node 24, `pkg-node`, 2026-09-25)
 
