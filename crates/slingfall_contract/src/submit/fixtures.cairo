@@ -55,7 +55,20 @@ pub fn reference_inputs() -> Array<felt252> {
     )
 }
 
-/// The felts `main` (and so `simulate`) returns for `reference_inputs()` on pile10.
+/// The felts `main` (and so `simulate`) returns for `reference_inputs()` on pile10 (rapier2d
+/// alpha.6, lot B4; `fixtures/golden/pile10-reference.json`).
+pub fn simulated_reference_outputs() -> Array<felt252> {
+    array![
+        1, PILE10_HASH, 0, PLAYER,
+        0x5c242b3f403a2cc4fbf7e6f51d9ceab41baeabb21691fed72ec2cdce0d51d8f, 5200, 1, 1, 107,
+        0x3d6ed9e717b0eead27d130562b4bcdda7df5cbd9e1769a970dded582a69db9f,
+    ]
+}
+
+/// The claim E3a proved through Atlantic for `reference_inputs()` on pile10 (the `c1main` of
+/// rapier2d alpha.2, `fixtures/proofs/atlantic/pile10-reference.json`): its facts are on the
+/// Sepolia Satellite, so it stays as proven. Its `final_state_hash` is no longer what `simulate`
+/// returns since the SF1 numeric change of alpha.6 (lot B4): see [`simulated_reference_outputs`].
 pub fn reference_outputs() -> Array<felt252> {
     array![
         1, PILE10_HASH, 0, PLAYER,

@@ -31,7 +31,7 @@ fn reference_outputs() -> Array<felt252> {
     array![
         1, PILE10_HASH, 0, PLAYER,
         0x5c242b3f403a2cc4fbf7e6f51d9ceab41baeabb21691fed72ec2cdce0d51d8f, 5200, 1, 1, 107,
-        0x135df25e65cc5905398c07fc0fb89cb47ee2360a8704793595e82dd6cfbb255,
+        0x3d6ed9e717b0eead27d130562b4bcdda7df5cbd9e1769a970dded582a69db9f,
     ]
 }
 

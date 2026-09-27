@@ -135,7 +135,7 @@ fn twin_felts() -> Array<felt252> {
 }
 
 /// pile10-reference: pile10, shots [[-604, -392, 0]];
-/// 8,898,895 Cairo steps in `scarb execute`.
+/// 8,734,541 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_pile10_reference() {
     let inputs = array![
@@ -147,13 +147,13 @@ fn test_golden_pile10_reference() {
         1, 665152437458248918782700516100125303684128659111532285637007720420909061283, 0,
         123610794124658,
         2604792940270375000973558723573152426683694808879398297222911608163814153615, 5200, 1, 1,
-        107, 547495854229872899473203685572478331340119183166266531668815865555367735893,
+        107, 1736683803119048379889687384602833309506931936771285614178466922897955478431,
     ];
     assert_eq!(main(opaque(pile10_felts()), opaque(inputs)), expected);
 }
 
 /// pile10-three-shots: pile10, shots [[-150, -150, 0], [-200, -200, 0], [-600, -392, 0]];
-/// 15,257,774 Cairo steps in `scarb execute`.
+/// 14,935,586 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_pile10_three_shots() {
     let inputs = array![
@@ -169,13 +169,13 @@ fn test_golden_pile10_three_shots() {
         1, 665152437458248918782700516100125303684128659111532285637007720420909061283, 0,
         123610794124658,
         510406291678826524938452233806377133792837112531286447988231171613010478975, 1200, 1, 3,
-        349, 183010022346899933071776856756948837532464554798634237383379517293200799468,
+        349, 3004835361942702650295446315329440010188904105889769037455454360544364528603,
     ];
     assert_eq!(main(opaque(pile10_felts()), opaque(inputs)), expected);
 }
 
 /// cores3-reference: cores3, shots [[-653, -304, 0]];
-/// 12,027,945 Cairo steps in `scarb execute`.
+/// 11,726,302 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_cores3_reference() {
     let inputs = array![
@@ -187,13 +187,13 @@ fn test_golden_cores3_reference() {
         1, 891548272519101160110636573778095764772936357718026020377713953278427379763, 0,
         123610794124658,
         3448004766293406643784793764729994876675769926021117641540393767771947262497, 11050, 1, 1,
-        180, 1600512299656761899444839577237928008195364592221744439283711516242565349018,
+        180, 1975410260191908052827367541748400566181031992153463536710919512542760735166,
     ];
     assert_eq!(main(opaque(cores3_felts()), opaque(inputs)), expected);
 }
 
 /// cores3-three-shots: cores3, shots [[-150, -150, 0], [-200, -200, 0], [-600, -392, 0]];
-/// 15,831,898 Cairo steps in `scarb execute`.
+/// 15,371,228 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_cores3_three_shots() {
     let inputs = array![
@@ -209,13 +209,13 @@ fn test_golden_cores3_three_shots() {
         1, 891548272519101160110636573778095764772936357718026020377713953278427379763, 0,
         123610794124658,
         510406291678826524938452233806377133792837112531286447988231171613010478975, 7050, 1, 3,
-        420, 2166533190834599796952113648833722648412369948076929862092015924612819429830,
+        420, 3361456247644709973767118522910736288919880836674401425165490880427935478530,
     ];
     assert_eq!(main(opaque(cores3_felts()), opaque(inputs)), expected);
 }
 
 /// cores3-disk-outside: cores3, shots [[-1000, -900, 0]];
-/// 1,945,585 Cairo steps in `scarb execute`.
+/// 1,880,261 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_cores3_disk_outside() {
     let inputs = array![
@@ -233,7 +233,7 @@ fn test_golden_cores3_disk_outside() {
 }
 
 /// one_block-miss: one_block, shots [[-150, -150, 0]];
-/// 2,449,361 Cairo steps in `scarb execute`.
+/// 2,352,530 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_one_block_miss() {
     let inputs = array![
@@ -251,7 +251,7 @@ fn test_golden_one_block_miss() {
 }
 
 /// one_block-delay30: one_block, shots [[-600, -392, 30]];
-/// 1,798,934 Cairo steps in `scarb execute`.
+/// 1,728,495 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_one_block_delay30() {
     let inputs = array![
@@ -269,7 +269,7 @@ fn test_golden_one_block_delay30() {
 }
 
 /// one_block-disk-boundary: one_block, shots [[0, -1024, 0]];
-/// 1,606,656 Cairo steps in `scarb execute`.
+/// 1,542,915 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_one_block_disk_boundary() {
     let inputs = array![
@@ -286,7 +286,7 @@ fn test_golden_one_block_disk_boundary() {
 }
 
 /// tower-reference: tower, shots [[-604, -392, 0]];
-/// 22,742,935 Cairo steps in `scarb execute`.
+/// 22,298,543 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_tower_reference() {
     let inputs = array![
@@ -298,13 +298,13 @@ fn test_golden_tower_reference() {
         1, 393312742010125364279763760031405789463320696722685328318523328174646855554, 0,
         123610794124658,
         2604792940270375000973558723573152426683694808879398297222911608163814153615, 6200, 1, 1,
-        180, 1039603123653400178901657074541907555017906546257681586844366570125490074583,
+        180, 1342782311342312982354938615445996795230442771958173922607746016561757956872,
     ];
     assert_eq!(main(opaque(tower_felts()), opaque(inputs)), expected);
 }
 
 /// bridge-reference: bridge, shots [[-463, -552, 0]];
-/// 9,469,655 Cairo steps in `scarb execute`.
+/// 9,229,309 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_bridge_reference() {
     let inputs = array![
@@ -316,13 +316,13 @@ fn test_golden_bridge_reference() {
         1, 3342463038635254757270752852459090865814117992243884957153675197687761655261, 0,
         123610794124658,
         428167073078169276898811095961438886083016888060985798351006366197836033811, 6250, 1, 1,
-        180, 3130740281869620580736578604952201832868344513795848963321157691548299557560,
+        180, 2013638326561435219876805133694750719325914635944572609504252179880038022066,
     ];
     assert_eq!(main(opaque(bridge_felts()), opaque(inputs)), expected);
 }
 
 /// twin-reference: twin, shots [[-503, -327, 0], [-543, -472, 0]];
-/// 21,945,064 Cairo steps in `scarb execute`.
+/// 21,506,463 Cairo steps in `scarb execute`.
 #[test]
 fn test_golden_twin_reference() {
     let inputs = array![
@@ -336,7 +336,7 @@ fn test_golden_twin_reference() {
         1, 1638823156702016206653742340024083213114239442482959130921261148294374739389, 0,
         123610794124658,
         1870840442943896367869516355831295961495420200658161502457729462337879456334, 4200, 1, 2,
-        306, 1807385227548388842166681096963707091146244213664526795338452570470242551798,
+        306, 1445625293051266300797781905930491591437687805997394974256476426891766015295,
     ];
     assert_eq!(main(opaque(twin_felts()), opaque(inputs)), expected);
 }

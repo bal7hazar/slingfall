@@ -12,7 +12,7 @@ pub const REFERENCE_INPUTS_HASH: felt252 =
     0x5c242b3f403a2cc4fbf7e6f51d9ceab41baeabb21691fed72ec2cdce0d51d8f;
 /// `final_state_hash` of the reference shot.
 pub const REFERENCE_FINAL_STATE_HASH: felt252 =
-    0x135df25e65cc5905398c07fc0fb89cb47ee2360a8704793595e82dd6cfbb255;
+    0x3d6ed9e717b0eead27d130562b4bcdda7df5cbd9e1769a970dded582a69db9f;
 
 pub fn shot(pull_x: i16, pull_y: i16, delay: u16) -> Shot {
     Shot { pull_x, pull_y, delay, ability_tick: 0 }

@@ -1,7 +1,7 @@
 use core::poseidon::poseidon_hash_span;
 use rapier2d::prelude::{
-    CONTACT_FORCE_EVENTS, ColliderTrait, Fixed, IntegrationParameters, Pose2, RigidBodySetTrait,
-    RigidBodyTrait, Rot2, Vec2, WorldTrait,
+    BasicStepConfig, CONTACT_FORCE_EVENTS, ColliderTrait, Fixed, IntegrationParameters, Pose2,
+    RigidBodySetTrait, RigidBodyTrait, Rot2, Vec2, WorldTrait,
 };
 use slingfall_level::inputs::Shot;
 use slingfall_level::level::{BodyDef, KIND_CORE, KIND_STATIC, Level, LevelTrait, ShapeDef};
@@ -584,7 +584,7 @@ fn steps_tick__pile10_flight() {
 #[test]
 fn steps_step__pile10_flight() {
     let (mut game, _) = flight();
-    opaque(game.world.step_with_force_events());
+    opaque(game.world.step_with_force_events_with::<BasicStepConfig>());
 }
 
 #[test]
@@ -601,5 +601,5 @@ fn steps_tick__pile10_impact() {
 #[test]
 fn steps_step__pile10_impact() {
     let (mut game, _) = impact();
-    opaque(game.world.step_with_force_events());
+    opaque(game.world.step_with_force_events_with::<BasicStepConfig>());
 }

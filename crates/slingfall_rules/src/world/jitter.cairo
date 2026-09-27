@@ -6,7 +6,7 @@
 //! than `DRIFT_MAX_MM`). The force events are reported, not asserted: pile10 and cores3 carry a
 //! static load over a timber threshold at every setting (`test_awake_pile10_load_damage_*`).
 
-use rapier2d::prelude::{RigidBodyTrait, WorldTrait};
+use rapier2d::prelude::{BasicStepConfig, RigidBodyTrait, WorldTrait};
 use slingfall_level::level::{KIND_STATIC, Level};
 use crate::world::fixtures::{cores3, one_block, pile10};
 use crate::world::levels::{bridge, tower, twin};
@@ -47,7 +47,7 @@ fn probe(name: ByteArray, level: Level) {
     let mut last = 0;
     let mut tick = 0;
     while tick != TICKS {
-        let (_, forces) = game.world.step_with_force_events();
+        let (_, forces) = game.world.step_with_force_events_with::<BasicStepConfig>();
         events += forces.len();
         tick += 1;
         let mut all_asleep = true;

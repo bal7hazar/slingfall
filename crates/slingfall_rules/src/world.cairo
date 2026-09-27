@@ -9,7 +9,7 @@
 
 use core::poseidon::poseidon_hash_span;
 use rapier2d::prelude::{
-    CONTACT_FORCE_EVENTS, ColliderBuilder, ColliderBuilderTrait, Fixed, Handle,
+    BasicStepConfig, CONTACT_FORCE_EVENTS, ColliderBuilder, ColliderBuilderTrait, Fixed, Handle,
     IntegrationParameters, RigidBodyBuilderTrait, RigidBodyTrait, Vec2, World, WorldState,
     WorldTrait,
 };
@@ -255,10 +255,11 @@ pub impl GameImpl of GameTrait {
         }
     }
 
-    /// One tick: `step_with_force_events`, damage (D6) and its removals (ascending handles),
-    /// out-of-bounds removals and the calm rule (D5), the tick cap, the win check (D7).
+    /// One tick: `step_with_force_events` (compiled with `BasicStepConfig`, lot B4), damage (D6)
+    /// and its removals (ascending handles), out-of-bounds removals and the calm rule (D5), the
+    /// tick cap, the win check (D7).
     fn tick(ref self: Game, level: @Level) -> TickReport {
-        let (_, events) = self.world.step_with_force_events();
+        let (_, events) = self.world.step_with_force_events_with::<BasicStepConfig>();
         self.tick += 1;
         self.shot_tick += 1;
         if self.pebble.is_some()
@@ -362,10 +363,15 @@ pub impl GameImpl of GameTrait {
 /// properties, broad-phase and contact pairs) without moving anything: integration and the solver
 /// scale every velocity and position update by `dt`. Then every dynamic body goes back to sleep
 /// at its stored pose and `dt` is restored. The step's events are dropped; `tick` stays 0.
+///
+/// Every step of the game is compiled with `BasicStepConfig` (lot B4, rapier2d alpha.6): the
+/// level format's shapes (`ShapeDef`: ball, cuboid, convex polygon, half-space) and the pebble (a
+/// ball) are its whole set, and the game adds no sensor, joint or composite shape, so the results
+/// are those of `World::step` without the rest of the engine in the program.
 fn settle(ref game: Game) {
     let dt = game.world.integration_parameters.dt;
     game.world.integration_parameters.dt = Fixed { raw: 0 };
-    let _ = game.world.step();
+    let _ = game.world.step_with::<BasicStepConfig>();
     game.world.integration_parameters.dt = dt;
     sleep_all(ref game);
 }
