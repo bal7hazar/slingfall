@@ -8,7 +8,8 @@ ENTRY="$CLIENT/qa-lib.entry.tmp.ts"
 cat > "$ENTRY" <<'TS'
 export { flightArc, arcParamsFromLevel } from './src/aim/arc';
 export { pullFromDrag, pullToDrag, clampPull } from './src/aim/pull';
-export { fitCamera, worldToScreen, boundsOf } from './src/render/camera';
+export { fullPullPixels } from './src/aim/pull';
+export { fitCamera, worldToScreen, boundsOf, frameRect, frameCamera } from './src/render/camera';
 export { LevelHeader, parseTraceLine } from './src/trace/lines';
 export { fixedToNumber } from './src/trace/types';
 TS

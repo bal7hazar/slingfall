@@ -30,15 +30,25 @@ replay executables are committed (`vm/fixtures/replay/`, `vm/scripts/fetch-execu
 `dist/vm/` (`vite.config.ts`), and without `vm/pkg/` the build still succeeds (a warning) and the
 page says "VM not built" and plays the recorded trace.
 
-The page (`?level=pile10|cores3|one_block`, default pile10): press within 1.5 m of the sling
-anchor and drag to aim (an integer pull in `[-1024, 1024]²` clamped to the disk `pull_radius`;
-the dotted arc is the exact flight of the pebble, up to the first tick inside a body's box: a display cut, not physics); releasing runs that shot in the worker, from
-the previous shot's state, with the inputs so far. Frames play at 60 Hz as they arrive
-(interpolated for display only); when they lag real time (the impact: 3x the Cairo steps per
-tick of the flight) the playback slows to their arrival rate and the HUD says "simulating…"
+The page (`?level=pile10|cores3|tower|bridge|twin|one_block`, default pile10) frames the sling
+and the structures (not the level bounds), with room for a full drag around the anchor, and zooms
+out, eased, to follow a pebble in flight (`src/render/follow.ts`). The sling is drawn at rest:
+posts, band and the pebble. Grab the pebble (within 1.5 m, and at least 44 px on a touch screen,
+22 px with a mouse) and drag back to aim: the drag is scaled to the screen, a full pull being 27 %
+of its short side whatever the zoom; the pull is an integer pair in `[-1024, 1024]²` clamped to
+the disk `pull_radius`, shown in the HUD (**Pull**) exactly as it will be sent. The arrow keys
+aim too, one pull unit per press (Shift: ten), from the last pull released; **Enter** releases,
+**Escape** cancels; every integer pull of the disk is reachable. The dotted arc is the exact
+flight of the pebble, up to the first tick inside a body's box (a display cut, not physics).
+Releasing runs that shot in the worker, from the previous shot's state, with the inputs so far;
+the shot counts as spent at once. Frames play at 60 Hz as they arrive (interpolated for display
+only); when they lag real time (the impact: 3x the Cairo steps per tick of the flight) the
+playback slows to their arrival rate and the HUD says "simulating…"
 (**slow-motion impact**, `src/render/live.ts`). Damaged bodies flash, destroyed ones fade out at
-their last pose (`src/render/effects.ts`); the HUD shows score, shots left and tick. At the
-level's end a panel shows won / lost, the score, and the 10 output felts a proof of the level will
+their last pose, and the spent pebble fades out at the end of its shot (`src/render/effects.ts`);
+the HUD shows score, shots left, tick and pull. The sling re-arms, and at the level's end the
+result panel opens, only once the worker is done **and** the playback has shown the shot's last
+frame (`src/game/play.ts`; paused, it waits). At the level's end a panel shows won / lost, the score, and the 10 output felts a proof of the level will
 carry (`inputs_hash` and `final_state_hash` highlighted), computed by the `outputs` executable in
 the worker; **Copy inputs** copies the shots as JSON (`{player, shots: [{pull_x, pull_y,
 delay}]}`); **Retry** restarts the level from the state `init` returned (no new `init`).
@@ -54,7 +64,11 @@ Sepolia node (`VITE_STARKNET_RPC_URL`, else `VITE_RPC_URL`), links the contract 
 `LevelValidated` transactions on Voyager Sepolia and shows the on-chain level hash; when the contract's
 `verifier()` is `Satellite` the button is **Prove (settled)** (proof, then **Settle**) instead of the attested
 **Submit**.
-**Play/Pause** (or Space) and the slider scrub the level so far. `?autoshot=px,py;px,py` releases
+On a narrow screen (width ≤ 600 px or height ≤ 500 px) the hints are short, the chain strip sits
+under the HUD and the panel opens folded above the controls (**Details** unfolds it).
+**Play/Pause** (or Space; the label follows the real state: "Play" at the end of what exists) and
+the slider scrub the level so far; **Retry** is allowed once the worker is idle, even while the
+last shot is still playing. `?autoshot=px,py;px,py` releases
 those pulls by itself (headless checks). The console logs each shot's figures (release to first
 frame, ticks, steps, seconds, chunks, wasm) and the outputs.
 
@@ -70,9 +84,10 @@ frame, ticks, steps, seconds, chunks, wasm) and the outputs.
 | `src/aim/pull.ts` | `clampPull` (D3 integer clamp), drag to pull mapping |
 | `src/aim/arc.ts` | `flightArc`: the exact arc, rapier's substepped free flight (`SUBSTEPS = 4` Euler steps of `dt // 4` per tick, mirrors `SOLVER_ITERATIONS`); the formula is documented at the top of the file |
 | `src/aim/contact.ts` | body AABBs at the settled poses: where the preview stops (display only) |
-| `src/aim/controller.ts` | pointer handling and the overlay drawing |
-| `src/render/` | `buffer` (frames as `f64` columns), `scene` (PixiJS bodies), `camera`, `playback`, `hud`, `live` (arrival rate, slow-motion speed), `effects` (flashes, fade-outs) |
+| `src/aim/controller.ts` | pointer and arrow-key aiming, the sling and aim overlay drawing |
+| `src/render/` | `buffer` (frames as `f64` columns), `scene` (PixiJS bodies), `camera` (framing), `follow` (the camera following a flight), `playback`, `hud`, `live` (arrival rate, slow-motion speed), `effects` (flashes, fade-outs, spent pebbles) |
 | `src/game/session.ts` | `LevelSession`: the shot loop without DOM (`init` once, a shot per release from the previous state, the inputs kept, level over from the state header, outputs, retry) |
+| `src/game/play.ts` | `ShotLoop`: release, frames into the buffer, the playback head, and the gate (re-arm or result only once the shot has been shown) |
 | `src/game/stage.ts` | what one level draws: buffer, scene, effects, camera, aim |
 | `src/chain/` | the Submit step (lot G9): `slingfall` (calldata, reads, `LevelValidated`, gas), `attest` (the attestation client), `submission` (the flow, DOM-free), `wallet` (Cartridge / get-starknet / devnet account), `config` (`VITE_*`), `panel` (DOM) |
 | `src/main.ts` | wiring: level choice, live playback, HUD, end-of-level panel, recorded fallback |

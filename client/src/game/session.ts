@@ -63,6 +63,8 @@ export class LevelSession {
   readonly events: TraceEvent[] = [];
   readonly shots: ShotInput[] = [];
   readonly reports: ShotReport[] = [];
+  /** The tick each shot was released at (the state's tick before it): the HUD counts it spent from there. */
+  readonly releases: number[] = [];
   phase: Phase = 'aiming';
   state: string[];
   header: ChunkHeader;
@@ -115,6 +117,7 @@ export class LevelSession {
     const shot = this.header.shotsUsed;
     this.phase = 'flying';
     this.shots.push({ pull_x: pull.x, pull_y: pull.y, delay });
+    this.releases.push(this.header.tick);
     const t0 = this.now();
     let firstFrameMs: number | null = null;
     let ticks = 0;
@@ -151,6 +154,7 @@ export class LevelSession {
     } catch (e) {
       // The shot did not happen: back to the state before it.
       this.shots.pop();
+      this.releases.pop();
       this.phase = 'aiming';
       throw e;
     }
@@ -188,6 +192,7 @@ export class LevelSession {
     this.events.length = 0;
     this.shots.length = 0;
     this.reports.length = 0;
+    this.releases.length = 0;
     this.outputsPromise = null;
     this.phase = 'aiming';
   }
