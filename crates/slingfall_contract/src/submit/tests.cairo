@@ -21,7 +21,7 @@ use crate::verifier::{VerifierKind, attestation_message, message_hash};
 use super::fixtures::{
     ATTESTATION_KEY, ATTEST_CHAIN_ID, ATTEST_EXPIRY, E3A_CHILD_PROGRAM_HASH, GOLDEN_ATTEST_R,
     GOLDEN_ATTEST_S, GOLDEN_R, GOLDEN_S, MESSAGE_FROM, PLAYER, SECRET, golden_claim,
-    reference_inputs, reference_outputs,
+    reference_inputs, reference_outputs, simulated_reference_outputs,
 };
 use super::{
     ISlingfallAdminDispatcher, ISlingfallAdminDispatcherTrait, ISlingfallAdminSafeDispatcher,
@@ -462,9 +462,9 @@ fn test_simulate_pile10_reference_through_the_library_call() {
     setup.game.register_level(pile10_felts());
     let mut messages = spy_messages_to_l1();
     let outputs = setup.game.simulate(PILE10_HASH, reference_inputs());
-    assert_eq!(outputs.to_felts(), reference_outputs());
+    assert_eq!(outputs.to_felts(), simulated_reference_outputs());
     let message = MessageToL1 {
-        to_address: MARKER.try_into().unwrap(), payload: reference_outputs(),
+        to_address: MARKER.try_into().unwrap(), payload: simulated_reference_outputs(),
     };
     messages.assert_sent(@array![(setup.address, message)]);
 }

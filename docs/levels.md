@@ -197,3 +197,24 @@ steps, 11 250 points before).
   destroyed while settling).
 - Budget: every reference shot is under the interim 1e8 steps; those above D10's 3e7 are `tower`
   (42.4 M) and `twin` (2 shots, 47.6 M in all, about 24 M each, so each shot is under 3e7).
+
+## Re-validation on rapier2d alpha.6 (lot B4)
+
+alpha.6 brings a numeric change (SF1: exactly closed contact gaps solve rigidly, as upstream), and
+the game's steps are compiled with `BasicStepConfig` (bit-identical results on the level format's
+shapes). Every level was re-checked **unchanged** (`levelc.py check --strict --rules`, one at a
+time): all six keep their files and their `level_hash`; only the goldens' `final_state_hash` changed.
+
+| level | result | reference pull(s) | score | ticks | steps (`main`) alpha.5 -> alpha.6 |
+|---|---|---|---:|---:|---|
+| `pile10` | passes unchanged | (-604, -392) | 5 200 | 107 | 8 898 895 -> 8 734 541 (-1.85 %) |
+| `cores3` | passes unchanged | (-653, -304) | 11 050 | 180 | 12 027 945 -> 11 726 302 (-2.51 %) |
+| `tower` | passes unchanged | (-604, -392) | 6 200 | 180 | 22 742 935 -> 22 298 543 (-1.95 %) |
+| `bridge` | passes unchanged | (-463, -552) | 6 250 | 180 | 9 469 655 -> 9 229 309 (-2.54 %) |
+| `twin` | passes unchanged | (-503, -327) then (-543, -472) | 4 200 | 306 | 21 945 064 -> 21 506 463 (-2.00 %) |
+| `one_block` | rules pass (LEGACY) | (-653, -304) | 1 050 | 80 | 1 124 719 (reference; its goldens are misses) |
+
+The validator picked the same reference pulls as before on every level. The awake test reports no
+damage line and no moved body on every pile but `one_block`'s (LEGACY: a settle moves its block, a
+warning as before); `one_block.json` also fails `--strict`'s canonical-JSON check, a pure-Python
+check of a file unchanged since G2 (not an engine change).

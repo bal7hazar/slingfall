@@ -4,7 +4,7 @@
 // Node tests and benchmark all run it. Value imports carry `.ts` so that Node runs this file as is.
 import type { TraceEvent, TraceFrame } from '../trace/types';
 import type { ChunkProgram, Entry } from './program';
-import { DEFAULT_SIZING, planChunk, type ChunkMeasure, type ChunkSizing } from './sizing.ts';
+import { ContactCut, DEFAULT_SIZING, planChunk, type ChunkMeasure, type ChunkSizing } from './sizing.ts';
 
 /** Options of one run (the wasm `Runner.run` surface, client/vm/README.md). */
 export interface RunOptions {
@@ -84,6 +84,12 @@ export interface ShotOptions {
   sizing?: ChunkSizing;
   /** Forces K for every stepping chunk (tests and benchmarks). */
   fixedTicks?: number;
+  /**
+   * The shot's predicted contact tick counted from the start state (1-based; `null`: none), given
+   * that state: the contact cut of the sizing (`ContactCut`). The worker predicts it from the aim
+   * arc (`cut.ts`). Chunk boundaries never change the results.
+   */
+  predictContact?: (state: readonly string[]) => number | null;
   onFrame?: (frame: TraceFrame) => void;
   onEvent?: (event: TraceEvent) => void;
   /** Lines that are neither frames nor events (the level header of `init`, the VM's own output). */
@@ -168,15 +174,19 @@ export function runShot<Level, Inputs>(
   const t0 = runs.t;
   let state = options.state === undefined ? runs.run('init', program.initArgs(level), 0, 0) : [...options.state];
   let prev: ChunkMeasure | null = null;
+  const cut = new ContactCut(options.fixedTicks === undefined ? (options.predictContact?.(state) ?? null) : null, sizing);
+  let stepped = 0;
   for (let remaining = program.remainingTicks(level, state, shot); remaining > 0; ) {
-    const plan = planChunk(prev, remaining, sizing, options.fixedTicks);
+    const plan = planChunk(prev, Math.min(remaining, cut.cap(stepped)), sizing, options.fixedTicks);
     state = runs.run('chunk', program.chunkArgs(level, state, inputs, shot, plan.ticks), plan.ticks, plan.reserveCells);
     prev = runs.chunks[runs.chunks.length - 1];
+    cut.record(stepped, prev);
     const left = program.remainingTicks(level, state, shot);
     // Fewer ticks left than planned is an early stop (the shot ended); more is a bug.
     if (left > remaining - plan.ticks) {
       throw new Error(`${program.name}: stepped ${remaining - left} ticks, asked ${plan.ticks}`);
     }
+    stepped += plan.ticks;
     remaining = left;
   }
   return runs.result(state, t0);

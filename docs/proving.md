@@ -457,11 +457,20 @@ is refused with `'submit: program'` after it.
 | alpha.2 | E3a | 454 101 | `0x128791df23988bef1c8aef3be7ce36ad68278d19878369e5fb7ed2515d5b053` | no (E3a: local / Atlantic round trip only, before the Sepolia deployment) |
 | alpha.3 | B2 / E3b | 459 803 | `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` | 2026-09-26 (E3b's deployment) |
 | alpha.5 | B3 | 582 399 | `0x3f961b5c5b590fbc720048672b0ddeda96aa52ab16b56365f6d1583c5ed27ec` | 2026-09-27 (`set_satellite_config` tx `0x1f3652885aec68ea61add59bb3814dbd44e55669f8e5727d74c347dc28a1447`) |
+| alpha.6 | B4 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` | 2026-09-27 (`set_satellite_config` tx `0x4a77159da8decd6f2659649e642b488d154e737618566e4219ea589845d4bdf`) |
 
 The felt count jumps 26.6 % from alpha.3 to alpha.5 (CC1 + CC2 + LO2 + SH2a: shape casts, the CCD
 solver, Polyline / HeightField), well past a rapier2d MINOR version's usual size drift; none of it
 runs on Slingfall's own shapes (D5: CCD stays off), consistent with `SlingfallSim`'s own Sierra size
 growing from 196 801 to 273 632 felts over the same bump (`scarb build`, `crates/slingfall_contract`).
+
+alpha.6 (B4) cuts it back: every step of the game is `step_with::<BasicStepConfig>` /
+`step_with_force_events_with::<BasicStepConfig>` (balls, cuboids, convex polygons, half-spaces; no
+joint, sensor or composite shape), so the joint solver, the sensor tests, the composite manifolds
+and the other shapes' generators are no longer in the program: `c1main` 582 399 -> 271 833 felts
+(-53.3 %), `SlingfallSim` 273 632 -> 140 568 Sierra felts (-48.6 %). The SF1 numeric change
+(exactly closed contact gaps solve rigidly) changes the `final_state_hash` of the goldens whose
+pile is hit; scores, wins and ticks are unchanged.
 
 ### Contract side (E3b): `SatelliteVerifier`
 

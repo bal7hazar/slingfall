@@ -4,7 +4,7 @@ slingfall_contract::submit::tests::settled::steps_submit_settled__pile10_keccak 
 slingfall_contract::submit::tests::settled::steps_submit_settled__setup 158238
 slingfall_contract::submit::tests::steps_register_level__deploy 5041
 slingfall_contract::submit::tests::steps_register_level__pile10 93945
-slingfall_contract::submit::tests::steps_simulate__pile10_reference 9394800
+slingfall_contract::submit::tests::steps_simulate__pile10_reference 9226836
 slingfall_contract::submit::tests::steps_simulate__setup 97322
 slingfall_contract::submit::tests::steps_submit__stub 111312
 slingfall_contract::submit::tests::steps_submit__stub_setup 101180
