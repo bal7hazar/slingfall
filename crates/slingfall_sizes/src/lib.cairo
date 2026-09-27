@@ -13,8 +13,8 @@
 //! | `SizeA_Registry` | no `simulate` |
 //! | `SizeB_Decode` | `simulate::run` with the stub hook: `Level` / `Inputs` decode and validate |
 //! | `SizeC_World` | + the world built from the level, no step (`hooks::WorldHook`) |
-//! | `SizeC2_GameNew` | + `GameTrait::new` (its `settle` runs one `World::step`) |
-//! | `SizeD_OneStep` | + one `World::step_with_force_events` |
+//! | `SizeC2_GameNew` | + `GameTrait::new` (its `settle` runs one `step_with::<BasicStepConfig>`) |
+//! | `SizeD_OneStep` | + one `step_with_force_events_with::<BasicStepConfig>` |
 //! | `SizeD2_OneTick` | + a launch and one `GameTrait::tick` (damage, calm, score) |
 //! | `SizeE_Simulate` | the real `simulate` (`ReplaySimulateHook`, `slingfall_game::play`) |
 //!
