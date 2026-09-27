@@ -1,37 +1,57 @@
 #!/usr/bin/env python3
-"""attest: the attestation service of the `StubVerifier` path (docs/DESIGN.md D9, research 01 §4
-rank 2). Python 3 standard library only.
+"""attest: the attestation service of the provisional tier (contract v2, `docs/contract-v2.md`
+"Attestations"; research 06 §2.1). Python 3 standard library only.
 
-    attest.py serve [--key HEX] (--verify-cmd CMD | --no-verify) [--host H] [--port N]
-                    [--proof-dir DIR] [--timeout S]
-    attest.py sign [--key HEX] (--outputs FILE | FELT...)
+    attest.py serve [--key HEX] (--execute | --verify-cmd CMD | --no-verify) --contract HEX
+                    [--rpc URL] [--chain-id FELT] [--program-hash HEX] [--epoch N] [--ttl S]
+                    [--rate N] [--rate-window S] [--host H] [--port N] [--proof-dir DIR]
+                    [--timeout S] [--no-build]
+    attest.py sign [--key HEX] --chain-id FELT --contract HEX --program-hash HEX --epoch N
+                   --expiry T (--outputs FILE | FELT...)
     attest.py pubkey [--key HEX]
-    attest.py request --url URL (--outputs FILE | FELT...) [--proof-path PATH | --proof FILE]
+    attest.py request --url URL (--level NAME|HASH --inputs FILE | --outputs FILE | FELT...)
+                      [--proof-path PATH | --proof FILE]
 
 The key is the attestation secret (a Stark-curve scalar); without `--key` it is read from the
 environment variable `SLINGFALL_ATTEST_KEY` (a command line is visible to every user of the
 machine). The contract checks the signature with the public key the admin set
 (`set_attestation_key`, `attest.py pubkey`).
 
-`serve`: HTTP on `--host:--port` (default 127.0.0.1:8547).
+What is signed (`verifier::attestation_message`):
 
-* `POST /attest` `{"outputs": [10 felts], "proof_path": "..."}` (or `"proof": "<base64>"`): runs the
-  verify command on the proof and the claimed outputs; when it exits 0, signs
-  `attestation_hash = poseidon_hash_span(outputs)` (the contract's `verifier::attestation_hash`)
-  and answers `{"attestation_hash", "signature": [r, s], "public_key", "verified"}`: `[r, s]` is the
-  `evidence` of `submit`. A failed verification answers 422, a malformed request 400.
-* `GET /health`: `{"public_key", "verify"}`.
+    poseidon_hash_span(['SLINGFALL_ATTEST', chain_id, contract, program_hash, epoch, expiry,
+                        outputs[0..10]])
 
-The verify command is P1's `tools/prove/verify.py`: `<CMD> <proof> <outputs.json>` (the outputs
-written as a JSON array of `0x` felts), exit 0 when the proof verifies and its public output is the
-claimed outputs. `{proof}` / `{outputs}` in CMD place the two paths explicitly. One verification
-runs at a time. `--no-verify` signs whatever it is sent (a devnet without a prover): it warns at
-start and every answer says `"verified": false`. Never expose a `--no-verify` service.
+and the answer's `evidence = [program_hash, expiry, r, s]` is what `submit(outputs, evidence)`
+takes. `chain_id` is `--chain-id` or the RPC's `starknet_chainId`; `contract` the deployed
+`Slingfall`; `epoch` its `attestation_epoch()` (read again every 30 s, so a key rotation is seen;
+`--epoch` pins it offline); `program_hash` is `--program-hash` (the engine release this service
+runs) or else the contract's `current_program()`; `expiry = now + --ttl` (default 600 s), `now`
+being the later of the latest block's timestamp (when an RPC is configured: a devnet's clock may
+run ahead of the wall clock) and the wall clock. The RPC is `--rpc` or `$STARKNET_RPC_URL`.
 
-`proof_path` names a file on the service's machine (the MVP proves and attests on one machine);
-`--proof-dir` restricts it to one directory. Felts are read as decimal or `0x` hexadecimal.
+`serve`: HTTP on `--host:--port` (default 127.0.0.1:8547), one of three modes:
 
-`sign` prints the hash and the signature of the given outputs (offline attestation); `request`
+* `--execute` (research 06 §2.1, the default of a real deployment): `POST /attest` `{"level":
+  "<name or level_hash>", "inputs": [felts], "outputs": [10 felts] (optional)}`. The service
+  re-executes the replay natively (`scarb execute` of `crates/slingfall_replay`'s proof build
+  `main`, as `tools/golden/golden.py` does; built once at start unless `--no-build`), and signs its
+  own outputs; claimed `outputs` that differ answer 422. Seconds, not the minutes of a proof.
+* `--verify-cmd CMD`: `POST /attest` `{"outputs": [10 felts], "proof_path": "..."}` (or `"proof":
+  "<base64>"`): runs P1's `tools/prove/verify.py` (`<CMD> <proof> <outputs.json>`, the outputs as
+  a JSON array of `0x` felts; `{proof}` / `{outputs}` in CMD place the two paths) and signs when it
+  exits 0 (422 otherwise). For players who bring a proof. `--proof-dir` confines `proof_path`.
+* `--no-verify`: signs whatever outputs it is sent (a devnet without a replay); it warns at start
+  and every answer says `"verified": false`. Never expose a `--no-verify` service.
+
+Every answer carries `{"message", "evidence", "signature": [r, s], "public_key", "verified",
+"mode", "outputs", "chain_id", "contract", "program_hash", "epoch", "expiry"}`. A malformed
+request answers 400, a refused one 422, and more than `--rate` requests (default 20) per player
+(`outputs.player`, or `inputs.player`) within `--rate-window` seconds (default 3 600) 429. One
+execution or verification runs at a time. `GET /health`: `{"public_key", "mode", "contract",
+"chain_id", "program_hash", "epoch"}` (the last three as last read).
+
+`sign` prints the message and the evidence of the given outputs (offline attestation); `request`
 posts to a running service and prints its answer (the client of `deploy/e2e.sh`).
 """
 
@@ -47,19 +67,35 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "crates" / "slingfall_contract" / "tools"))
-import vectors  # noqa: E402  (Stark curve, ECDSA, and Poseidon of tools/levelc)
+import vectors  # noqa: E402  (Stark curve, ECDSA, Poseidon, `attestation_message`)
+
+sys.path.insert(0, str(ROOT / "tools" / "atlantic"))
+import encoding  # noqa: E402  (`selector`: starknet_keccak)
+
+# `golden` (tools/golden: `scarb execute` of the replay) is imported by `--execute` only.
+sys.path.insert(0, str(ROOT / "tools" / "golden"))
 
 P = vectors.P
 N_OUTPUTS = 10  # the felts of `Outputs` (docs/DESIGN.md D4)
+PLAYER_INDEX = 3
 KEY_ENV = "SLINGFALL_ATTEST_KEY"
 MAX_BODY = 64 << 20  # a base64 proof; P1's proofs are a few MB
+LEVELS = ROOT / "fixtures" / "levels"
+OUTPUT_NAMES = ["version", "level_hash", "seed", "player", "inputs_hash", "score", "won", "shots_used",
+                "ticks_run", "final_state_hash"]
+DEFAULT_TTL = 600.0
+DEFAULT_RATE = 20
+DEFAULT_RATE_WINDOW = 3600.0
+CHAIN_TTL = 30.0
 
 
 class AttestError(Exception):
@@ -70,7 +106,7 @@ class AttestError(Exception):
         self.status = status
 
 
-# --------------------------------------------------------------------------- attestation
+# --------------------------------------------------------------------------- felts
 
 def parse_felt(value: object) -> int:
     """A felt from a JSON number or a decimal / `0x` string; must be in `[0, P)`."""
@@ -93,6 +129,16 @@ def parse_outputs(values: object) -> list[int]:
     return [parse_felt(v) for v in values]
 
 
+def parse_inputs(values: object) -> list[int]:
+    """The `Serde` felts of an `Inputs`: `[player, n, (pull_x, pull_y, delay, ability) * n]`."""
+    if not isinstance(values, list) or len(values) < 2:
+        raise ValueError("inputs: expected the felts of an Inputs")
+    felts = [parse_felt(v) for v in values]
+    if felts[1] > 5 or len(felts) != 2 + 4 * felts[1]:
+        raise ValueError("inputs: expected [player, n, 4 felts per shot] with n <= 5")
+    return felts
+
+
 def parse_key(text: str | None) -> int:
     text = text if text is not None else os.environ.get(KEY_ENV)
     if not text:
@@ -103,18 +149,175 @@ def parse_key(text: str | None) -> int:
     return key
 
 
-def attestation_hash(outputs: list[int]) -> int:
-    """`verifier::attestation_hash`: `poseidon_hash_span(outputs felts)`."""
-    return vectors.hash_span(outputs)
+def short_string(text: str) -> int:
+    return int.from_bytes(text.encode("ascii"), "big")
 
 
-def attest(secret: int, outputs: list[int]) -> dict:
-    """The attestation of `outputs`: hash, signature `[r, s]` (checked as the contract does)."""
-    z = attestation_hash(outputs)
+def parse_chain_id(text: str) -> int:
+    """`SN_SEPOLIA` (a short string) or a felt."""
+    try:
+        return int(text, 0)
+    except ValueError:
+        return short_string(text)
+
+
+# --------------------------------------------------------------------------- attestation
+
+def attest(secret: int, chain_id: int, contract: int, program_hash: int, epoch: int, expiry: int,
+           outputs: list[int]) -> dict:
+    """The v2 attestation of `outputs`: message, signature and the `evidence` of `submit` (checked
+    as the contract does)."""
+    z = vectors.attestation_message(chain_id, contract, program_hash, epoch, expiry, outputs)
     r, s = vectors.sign(secret, z)
     public_key = vectors.pubkey(secret)
     assert vectors.verify(z, public_key, r, s)
-    return {"attestation_hash": hex(z), "signature": [hex(r), hex(s)], "public_key": hex(public_key)}
+    return {"message": hex(z), "evidence": [hex(program_hash), hex(expiry), hex(r), hex(s)],
+            "signature": [hex(r), hex(s)], "public_key": hex(public_key), "chain_id": hex(chain_id),
+            "contract": hex(contract), "program_hash": hex(program_hash), "epoch": epoch, "expiry": expiry}
+
+
+# --------------------------------------------------------------------------- chain
+
+def rpc_call(url: str, method: str, params) -> object:
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    request = urllib.request.Request(url, data=body, method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": "slingfall/1.0"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        answer = json.loads(response.read())
+    if "error" in answer:
+        raise RuntimeError(f"RPC {method}: {answer['error']}")
+    return answer["result"]
+
+
+class Chain:
+    """What the signed message needs from the chain, read through `rpc(method, params)` and cached
+    for `ttl` seconds; fixed values (`--chain-id`, `--program-hash`, `--epoch`) are never read."""
+
+    def __init__(self, contract: int, rpc=None, chain_id: int | None = None, program_hash: int | None = None,
+                 epoch: int | None = None, ttl: float = CHAIN_TTL, clock=time.time):
+        self.contract, self.rpc, self.ttl, self.clock = contract, rpc, ttl, clock
+        self.fixed = {"chain_id": chain_id, "program_hash": program_hash, "epoch": epoch}
+        self._cache: dict[str, tuple[float, int]] = {}
+        self._lock = threading.Lock()
+
+    def _call(self, entry_point: str) -> int:
+        result = self.rpc("starknet_call", {
+            "request": {"contract_address": hex(self.contract), "entry_point_selector": hex(encoding.selector(entry_point)),
+                        "calldata": []},
+            "block_id": "latest",
+        })
+        return int(result[0], 16)
+
+    def _read(self, name: str) -> int:
+        if name == "chain_id":
+            return int(self.rpc("starknet_chainId", []), 16)
+        if name == "program_hash":
+            return self._call("current_program")
+        if name == "epoch":
+            return self._call("attestation_epoch")
+        if name == "now":
+            return int(self.rpc("starknet_getBlockWithTxHashes", {"block_id": "latest"})["timestamp"])
+        raise KeyError(name)
+
+    def get(self, name: str) -> int:
+        if self.fixed.get(name) is not None:
+            return self.fixed[name]
+        if self.rpc is None:
+            if name == "now":
+                return int(self.clock())
+            raise AttestError(500, f"{name}: no RPC to read it from (--rpc or --{name.replace('_', '-')})")
+        with self._lock:
+            cached = self._cache.get(name)
+            if cached is not None and self.clock() - cached[0] < self.ttl:
+                return cached[1]
+            try:
+                value = self._read(name)
+            except Exception as e:  # noqa: BLE001  (any RPC failure refuses the request, never signs stale)
+                raise AttestError(503, f"chain: cannot read {name}: {e}") from None
+            self._cache[name] = (self.clock(), value)
+            return value
+
+    def context(self) -> dict:
+        """The fields of the message besides the outputs; `now` for the expiry: the later of the
+        latest block's timestamp (a devnet's clock may run ahead) and the wall clock (an idle
+        chain's latest block may be old)."""
+        ctx = {name: self.get(name) for name in ("chain_id", "program_hash", "epoch", "now")}
+        ctx["now"] = max(ctx["now"], int(self.clock()))
+        return ctx
+
+    def known(self) -> dict:
+        """The last values read (health)."""
+        out = {}
+        for name in ("chain_id", "program_hash", "epoch"):
+            value = self.fixed.get(name)
+            if value is None and name in self._cache:
+                value = self._cache[name][1]
+            out[name] = None if value is None else (value if name == "epoch" else hex(value))
+        return out
+
+
+# --------------------------------------------------------------------------- execution
+
+def fixture_levels() -> dict[str, tuple[int, list[int]]]:
+    """`fixtures/levels/<name>.felts.json` by name: (level_hash, felts)."""
+    out = {}
+    for path in sorted(LEVELS.glob("*.felts.json")):
+        doc = json.loads(path.read_text())
+        out[path.name[: -len(".felts.json")]] = (
+            int(doc["level_hash"], 0), [int(f, 0) if isinstance(f, str) else int(f) for f in doc["felts"]])
+    return out
+
+
+def resolve_level(level: object) -> str:
+    """The fixture name of a level given by name or level hash."""
+    if not isinstance(level, str):
+        raise ValueError("level: a name or a level hash")
+    known = fixture_levels()
+    if level in known:
+        return level
+    try:
+        wanted = int(level, 0)
+    except ValueError:
+        raise ValueError(f"level: unknown {level!r}") from None
+    for name, (level_hash, _) in known.items():
+        if level_hash == wanted:
+            return name
+    raise ValueError(f"level: unknown {level!r}")
+
+
+def scarb_replay(level: str, inputs: list[int]) -> list[int]:
+    """The 10 outputs of the proof build `main` on a fixture level (`scarb execute`, built)."""
+    import golden  # noqa: PLC0415  (tools/golden: needs scarb, loaded only by --execute)
+    _, outputs, _ = golden.run_build(golden.Level(level), inputs, "main")
+    return outputs
+
+
+class Executor:
+    """Re-executes a replay natively, one at a time. `run(level_name, inputs) -> outputs`."""
+
+    def __init__(self, run=scarb_replay):
+        self.run = run
+        self._lock = threading.Lock()
+
+    def outputs(self, request: dict) -> list[int]:
+        try:
+            level = resolve_level(request.get("level"))
+            inputs = parse_inputs(request.get("inputs"))
+            claimed = parse_outputs(request["outputs"]) if "outputs" in request else None
+        except ValueError as e:
+            raise AttestError(400, str(e)) from None
+        with self._lock:
+            try:
+                outputs = [v % P for v in self.run(level, inputs)]
+            except Exception as e:  # noqa: BLE001  (a failed run refuses, never signs)
+                raise AttestError(500, f"execute: {str(e).strip().splitlines()[0] if str(e).strip() else e!r}") from None
+        if len(outputs) != N_OUTPUTS:
+            raise AttestError(500, f"execute: {len(outputs)} output felts, expected {N_OUTPUTS}")
+        if claimed is not None and claimed != outputs:
+            i = next(i for i, (a, b) in enumerate(zip(claimed, outputs)) if a != b)
+            raise AttestError(422, f"execute: the claimed {OUTPUT_NAMES[i]} {hex(claimed[i])} differs from the "
+                                   f"replay's {hex(outputs[i])}")
+        return outputs
 
 
 # --------------------------------------------------------------------------- verification
@@ -177,13 +380,86 @@ class Verifier:
         return True
 
 
-# --------------------------------------------------------------------------- HTTP
+# --------------------------------------------------------------------------- rate limit
 
-def make_handler(secret: int, verifier: Verifier, log=sys.stderr):
-    public_key = hex(vectors.pubkey(secret))
+class RateLimiter:
+    """At most `limit` requests per key within any `window` seconds (a sliding window)."""
 
+    def __init__(self, limit: int, window: float, clock=time.monotonic):
+        self.limit, self.window, self.clock = limit, window, clock
+        self._seen: dict[int, deque] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: int) -> bool:
+        if self.limit <= 0:
+            return True
+        now = self.clock()
+        with self._lock:
+            seen = self._seen.setdefault(key, deque())
+            while seen and now - seen[0] >= self.window:
+                seen.popleft()
+            if len(seen) >= self.limit:
+                return False
+            seen.append(now)
+            return True
+
+
+# --------------------------------------------------------------------------- the service
+
+class Attester:
+    """One `POST /attest`: the outputs (executed, verified or taken as they are), the rate limit,
+    then the signature over the chain's context."""
+
+    def __init__(self, secret: int, chain: Chain, executor: Executor | None = None, verifier: Verifier | None = None,
+                 limiter: RateLimiter | None = None, ttl: float = DEFAULT_TTL):
+        self.secret, self.chain, self.executor, self.ttl = secret, chain, executor, ttl
+        self.verifier = verifier or Verifier(None, None, 1)
+        self.limiter = limiter or RateLimiter(DEFAULT_RATE, DEFAULT_RATE_WINDOW)
+        self.public_key = hex(vectors.pubkey(secret))
+
+    @property
+    def mode(self) -> str:
+        if self.executor is not None:
+            return "execute"
+        return "verify" if self.verifier.command else "none"
+
+    def player_of(self, request: dict) -> int:
+        try:
+            if self.executor is not None:
+                return parse_felt((request.get("inputs") or [None])[0])
+            return parse_outputs(request.get("outputs"))[PLAYER_INDEX]
+        except (ValueError, TypeError, AttributeError) as e:
+            raise AttestError(400, str(e)) from None
+
+    def handle(self, request: dict) -> dict:
+        if not isinstance(request, dict):
+            raise AttestError(400, "expected a JSON object")
+        player = self.player_of(request)
+        if not self.limiter.allow(player):
+            raise AttestError(429, f"rate limit: more than {self.limiter.limit} requests for player {hex(player)} "
+                                   f"in {self.limiter.window:.0f} s")
+        if self.executor is not None:
+            outputs = self.executor.outputs(request)
+            verified = True
+        else:
+            try:
+                outputs = parse_outputs(request.get("outputs"))
+            except ValueError as e:
+                raise AttestError(400, str(e)) from None
+            verified = self.verifier.check(request, outputs)
+        ctx = self.chain.context()
+        expiry = int(ctx["now"] + self.ttl)
+        body = attest(self.secret, ctx["chain_id"], self.chain.contract, ctx["program_hash"], ctx["epoch"], expiry, outputs)
+        return {**body, "verified": verified, "mode": self.mode, "outputs": [hex(v) for v in outputs]}
+
+    def health(self) -> dict:
+        return {"public_key": self.public_key, "mode": self.mode, "verify": self.verifier.command,
+                "contract": hex(self.chain.contract), **self.chain.known()}
+
+
+def make_handler(attester: Attester, log=sys.stderr):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "slingfall-attest/1"
+        server_version = "slingfall-attest/2"
 
         def log_message(self, fmt, *args):
             print(f"attest: {self.address_string()} {fmt % args}", file=log)
@@ -211,7 +487,7 @@ def make_handler(secret: int, verifier: Verifier, log=sys.stderr):
         def do_GET(self):  # noqa: N802
             if self.path != "/health":
                 return self.answer(404, {"error": "not found"})
-            self.answer(200, {"public_key": public_key, "verify": verifier.command})
+            self.answer(200, attester.health())
 
         def do_POST(self):  # noqa: N802
             if self.path != "/attest":
@@ -222,14 +498,11 @@ def make_handler(secret: int, verifier: Verifier, log=sys.stderr):
                     raise AttestError(400 if length <= 0 else 413, "body: missing or too large")
                 try:
                     request = json.loads(self.rfile.read(length))
-                    if not isinstance(request, dict):
-                        raise ValueError("expected a JSON object")
-                    outputs = parse_outputs(request.get("outputs"))
                 except ValueError as e:
-                    raise AttestError(400, str(e)) from None
-                verified = verifier.check(request, outputs)
-                body = {**attest(secret, outputs), "verified": verified}
-                print(f"attest: signed {body['attestation_hash']} (verified {verified})", file=log)
+                    raise AttestError(400, f"body: {e}") from None
+                body = attester.handle(request)
+                print(f"attest: signed {body['message']} for {body['outputs'][PLAYER_INDEX]} ({body['mode']}, "
+                      f"epoch {body['epoch']}, program {body['program_hash']})", file=log)
                 self.answer(200, body)
             except AttestError as e:
                 print(f"attest: refused ({e.status}): {e}", file=log)
@@ -238,8 +511,8 @@ def make_handler(secret: int, verifier: Verifier, log=sys.stderr):
     return Handler
 
 
-def serve(secret: int, verifier: Verifier, host: str, port: int) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), make_handler(secret, verifier))
+def serve(attester: Attester, host: str, port: int) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, port), make_handler(attester))
 
 
 # --------------------------------------------------------------------------- CLI
@@ -251,18 +524,38 @@ def read_outputs(args) -> list[int]:
     return parse_outputs(args.felts)
 
 
-def cmd_serve(args) -> int:
+def make_attester(args) -> Attester:
     secret = parse_key(args.key)
-    if args.no_verify == bool(args.verify_cmd):
-        sys.exit("serve: pass exactly one of --verify-cmd and --no-verify")
-    if args.no_verify:
-        print("attest: WARNING --no-verify: signing ANY outputs without a proof. Devnet only; "
-              "never expose this service.", file=sys.stderr)
+    modes = [bool(args.execute), bool(args.verify_cmd), bool(args.no_verify)]
+    if sum(modes) != 1:
+        sys.exit("serve: pass exactly one of --execute, --verify-cmd and --no-verify")
+    rpc_url = args.rpc or os.environ.get("STARKNET_RPC_URL")
+    rpc = (lambda method, params: rpc_call(rpc_url, method, params)) if rpc_url else None
+    chain = Chain(int(args.contract, 0), rpc,
+                  chain_id=parse_chain_id(args.chain_id) if args.chain_id else None,
+                  program_hash=int(args.program_hash, 0) if args.program_hash else None,
+                  epoch=args.epoch)
+    executor = None
+    if args.execute:
+        if not args.no_build:
+            import golden  # noqa: PLC0415
+            print("attest: building the replay (scarb build)", file=sys.stderr, flush=True)
+            golden.build()
+        executor = Executor()
     verifier = Verifier(args.verify_cmd, Path(args.proof_dir) if args.proof_dir else None, args.timeout)
-    server = serve(secret, verifier, args.host, args.port)
+    return Attester(secret, chain, executor, verifier, RateLimiter(args.rate, args.rate_window), args.ttl)
+
+
+def cmd_serve(args) -> int:
+    attester = make_attester(args)
+    if attester.mode == "none":
+        print("attest: WARNING --no-verify: signing ANY outputs without a replay or a proof. Devnet only; "
+              "never expose this service.", file=sys.stderr)
+    server = serve(attester, args.host, args.port)
     host, port = server.server_address[:2]
-    print(f"attest: public key {hex(vectors.pubkey(secret))}", file=sys.stderr)
-    print(f"attest: listening on http://{host}:{port} (verify: {args.verify_cmd or 'NONE'})", file=sys.stderr, flush=True)
+    print(f"attest: public key {attester.public_key}", file=sys.stderr)
+    print(f"attest: listening on http://{host}:{port} (mode {attester.mode}, contract {args.contract}, "
+          f"rate {args.rate} per {args.rate_window:.0f} s per player)", file=sys.stderr, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -273,7 +566,9 @@ def cmd_serve(args) -> int:
 
 
 def cmd_sign(args) -> int:
-    print(json.dumps(attest(parse_key(args.key), read_outputs(args)), indent=2))
+    body = attest(parse_key(args.key), parse_chain_id(args.chain_id), int(args.contract, 0), int(args.program_hash, 0),
+                  args.epoch, args.expiry, read_outputs(args))
+    print(json.dumps(body, indent=2))
     return 0
 
 
@@ -283,7 +578,17 @@ def cmd_pubkey(args) -> int:
 
 
 def cmd_request(args) -> int:
-    body: dict = {"outputs": [hex(v) for v in read_outputs(args)]}
+    body: dict = {}
+    if args.level:
+        if not args.inputs:
+            sys.exit("request: --level needs --inputs")
+        doc = json.loads(Path(args.inputs).read_text())
+        body["level"] = args.level
+        body["inputs"] = [hex(parse_felt(v)) for v in (doc["inputs"] if isinstance(doc, dict) else doc)]
+        if args.outputs or args.felts:
+            body["outputs"] = [hex(v) for v in read_outputs(args)]
+    else:
+        body["outputs"] = [hex(v) for v in read_outputs(args)]
     if args.proof_path:
         body["proof_path"] = args.proof_path
     if args.proof:
@@ -310,16 +615,31 @@ def main(argv: list[str]) -> int:
 
     p = sub.add_parser("serve", help="run the HTTP service")
     p.add_argument("--key", help=f"attestation secret (default: ${KEY_ENV})")
+    p.add_argument("--execute", action="store_true", help="re-execute the replay (scarb execute) and sign its outputs")
     p.add_argument("--verify-cmd", help="command verifying <proof> <outputs.json> (P1's tools/prove/verify.py)")
-    p.add_argument("--no-verify", action="store_true", help="sign without a proof (devnet only)")
+    p.add_argument("--no-verify", action="store_true", help="sign without a replay or a proof (devnet only)")
+    p.add_argument("--contract", required=True, help="the deployed Slingfall (part of the signed message)")
+    p.add_argument("--rpc", help="Starknet RPC (default $STARKNET_RPC_URL): chain id, epoch, program, block time")
+    p.add_argument("--chain-id", help="fixed chain id (SN_SEPOLIA or a felt) instead of starknet_chainId")
+    p.add_argument("--program-hash", help="the engine release this service runs (default: current_program())")
+    p.add_argument("--epoch", type=int, help="fixed attestation epoch instead of attestation_epoch()")
+    p.add_argument("--ttl", type=float, default=DEFAULT_TTL, help="seconds until an attestation expires")
+    p.add_argument("--rate", type=int, default=DEFAULT_RATE, help="requests per player per window (0: no limit)")
+    p.add_argument("--rate-window", type=float, default=DEFAULT_RATE_WINDOW, help="seconds")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8547)
     p.add_argument("--proof-dir", help="proof_path must be inside this directory")
     p.add_argument("--timeout", type=float, default=900.0, help="verify command timeout, seconds")
+    p.add_argument("--no-build", action="store_true", help="--execute: the replay is already built")
     p.set_defaults(run=cmd_serve)
 
     p = sub.add_parser("sign", help="sign outputs offline")
     p.add_argument("--key")
+    p.add_argument("--chain-id", required=True)
+    p.add_argument("--contract", required=True)
+    p.add_argument("--program-hash", required=True)
+    p.add_argument("--epoch", type=int, required=True)
+    p.add_argument("--expiry", type=int, required=True)
     outputs_args(p)
     p.set_defaults(run=cmd_sign)
 
@@ -329,6 +649,8 @@ def main(argv: list[str]) -> int:
 
     p = sub.add_parser("request", help="POST /attest to a running service")
     p.add_argument("--url", default="http://127.0.0.1:8547")
+    p.add_argument("--level", help="--execute service: the level (name or hash)")
+    p.add_argument("--inputs", help="--execute service: JSON file, the Inputs felts or {\"inputs\": [...]}")
     p.add_argument("--proof-path")
     p.add_argument("--proof", help="a proof file sent inline (base64)")
     p.add_argument("--timeout", type=float, default=960.0)
