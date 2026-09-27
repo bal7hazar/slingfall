@@ -5,6 +5,7 @@
 //   node deploy/slingfall.ts account [--with-key]                      (devnet: account #0)
 //   node deploy/slingfall.ts deploy --out FILE [--network NAME] [--verifier stub|satellite]
 //        [--attestation-key HEX] [--satellite HEX | --fake-satellite] [--child-hash HEX]
+//   node deploy/slingfall.ts set-config --config FILE --child-hash HEX
 //   node deploy/slingfall.ts submit --config FILE --outputs FILE --signature R,S [--expect-panic MSG]
 //   node deploy/slingfall.ts submit-settled --config FILE --outputs FILE --args FILE [--expect-panic MSG]
 //   node deploy/slingfall.ts fake-fact --config FILE [--fact HEX] [--keccak HEX]   (devnet)
@@ -25,6 +26,9 @@
 // each `LevelRegistered` hash) and writes the addresses, class hashes, level hashes, transaction
 // hashes and the gas of each transaction to `--out`.
 //
+// `set-config` re-pins `SatelliteVerifier`'s `child_program_hash` on an already-deployed `Slingfall`
+// (a rapier2d / `c1main` bump, docs/DESIGN.md D9): one `set_satellite_config` call, the other three
+// fields read back from `--config` (unchanged). Unlike `deploy`, it never declares or deploys.
 // `submit-settled` sends `submit_settled(outputs, args)`: `--args` is `c1main`'s argument, a JSON
 // array of felts (`tracec.py args`) or a prover-service job (`{"level_hash", "inputs"}`).
 // `fake-fact` registers facts on the devnet's `FakeSatellite`.
@@ -54,9 +58,9 @@ import type { Receipt } from '../client/src/chain/submission.ts';
 const root = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url));
 const ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_Slingfall';
 const FAKE_ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_FakeSatellite';
-// `docs/proving.md` "Fact formula": the pinned `c1main` (rapier2d alpha.3, local hash, proven by
-// E3b), Atlantic's bootloader, Integrity's SHARP bootloader, Herodotus's Satellite on Sepolia.
-const CHILD_PROGRAM_HASH = '0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99';
+// `docs/proving.md` "Program hash history": the pinned `c1main` (rapier2d alpha.5, local hash,
+// lot B3), Atlantic's bootloader, Integrity's SHARP bootloader, Herodotus's Satellite on Sepolia.
+const CHILD_PROGRAM_HASH = '0x3f961b5c5b590fbc720048672b0ddeda96aa52ab16b56365f6d1583c5ed27ec';
 const ATLANTIC_BOOTLOADER_HASH = '0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09';
 const SHARP_BOOTLOADER_HASH = '0x5ab580b04e3532b6b18f81cfa654a05e29dd8e2352d88df1e765a84072db07';
 const SATELLITE_SEPOLIA = '0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e';
@@ -243,6 +247,30 @@ async function cmdDeploy(): Promise<void> {
   log(`wrote ${out}`);
 }
 
+/** Re-pins `child_program_hash` on an already-deployed `Slingfall` (`--config`'s `address`); the
+ * other three `SatelliteConfig` fields are read back from `--config` and sent unchanged. */
+async function cmdSetConfig(): Promise<void> {
+  const config = readJson(need('config')) as {
+    address: string;
+    satellite: { atlantic_bootloader_hash: string; sharp_bootloader_hash: string; satellite_address: string };
+  };
+  const satelliteConfig = {
+    child_program_hash: feltHex(need('child-hash')),
+    atlantic_bootloader_hash: feltHex(config.satellite.atlantic_bootloader_hash),
+    sharp_bootloader_hash: feltHex(config.satellite.sharp_bootloader_hash),
+    satellite_address: feltHex(config.satellite.satellite_address),
+  };
+  const admin = await account();
+  const tx = await admin.execute({
+    contractAddress: config.address,
+    entrypoint: 'set_satellite_config',
+    calldata: Object.values(satelliteConfig),
+  });
+  const gas = receiptGas(await receipt(tx.transaction_hash));
+  log(gasLine(`set_satellite_config child_program_hash ${satelliteConfig.child_program_hash}`, gas));
+  console.log(JSON.stringify({ transaction_hash: tx.transaction_hash, satellite: satelliteConfig, gas }, null, 2));
+}
+
 /** `--args`: a JSON array of felts, or a prover-service job (`level_hash`, `inputs`). */
 function runArgs(path: string): string[] {
   const doc = readJson(path);
@@ -365,6 +393,8 @@ async function main(): Promise<void> {
     }
     case 'deploy':
       return cmdDeploy();
+    case 'set-config':
+      return cmdSetConfig();
     case 'submit':
       return cmdSubmit();
     case 'submit-settled':
@@ -385,7 +415,9 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      throw new Error('usage: node deploy/slingfall.ts class-hash | account | deploy | submit | submit-settled | fake-fact | translate | best | leaderboard (see the header)');
+      throw new Error(
+        'usage: node deploy/slingfall.ts class-hash | account | deploy | set-config | submit | submit-settled | fake-fact | translate | best | leaderboard (see the header)',
+      );
   }
 }
 

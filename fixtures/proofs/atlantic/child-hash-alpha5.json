@@ -1,0 +1,10 @@
+{
+  "note": "B3: c1main's program hash after the rapier2d alpha.5 bump (docs/proving.md \"Program hash history\"). No Atlantic query was submitted for this record: the hash alone is what the Sepolia admin re-pin (set_satellite_config) needs.",
+  "rapier2d_version": "0.1.0-alpha.5",
+  "data_felts": 582399,
+  "child_program_hash": "0x3f961b5c5b590fbc720048672b0ddeda96aa52ab16b56365f6d1583c5ed27ec",
+  "computed_from": "cairo1-run --append_return_values --cairo_pie_output on tools/atlantic/c1main's Sierra (pile10-reference args), then atlantic.py program-hash --pie",
+  "date": "2026-09-27",
+  "outputs_unchanged_check": "the PIE's Program Output equals fixtures/golden/pile10-reference.json's outputs bit for bit",
+  "regression_check": "atlantic.py fact-hash on fixtures/proofs/atlantic/pile10-reference-sepolia.json with the old child hash (0x674479c2...) still reproduces its recorded sharp_fact_hash and integrity_fact_hash"
+}

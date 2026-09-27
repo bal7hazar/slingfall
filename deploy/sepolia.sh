@@ -11,6 +11,11 @@
 #
 #   deploy/sepolia.sh deploy      declare + deploy Slingfall, set the verifier and the Satellite
 #                                 constants, register the six levels -> deploy/sepolia.json
+#   deploy/sepolia.sh set-config CHILD_HASH  re-pin `child_program_hash` on the already-deployed
+#                                 Slingfall (a rapier2d / c1main bump, lot B3): one
+#                                 set_satellite_config call, the other constants unchanged ->
+#                                 deploy/sepolia.json (satellite.child_program_hash, transactions,
+#                                 gas)
 #   deploy/sepolia.sh settle JOB  the first settled submit: prover-service job JOB (services/prove,
 #                                 its fact on the Satellite) -> submit_settled, best, leaderboard,
 #                                 all recorded in deploy/sepolia.json (the Poseidon path when the
@@ -94,9 +99,26 @@ translate() {
   python3 "$ROOT/services/prove/prove_service.py" translate "$job" --store "${PROVE_STORE:-$ROOT/services/prove/out}"
 }
 
+set_config() {
+  local child_hash="${1:?set-config CHILD_HASH: the new c1main program hash}"
+  cli set-config --config "$OUT" --child-hash "$child_hash" >"$RUN/set-config.json"
+  python3 - "$OUT" "$RUN/set-config.json" <<'EOF'
+import json, sys
+path, result_path = sys.argv[1], sys.argv[2]
+config = json.load(open(path))
+result = json.load(open(result_path))
+config["satellite"] = result["satellite"]
+config.setdefault("transactions", {})["set_satellite_config"] = result["transaction_hash"]
+config.setdefault("gas", {})["set_satellite_config"] = result["gas"]
+open(path, "w").write(json.dumps(config, indent=2) + "\n")
+print(f"sepolia: child_program_hash set to {result['satellite']['child_program_hash']} ({result['transaction_hash']})", file=sys.stderr)
+EOF
+}
+
 case "${1:-deploy}" in
   deploy) deploy ;;
+  set-config) set_config "${2:-}" ;;
   settle) settle "${2:-}" ;;
   translate) translate "${2:-}" ;;
-  *) sed -n '2,22p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,25p' "$0" >&2; exit 2 ;;
 esac
