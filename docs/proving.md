@@ -440,6 +440,11 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
 made against an earlier hash no longer settles once the contract is re-pinned: the fact commits to
 the exact program, so an old proof's `child_program_hash` no longer matches the pinned one.
 
+Contract v2 (lot V2, `docs/contract-v2.md`; not deployed yet) replaces the single pin with a set:
+`pin_program(hash, grace_s)` keeps the previous hash valid for `grace_s` seconds, `revoke_program(hash)`
+voids one at once, and `submit_settled(outputs, args, child_program_hash)` names the hash the proof was
+made with. A proof in flight across a re-pin therefore settles until the grace period ends (QA M7).
+
 | rapier2d | lot | `c1main` felts | `child_program_hash` | pinned on Sepolia |
 |---|---|---:|---|---|
 | alpha.2 | E3a | 454 101 | `0x128791df23988bef1c8aef3be7ce36ad68278d19878369e5fb7ed2515d5b053` | no (E3a: local / Atlantic round trip only, before the Sepolia deployment) |
@@ -480,6 +485,19 @@ everything); `PEDERSEN_0_0` is a code constant. Satellite addresses: Sepolia
    attested attempt that is the player's best record marks it settled, anything else is refused
    (`'submit: nullifier'`).
 
+**Contract v2** (lot V2, `docs/contract-v2.md`) changes steps 1, 2 and 5; the fact (steps 3-4) is
+unchanged:
+
+1. Calldata: `submit_settled(outputs, args, child_program_hash)`. `SatelliteConfig` keeps three fields
+   (`atlantic_bootloader_hash`, `sharp_bootloader_hash`, `satellite_address`); the program hash comes
+   with each call and must be valid now in the contract's program set (`'submit: program'`), then goes
+   into `atlantic_output` (a valid hash other than the proven one fails as `'submit: proof'`).
+2. Bind: no `outputs.player == caller` any more: the record is `claim.player`'s whoever sends the
+   transaction (a relay), since the fact binds the player. The attested `submit` keeps the check.
+5. Tiers: `best` / `leaderboard_provisional` rank either tier, `best_settled` / `leaderboard` settled
+   attempts only; `Best.program_hash` and `LevelValidated.program_hash` name the program. `submit` no
+   longer takes the run's argument as evidence (`verifier = Satellite` closes `submit`).
+
 Golden vectors: the two E3a runs (`crates/slingfall_contract/src/submit/fixtures.cairo`, from
 `fixtures/proofs/atlantic/*.json`): both facts of both runs are recomputed bit for bit
 (`test_atlantic_facts_are_the_e3a_facts`), and the deployed contract accepts them against a fake
@@ -512,6 +530,11 @@ gas (snforge probe of `level_data`), calldata ≈ 5k L2 gas per felt. The keccak
 rounds (5,504 bytes of output, then the 64-byte outer hash) plus the byte reversals of 172 words;
 it is over the 2x budget until the translated fact is available.
 
+Contract v2 (snforge L2 gas over setup, `docs/contract-v2.md` "Gas and size"): a first settled record
+costs 8.0M (translated) / 11.0M (keccak) against v1's 6.1M / 9.0M on the same probe, since it now writes
+`best` and `best_settled` and both leaderboards; the attested `submit` drops from 4.3M to 3.9M (the record
+packed in three slots).
+
 Sepolia (2026-09-26, `deploy/sepolia.json`, `fixtures/proofs/atlantic/pile10-reference-sepolia.json`):
 `Slingfall` `0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2` (class
 `0x46bff3841120701543560f801b66ad9f9eb35dd73484d2cf0422be533442e5f`), `verifier = Satellite`.
@@ -539,7 +562,10 @@ the account. The whole deployment (declare 22.9 STRK, deploy, configure, six lev
    min. `GET /status/<id>` answers Atlantic's stages and the Satellite's two reads: `settleable_poseidon`
    (translated fact, cheap), `settleable_keccak` (bridged fact only), `settleable` (either), and
    `translation` (E3c, below).
-4. The player sends `submit_settled(outputs, args)` from their wallet ("Settle (cheap)" when the
+4. (Contract v2: anyone may send `submit_settled(outputs, args, child_program_hash)`, e.g. the service
+   as a relay, and the attestation of step 1 is `[program_hash, expiry, r, s]` over
+   `verifier::attestation_message`; `docs/contract-v2.md`. The client and services still speak v1.)
+   The player sends `submit_settled(outputs, args)` from their wallet ("Settle (cheap)" when the
    Poseidon fact is on the Satellite, else "Settle"; the contract itself tries the Poseidon fact first
    and falls back to the keccak one); it recomputes and checks the fact (above). Nothing
    Atlantic-specific is signed by the player.
