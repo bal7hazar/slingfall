@@ -1,0 +1,199 @@
+{
+  "threeShots": {
+    "releases": [
+      2017,
+      4828,
+      7367
+    ],
+    "workerDoneMs": [
+      4761,
+      7260,
+      12900
+    ],
+    "rearmedMs": [
+      4827,
+      7366
+    ],
+    "rearmAfterWorkerMs": [
+      66,
+      106
+    ],
+    "panel": {
+      "t": 13010,
+      "afterWorkerMs": 111,
+      "hudTick": "349 / 349",
+      "atLastTick": true
+    },
+    "shotsAfterRelease": [
+      "2",
+      "1",
+      "0"
+    ],
+    "endPlayLabel": "Play",
+    "outputs": [
+      "level over: won, score 1200, shots 3, ticks 349",
+      "outputs (41 ms): 1 665152437458248918782700516100125303684128659111532285637007720420909061283 0 123610794124658 510406291678826524938452233806377133792837112531286447988231171613010478975 1200 1 3 349 183010022346899933071776856756948837532464554798634237383379517293200799468"
+    ]
+  },
+  "keyboard": {
+    "shownPull": "(-1022, -63)",
+    "released": [
+      "release: pull (-1022, -63)",
+      "shot 0: release, pull (-1022, -63)"
+    ],
+    "extraReleases": 0,
+    "releases": [
+      24581
+    ],
+    "workerDoneMs": [
+      35070
+    ],
+    "rearmedMs": [],
+    "rearmAfterWorkerMs": [],
+    "panel": {
+      "t": 35202,
+      "afterWorkerMs": 132,
+      "hudTick": "106 / 106",
+      "atLastTick": true
+    },
+    "shotsAfterRelease": [
+      "2"
+    ],
+    "endPlayLabel": "Play",
+    "outputs": [
+      "shot 0: first frame 232 ms, 106 ticks, 16.07M steps, 10.49 s, 7 chunks [5 20 20 20 15 15 16], wasm 673 MB; score 5300, tick 106",
+      "level over: won, score 5300, shots 1, ticks 106",
+      "outputs (1 ms): 1 665152437458248918782700516100125303684128659111532285637007720420909061283 0 123610794124658 3104405428551100089143721732084748166632272393221976342466730036243110579550 5300 1 1 106 2341185993727202373378951822704382969858012446751273714425223397452637976179"
+    ]
+  },
+  "portrait-390x844": {
+    "layout": {
+      "hint": {
+        "left": 287,
+        "top": 813,
+        "right": 382,
+        "bottom": 831,
+        "text": "Drag the pebble",
+        "lines": 1
+      },
+      "hud": {
+        "left": 14,
+        "top": 10,
+        "right": 226,
+        "bottom": 28
+      },
+      "chainInfo": {
+        "left": 14,
+        "top": 30,
+        "right": 376,
+        "bottom": 47
+      },
+      "controls": {
+        "left": 0,
+        "top": 800,
+        "right": 390,
+        "bottom": 844
+      },
+      "scrollWidth": 390,
+      "hudOverChain": false
+    },
+    "fullPullPx": 105.3,
+    "pxPerMetre": 13,
+    "pullUnitsPerPx": 9.72,
+    "anchor": {
+      "x": 116,
+      "y": 400
+    },
+    "touchPull": "(-1014, -61)",
+    "touchLog": [
+      "release: pull (-1014, -61)",
+      "shot 0: release, pull (-1014, -61)",
+      "shot 0: first frame 478 ms, 178 ticks, 36.56M steps, 26.39 s, 13 chunks [5 20 20 20 12 13 12 12 12 12 14 15 15], wasm 673 MB; score 5200, tick 178",
+      "level over: won, score 5200, shots 1, ticks 178"
+    ],
+    "panel": {
+      "folded": {
+        "top": 672,
+        "bottom": 792,
+        "height": 120,
+        "overlapsControls": false,
+        "scrolls": false
+      },
+      "opened": {
+        "top": 202,
+        "bottom": 792,
+        "height": 590,
+        "overlapsControls": false,
+        "scrolls": false
+      }
+    },
+    "ownerShot": [
+      "level over: won, score 5300, shots 1, ticks 106"
+    ]
+  },
+  "landscape-844x390": {
+    "layout": {
+      "hint": {
+        "left": 737,
+        "top": 359,
+        "right": 836,
+        "bottom": 377,
+        "text": "Drag the pebble",
+        "lines": 1
+      },
+      "hud": {
+        "left": 14,
+        "top": 10,
+        "right": 226,
+        "bottom": 28
+      },
+      "chainInfo": {
+        "left": 14,
+        "top": 30,
+        "right": 830,
+        "bottom": 47
+      },
+      "controls": {
+        "left": 0,
+        "top": 346,
+        "right": 844,
+        "bottom": 390
+      },
+      "scrollWidth": 844,
+      "hudOverChain": false
+    },
+    "fullPullPx": 105.3,
+    "pxPerMetre": 34.06,
+    "pullUnitsPerPx": 9.72,
+    "anchor": {
+      "x": 131,
+      "y": 154
+    },
+    "touchPull": "(-1014, -61)",
+    "touchLog": [
+      "release: pull (-1014, -61)",
+      "shot 0: release, pull (-1014, -61)",
+      "shot 0: first frame 439 ms, 178 ticks, 36.56M steps, 21.00 s, 13 chunks [5 20 20 20 12 13 12 12 12 12 14 15 15], wasm 673 MB; score 5200, tick 178",
+      "level over: won, score 5200, shots 1, ticks 178"
+    ],
+    "panel": {
+      "folded": {
+        "top": 237,
+        "bottom": 338,
+        "height": 101,
+        "overlapsControls": false,
+        "scrolls": false
+      },
+      "opened": {
+        "top": 68,
+        "bottom": 338,
+        "height": 270,
+        "overlapsControls": false,
+        "scrolls": true
+      }
+    },
+    "ownerShot": [
+      "level over: won, score 5300, shots 1, ticks 106"
+    ]
+  }
+}
