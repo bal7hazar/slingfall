@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampPull, pullFromDrag, pullToDrag } from './pull';
+import { FULL_PULL_SHARE, clampPull, fullPullPixels, nudgePull, pullFromDrag, pullToDrag, type Pull } from './pull';
 
 describe('clampPull', () => {
   // [px, py, radius, x, y]: computed by hand as s = ceil(sqrt(px² + py²)), then
@@ -50,5 +50,53 @@ describe('pullFromDrag', () => {
 
   it('round-trips through pullToDrag', () => {
     expect(pullToDrag({ x: 512, y: -256 }, 1024)).toEqual({ dx: 1.5, dy: -0.75 });
+  });
+});
+
+describe('screen-scaled drag', () => {
+  it('maps fullPullPixels of drag onto the full radius', () => {
+    const full = fullPullPixels(390, 800);
+    expect(full).toBeCloseTo(390 * FULL_PULL_SHARE);
+    expect(pullFromDrag(-full, 0, 1024, full)).toEqual({ x: -1024, y: 0 });
+    expect(pullToDrag({ x: -1024, y: 0 }, 1024, full).dx).toBeCloseTo(-full);
+  });
+});
+
+describe('nudgePull', () => {
+  /** The key presses of a player: Shift steps of 10, then single steps, x first, then y. */
+  const reach = (target: Pull, radius: number): Pull => {
+    let p: Pull = { x: 0, y: 0 };
+    for (const axis of ['x', 'y'] as const) {
+      while (Math.abs(target[axis] - p[axis]) >= 10) p = nudgePull(p, axis, 10 * Math.sign(target[axis] - p[axis]), radius);
+      while (p[axis] !== target[axis]) {
+        const next = nudgePull(p, axis, Math.sign(target[axis] - p[axis]), radius);
+        if (next[axis] === p[axis]) return p; // stuck: unreachable
+        p = next;
+      }
+    }
+    return p;
+  };
+
+  it('reaches every integer pull of the disk (a grid, its rim, and the owner\'s pile10 shot)', () => {
+    const R = 1024;
+    const targets: Pull[] = [{ x: -1022, y: -63 }, { x: -1024, y: 0 }, { x: 0, y: -1024 }, { x: 723, y: -724 }];
+    for (let x = -R; x <= R; x += 31) {
+      for (let y = -R; y <= R; y += 29) if (x * x + y * y <= R * R) targets.push({ x, y });
+      // The rim: the largest |y| inside for this x.
+      const rim = Math.floor(Math.sqrt(R * R - x * x));
+      targets.push({ x, y: rim }, { x, y: rim === 0 ? 0 : -rim });
+    }
+    for (const target of targets) {
+      expect(target.x ** 2 + target.y ** 2).toBeLessThanOrEqual(R * R);
+      expect(reach(target, R)).toEqual(target);
+    }
+  });
+
+  it('never leaves the disk and stops at its edge', () => {
+    expect(nudgePull({ x: 1020, y: 0 }, 'x', 10, 1024)).toEqual({ x: 1024, y: 0 });
+    expect(nudgePull({ x: 1024, y: 0 }, 'y', 1, 1024)).toEqual({ x: 1024, y: 0 });
+    expect(nudgePull({ x: -1022, y: -60 }, 'y', -10, 1024)).toEqual({ x: -1022, y: -63 });
+    expect(nudgePull({ x: 3, y: 4 }, 'x', -1, 5)).toEqual({ x: 2, y: 4 });
+    expect(() => nudgePull({ x: 0, y: 0 }, 'x', 0.5, 1024)).toThrow(RangeError);
   });
 });

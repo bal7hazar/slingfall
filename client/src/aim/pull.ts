@@ -39,20 +39,49 @@ export function clampPull(px: number, py: number, radius: number): Pull {
 }
 
 /**
- * Pull for a drag from the sling anchor to the pointer, in metres (world axes, y up). The pull
- * points along the drag; the launch velocity is opposite (`v = -pull · launch_scale`). The float
- * to integer rounding is the only inexact step, and it is the quantisation the player sees.
+ * Pull for a drag from the sling anchor to the pointer (y up), in any length unit: `full` of that
+ * unit maps onto the full pull radius (default `MAX_DRAG_METRES` metres; the page passes screen
+ * pixels, `fullPullPixels`). The pull points along the drag; the launch velocity is opposite
+ * (`v = -pull · launch_scale`). The float to integer rounding is the only inexact step, and it is
+ * the quantisation the player sees.
  */
-export function pullFromDrag(dx: number, dy: number, radius: number): Pull {
-  const perMetre = radius / MAX_DRAG_METRES;
+export function pullFromDrag(dx: number, dy: number, radius: number, full = MAX_DRAG_METRES): Pull {
+  const perUnit = radius / full;
   // Bound the components before the integer clamp, so that a wild pointer stays exact.
   const quantise = (v: number) =>
-    Number.isFinite(v) ? Math.max(-PULL_LIMIT, Math.min(PULL_LIMIT, Math.round(v * perMetre))) : 0;
+    Number.isFinite(v) ? Math.max(-PULL_LIMIT, Math.min(PULL_LIMIT, Math.round(v * perUnit))) : 0;
   return clampPull(quantise(dx), quantise(dy), radius);
 }
 
-/** Inverse of the drag scale: where the pebble sits, in metres from the anchor, for a pull. */
-export function pullToDrag(pull: Pull, radius: number): { dx: number; dy: number } {
-  const perMetre = radius / MAX_DRAG_METRES;
-  return perMetre === 0 ? { dx: 0, dy: 0 } : { dx: pull.x / perMetre, dy: pull.y / perMetre };
+/** Inverse of the drag scale: where the pebble sits, in `full`'s unit from the anchor, for a pull. */
+export function pullToDrag(pull: Pull, radius: number, full = MAX_DRAG_METRES): { dx: number; dy: number } {
+  const perUnit = radius / full;
+  return perUnit === 0 ? { dx: 0, dy: 0 } : { dx: pull.x / perUnit, dy: pull.y / perUnit };
+}
+
+/** Share of the screen's short side a full pull drags: the drag scale does not depend on the zoom. */
+export const FULL_PULL_SHARE = 0.27;
+
+/** Drag length, in pixels, of a full pull on a `width` x `height` play area. */
+export function fullPullPixels(width: number, height: number): number {
+  return Math.max(1, FULL_PULL_SHARE * Math.min(width, height));
+}
+
+/**
+ * Fine aiming: moves one component of the pull by `step` integer units, staying inside the disk
+ * of radius `radius` (a step that would leave it stops at the last integer inside). Every integer
+ * pull of the disk is reachable from (0, 0): along x first, then along y, every point on the way
+ * is inside the disk.
+ */
+export function nudgePull(pull: Pull, axis: 'x' | 'y', step: number, radius: number): Pull {
+  if (!Number.isInteger(step)) throw new RangeError(`nudge ${step} must be an integer`);
+  const other = axis === 'x' ? pull.y : pull.x;
+  const room = radius * radius - other * other;
+  if (room < 0) return pull;
+  // The largest |v| with v² <= room, in integers.
+  let limit = Math.floor(Math.sqrt(room));
+  while (limit * limit > room) limit--;
+  while ((limit + 1) * (limit + 1) <= room) limit++;
+  const value = Math.max(-limit, Math.min(limit, pull[axis] + step)) + 0; // + 0: no -0
+  return axis === 'x' ? { x: value, y: pull.y } : { x: pull.x, y: value };
 }

@@ -13,14 +13,28 @@ canvas {
   touch-action: none;
 }
 
-.hud {
+/* HUD on the left, chain strip on the right; stacked on narrow screens (below). */
+.top {
   position: fixed;
   top: 10px;
   left: 14px;
+  right: 14px;
   display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 18px;
   pointer-events: none;
+}
+
+.hud {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 18px;
   font-variant-numeric: tabular-nums;
+}
+
+.hud span {
+  white-space: nowrap;
 }
 
 .controls {
@@ -44,10 +58,15 @@ canvas {
 
 .controls input[type='range'] {
   flex: 1;
+  min-width: 60px;
 }
 
 .hint {
   opacity: 0.6;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .simulating {
@@ -87,9 +106,22 @@ canvas {
   border-radius: 6px;
 }
 
+.result-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .result h2 {
   margin: 0 0 4px;
   font-size: 18px;
+}
+
+/* Folded: the title, the summary and the buttons; the outputs and the Submit step hidden. */
+.result.folded table,
+.result.folded .submit {
+  display: none;
 }
 
 .result p {
@@ -162,10 +194,8 @@ canvas {
 }
 
 .chain-info {
-  position: fixed;
-  top: 10px;
-  right: 14px;
   max-width: 46vw;
+  pointer-events: auto;
   text-align: right;
   font: 12px/1.5 ui-monospace, monospace;
   opacity: 0.85;
@@ -174,4 +204,58 @@ canvas {
 .chain-info a,
 .submit a {
   color: #9fd8e8;
+}
+
+/* Phones, portrait or landscape (main.ts NARROW has the same query): the chain strip under the
+   HUD, a compact controls bar, the result panel above the controls instead of over the scene. */
+@media (max-width: 600px), (max-height: 500px) {
+  body {
+    font-size: 13px;
+  }
+
+  .top {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .hud {
+    column-gap: 12px;
+  }
+
+  .chain-info {
+    max-width: none;
+    text-align: left;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-self: stretch;
+  }
+
+  .controls {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .controls button {
+    width: auto;
+    padding: 4px 8px;
+  }
+
+  .controls select {
+    max-width: 88px;
+  }
+
+  .banner {
+    top: auto;
+    bottom: 52px;
+  }
+
+  .result {
+    top: auto;
+    bottom: 52px;
+    right: 8px;
+    width: min(560px, calc(100% - 16px));
+    max-height: calc(100% - 120px);
+  }
 }

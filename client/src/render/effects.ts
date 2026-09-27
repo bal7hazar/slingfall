@@ -10,7 +10,8 @@ const FADE_LOOKBACK = 8;
 
 /**
  * Damage flashes and destroyed fade-outs, from the events as the playback head passes their
- * tick. Per-slot typed arrays; they grow only when the buffer gains a slot (a new pebble), so a
+ * tick. A pebble is spent at its shot's `shot_end` (D5 removes it there, but the shot's last
+ * frame still carries it): from that frame on it fades out like a destroyed body. Per-slot typed arrays; they grow only when the buffer gains a slot (a new pebble), so a
  * steady frame allocates nothing. Seeking backwards clears the effects.
  */
 export class Effects {
@@ -19,6 +20,8 @@ export class Effects {
   private flashAt = new Float64Array(0);
   private fadeAt = new Float64Array(0);
   private fadeFrame = new Int32Array(0);
+  /** Frame from which a pebble slot is spent (-1: not spent). A property of the frames, never cleared. */
+  private spentFrame = new Int32Array(0);
   private cursor = 0;
   private tick = -1;
 
@@ -35,11 +38,15 @@ export class Effects {
       this.flashAt.fill(-Infinity);
       this.fadeAt.fill(-Infinity);
       // Events already passed start no effect after a seek back.
-      while (this.cursor < this.events.length && this.events[this.cursor].tick <= tick) this.cursor++;
+      while (this.cursor < this.events.length && this.events[this.cursor].tick <= tick) {
+        const event = this.events[this.cursor++];
+        if (event.kind === 'shot_end') this.spendPebbles(event.tick, -Infinity);
+      }
     }
     this.tick = tick;
     while (this.cursor < this.events.length && this.events[this.cursor].tick <= tick) {
       const event = this.events[this.cursor++];
+      if (event.kind === 'shot_end') this.spendPebbles(event.tick, now);
       if (event.kind !== 'damage' && event.kind !== 'destroyed') continue;
       const slot = this.buffer.slotOfHandle.get(event.handle);
       if (slot === undefined) continue;
@@ -64,9 +71,26 @@ export class Effects {
     return t >= 0 && t < 1 ? 1 - t : 0;
   }
 
+  /** Whether a pebble slot is spent (its shot ended) at frame index `frame`. */
+  spent(slot: number, frame: number): boolean {
+    return slot < this.spentFrame.length && this.spentFrame[slot] >= 0 && frame >= this.spentFrame[slot];
+  }
+
   /** The frame whose pose a fading slot is drawn at. */
   fadePose(slot: number): number {
     return this.fadeFrame[slot];
+  }
+
+  /** The pebbles present at the frame of a `shot_end` at `tick` are spent there; they fade from `now`. */
+  private spendPebbles(tick: number, now: number): void {
+    const frame = this.buffer.frameAtTick(tick);
+    if (frame < 0) return;
+    for (let slot = this.buffer.levelSlotCount; slot < this.buffer.slotCount; slot++) {
+      if (this.buffer.columns[slot].state[frame] === ABSENT) continue;
+      if (this.spentFrame[slot] < 0 || frame < this.spentFrame[slot]) this.spentFrame[slot] = frame;
+      this.fadeAt[slot] = now;
+      this.fadeFrame[slot] = frame;
+    }
   }
 
   private lastPresent(slot: number, frame: number): number {
@@ -89,5 +113,6 @@ export class Effects {
     this.flashAt = grow(this.flashAt, -Infinity, (k) => new Float64Array(k));
     this.fadeAt = grow(this.fadeAt, -Infinity, (k) => new Float64Array(k));
     this.fadeFrame = grow(this.fadeFrame, -1, (k) => new Int32Array(k));
+    this.spentFrame = grow(this.spentFrame, -1, (k) => new Int32Array(k));
   }
 }

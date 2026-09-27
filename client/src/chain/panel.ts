@@ -7,10 +7,11 @@
 import type { RpcProvider } from 'starknet';
 import { requestAttestation } from './attest.ts';
 import { explorerLink, type ChainConfig } from './config.ts';
-import { describeJob, requestProof, settleLabel, waitCheap, waitSettleable } from './prove.ts';
+import { ProgramMismatchError, describeJob, fetchHealth, requestProof, settleLabel, waitCheap, waitSettleable } from './prove.ts';
 import {
   SlingfallContract,
   VERIFIER,
+  explainWalletError,
   levelValidatedEvents,
   playerValidations,
   receiptGas,
@@ -32,6 +33,8 @@ export class SubmitPanel {
   private readonly proof = make('input', { type: 'text', placeholder: 'proof path (optional; the attest service verifies it)', ariaLabel: 'Proof path' });
   private readonly send = make('button', { type: 'button', textContent: 'Submit', disabled: true });
   private readonly status = make('p', { className: 'submit-status' });
+  /** m11: the outputs this attempt will actually carry, recomputed for the connected account. */
+  private readonly outputsInfo = make('p', { className: 'submit-outputs' });
   private readonly tier = make('p', { className: 'submit-tier' });
   private readonly settle = make('button', { type: 'button', textContent: 'Settle', hidden: true });
   private readonly board = make('ol', { className: 'submit-board' });
@@ -49,6 +52,9 @@ export class SubmitPanel {
   /** Bumped by `offer` / `hide`: a stale poll stops updating the panel. */
   private round = 0;
   private busy = false;
+  /** M6: the prover service's program does not match the contract's; Prove refuses anyway, but the
+   * button is disabled and the reason shown up front instead of after a wasted click. */
+  private proveBlocked = false;
 
   constructor(parent: HTMLElement, config: ChainConfig) {
     this.config = config;
@@ -57,7 +63,18 @@ export class SubmitPanel {
     for (const kind of walletKinds(config)) this.wallet.add(new Option(WALLET_LABELS[kind], kind));
     const row = make('div', { className: 'submit-row' });
     row.append(this.wallet, this.connect);
-    this.root.append(make('h3', { textContent: 'Submit on Starknet' }), row, this.proof, this.send, this.status, this.tier, this.settle, this.board, this.links);
+    this.root.append(
+      make('h3', { textContent: 'Submit on Starknet' }),
+      row,
+      this.proof,
+      this.send,
+      this.status,
+      this.outputsInfo,
+      this.tier,
+      this.settle,
+      this.board,
+      this.links,
+    );
     this.showContractLink();
     void this.contract.verifier().then(
       (kind) => {
@@ -66,6 +83,7 @@ export class SubmitPanel {
       },
       () => {}, // an unreachable RPC shows at the first read of the flow
     );
+    if (config.proveUrl) void this.checkProveHealth();
     this.root.hidden = true;
     parent.append(this.root);
     this.connect.addEventListener('click', () => void this.doConnect());
@@ -81,6 +99,26 @@ export class SubmitPanel {
   private labelSend(): void {
     this.send.textContent = this.settledOnly ? 'Prove (settled)' : 'Submit';
     this.proof.hidden = this.settledOnly;
+  }
+
+  /** M6: reads the prover service's `/health` up front so a re-pinned contract blocks Prove with a
+   * clear sentence before the player wastes a click (and an hour of Atlantic) on it. Best-effort:
+   * an unreachable service here changes nothing, `POST /prove` itself still refuses a real mismatch. */
+  private async checkProveHealth(): Promise<void> {
+    const url = this.config.proveUrl;
+    if (!url) return;
+    try {
+      const health = await fetchHealth(url);
+      if (health.programMatch === false) {
+        this.proveBlocked = true;
+        this.tier.textContent =
+          `Prove blocked: this prover service proves program ${health.programHash}, but the contract now accepts ` +
+          `${health.contractProgramHash} (re-pinned). Ask the operator to update the prover service.`;
+        this.refresh();
+      }
+    } catch {
+      // unreachable or old service: no proactive warning, POST /prove is still checked (M6).
+    }
   }
 
   /** A link element, or plain text without an explorer. */
@@ -100,13 +138,27 @@ export class SubmitPanel {
     this.links.replaceChildren(...parts);
   }
 
-  /** The player's `LevelValidated` transactions from the RPC's event index; silent when the node refuses. */
+  /** The player's `LevelValidated` transactions from the RPC's event index (m10: paged from the
+   * contract's deployment block, one retry); a visible "unavailable, retry" state when it still fails. */
   private async showValidations(player: string): Promise<void> {
     try {
-      this.showContractLink(await playerValidations(this.rpc, this.config.address, player));
+      this.showContractLink(await playerValidations(this.rpc, this.config.address, player, { fromBlock: this.config.deployBlock }));
     } catch (e) {
       console.warn('LevelValidated events unavailable', e);
+      this.showValidationsUnavailable(player);
     }
+  }
+
+  private showValidationsUnavailable(player: string): void {
+    const retry = make('button', { type: 'button', textContent: 'Retry' });
+    retry.addEventListener('click', () => void this.showValidations(player));
+    this.links.replaceChildren(
+      document.createTextNode('Contract '),
+      this.link(short(this.config.address), explorerLink(this.config, 'contract', this.config.address)),
+      document.createTextNode(' · your LevelValidated: unavailable ('),
+      retry,
+      document.createTextNode(')'),
+    );
   }
 
   /**
@@ -119,9 +171,11 @@ export class SubmitPanel {
     this.inputsFor = inputsFor ?? null;
     this.pending = null;
     this.tier.textContent = '';
+    this.outputsInfo.textContent = '';
     this.settle.hidden = true;
     this.board.replaceChildren();
     this.say(this.account ? `Connected ${short(this.account.address)}` : 'Connect a wallet to submit this attempt');
+    if (this.account) void this.showOutputsFor(this.account.address);
     this.refresh();
     this.root.hidden = false;
   }
@@ -130,11 +184,28 @@ export class SubmitPanel {
     this.round += 1;
     this.outputsFor = null;
     this.pending = null;
+    this.outputsInfo.textContent = '';
     this.root.hidden = true;
   }
 
+  /** m11: the outputs a proof will actually carry, recomputed for the connected account (the
+   * default player's outputs, shown elsewhere before Connect, are not what gets submitted). */
+  private async showOutputsFor(player: string): Promise<void> {
+    const outputsFor = this.outputsFor;
+    if (outputsFor === null) return;
+    const round = this.round;
+    try {
+      const outputs = await outputsFor(player);
+      if (round !== this.round) return;
+      this.outputsInfo.textContent = `Outputs for ${short(player)}: inputs_hash ${short(outputs[4])}, final_state_hash ${short(outputs[9])}`;
+    } catch (e) {
+      if (round !== this.round) return;
+      this.outputsInfo.textContent = `Outputs for ${short(player)}: failed to recompute (${e instanceof Error ? e.message : e})`;
+    }
+  }
+
   private refresh(): void {
-    this.send.disabled = this.busy || this.account === null || this.outputsFor === null;
+    this.send.disabled = this.busy || this.account === null || this.outputsFor === null || (this.settledOnly && this.proveBlocked);
     this.settle.disabled = this.busy || this.account === null || this.pending === null;
     this.connect.disabled = this.busy;
   }
@@ -150,8 +221,9 @@ export class SubmitPanel {
       this.account = await connectWallet(this.wallet.value as WalletKind, this.config, this.rpc);
       this.say(`Connected ${short(this.account.address)}`);
       void this.showValidations(this.account.address);
+      void this.showOutputsFor(this.account.address); // m11: the table above still shows the default player's
     } catch (e) {
-      this.say(`Wallet: ${e instanceof Error ? e.message : e}`);
+      this.say(`Wallet: ${explainWalletError(e)}`);
     }
     this.busy = false;
     this.refresh();
@@ -201,7 +273,7 @@ export class SubmitPanel {
       }
     } catch (e) {
       console.error(e);
-      this.say(`Submit failed: ${e instanceof Error ? e.message : e}`);
+      this.say(`Submit failed: ${explainWalletError(e)}`);
     }
     this.busy = false;
     this.refresh();
@@ -211,6 +283,10 @@ export class SubmitPanel {
   private async doProve(account: ChainWriter, outputsFor: (player: string) => Promise<string[]>): Promise<void> {
     if (!this.config.proveUrl) {
       this.say('This deployment accepts settled proofs only: run a prover service and set VITE_PROVE_URL (docs/testers.md)');
+      return;
+    }
+    if (this.proveBlocked) {
+      this.say('Prove blocked: this prover service proves a program the contract no longer accepts (see above); ask the operator to update it.');
       return;
     }
     this.busy = true;
@@ -224,7 +300,7 @@ export class SubmitPanel {
       void this.proveAndOffer(outputs[1], outputs, inputs);
     } catch (e) {
       console.error(e);
-      this.say(`Prove failed: ${e instanceof Error ? e.message : e}`);
+      this.say(`Prove failed: ${explainWalletError(e)}`);
     }
     this.busy = false;
     this.refresh();
@@ -249,6 +325,7 @@ export class SubmitPanel {
     };
     try {
       const job = await requestProof(url, levelHash, inputs);
+      this.say(''); // m14: the tier line carries the status from here; stop duplicating it below
       show(describeJob(job));
       const ready = await waitSettleable(url, job.id, (j) => show(describeJob(j)));
       if (round !== this.round) return;
@@ -271,7 +348,12 @@ export class SubmitPanel {
         if (upgrade && !stale()) this.settle.textContent = settleLabel(upgrade);
       }
     } catch (e) {
-      show(e instanceof Error ? e.message : String(e));
+      this.say('');
+      if (e instanceof ProgramMismatchError) {
+        this.proveBlocked = true;
+        this.refresh();
+      }
+      show(e instanceof ProgramMismatchError ? e.message : explainWalletError(e));
     }
   }
 
@@ -297,7 +379,8 @@ export class SubmitPanel {
       this.showBoard(await this.contract.leaderboard(validated.levelHash), account.address);
     } catch (e) {
       console.error(e);
-      this.tier.textContent = `Settle failed: ${e instanceof Error ? e.message : e}`;
+      // m14: replaces the stale "ready to settle" line with the failure, in plain words.
+      this.tier.textContent = `Settle failed: ${explainWalletError(e)}`;
     }
     this.busy = false;
     this.refresh();

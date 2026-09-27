@@ -11,11 +11,14 @@
 #
 #   deploy/sepolia.sh deploy      declare + deploy Slingfall, set the verifier and the Satellite
 #                                 constants, register the six levels -> deploy/sepolia.json
-#   deploy/sepolia.sh set-config CHILD_HASH  re-pin `child_program_hash` on the already-deployed
-#                                 Slingfall (a rapier2d / c1main bump, lot B3): one
+#   deploy/sepolia.sh set-config CHILD_HASH [--yes]  re-pin `child_program_hash` on the
+#                                 already-deployed Slingfall (a rapier2d / c1main bump, lot B3): one
 #                                 set_satellite_config call, the other constants unchanged ->
 #                                 deploy/sepolia.json (satellite.child_program_hash, transactions,
-#                                 gas)
+#                                 gas). Warns and refuses (M7) when services/prove/out holds jobs
+#                                 that are not yet known to be settled, since a re-pin can strand
+#                                 their proofs (docs/proving.md "Program hash history"); --yes skips
+#                                 the warning.
 #   deploy/sepolia.sh settle JOB  the first settled submit: prover-service job JOB (services/prove,
 #                                 its fact on the Satellite) -> submit_settled, best, leaderboard,
 #                                 all recorded in deploy/sepolia.json (the Poseidon path when the
@@ -101,6 +104,27 @@ translate() {
 
 set_config() {
   local child_hash="${1:?set-config CHILD_HASH: the new c1main program hash}"
+  local yes="${2:-}"
+  local store="${PROVE_STORE:-$ROOT/services/prove/out}"
+  python3 - "$store" "$yes" <<'EOF'
+import json, sys
+from pathlib import Path
+store, yes = Path(sys.argv[1]), sys.argv[2] == "--yes"
+unsettled = []
+for path in sorted(store.glob("*/job.json")):
+    job = json.loads(path.read_text())
+    if job.get("state") in ("queued", "running", "built", "submitted"):
+        unsettled.append(job)
+if unsettled:
+    print(f"sepolia: WARNING: {len(unsettled)} job(s) under {store} are not known to be settled yet; "
+          f"re-pinning child_program_hash invalidates every proof made against the current one "
+          f"(docs/proving.md \"Program hash history\"):", file=sys.stderr)
+    for job in unsettled:
+        print(f"  - {job['id']} ({job.get('level')}, state {job['state']})", file=sys.stderr)
+    if not yes:
+        print("sepolia: pass --yes to set-config to continue anyway", file=sys.stderr)
+        sys.exit(1)
+EOF
   cli set-config --config "$OUT" --child-hash "$child_hash" >"$RUN/set-config.json"
   python3 - "$OUT" "$RUN/set-config.json" <<'EOF'
 import json, sys
@@ -117,8 +141,8 @@ EOF
 
 case "${1:-deploy}" in
   deploy) deploy ;;
-  set-config) set_config "${2:-}" ;;
+  set-config) set_config "${2:-}" "${3:-}" ;;
   settle) settle "${2:-}" ;;
   translate) translate "${2:-}" ;;
-  *) sed -n '2,25p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,29p' "$0" >&2; exit 2 ;;
 esac
