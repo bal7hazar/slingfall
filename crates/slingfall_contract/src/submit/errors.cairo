@@ -27,6 +27,21 @@ pub const SUBMIT_PLAYER: felt252 = 'submit: player';
 pub const SUBMIT_NULLIFIER: felt252 = 'submit: nullifier';
 /// `submit`: the active verifier rejected the evidence.
 pub const SUBMIT_PROOF: felt252 = 'submit: proof';
+/// `submit` / `submit_settled`: the program hash is not valid now (never pinned, past its grace
+/// period, or revoked).
+pub const SUBMIT_PROGRAM: felt252 = 'submit: program';
+
+/// `expire`: the player's record on the level is not a provisional one above their settled best.
+pub const EXPIRE_NONE: felt252 = 'expire: none';
+/// `expire`: the provisional record is younger than `expire_delay`.
+pub const EXPIRE_EARLY: felt252 = 'expire: early';
+
+/// `pin_program` with the zero hash.
+pub const PROGRAM_ZERO: felt252 = 'program: zero';
+/// `upgrade` with the zero class hash.
+pub const UPGRADE_ZERO: felt252 = 'upgrade: zero';
+/// `accept_admin` by someone other than the pending admin (or with none pending).
+pub const ADMIN_PENDING: felt252 = 'admin: pending';
 
 /// An admin entry point called by someone other than the admin.
 pub const ADMIN_CALLER: felt252 = 'admin: caller';

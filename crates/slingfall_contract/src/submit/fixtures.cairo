@@ -28,7 +28,21 @@ pub const MESSAGE_FROM: felt252 = 0x5afe;
 pub const GOLDEN_MESSAGE_HASH: felt252 =
     0x743c2d89f0290e5c22ae2ce6d52430d15361a740d330187e43f4bfe65eaea2f;
 
-/// The golden claim: `[1, PILE10_HASH, 0, PLAYER, 0xabc, 1650, 1, 2, 431, 0x33]`.
+/// The v2 attestation vector: chain, contract (`MESSAGE_FROM`), program (`E3A_CHILD_PROGRAM_HASH`),
+/// epoch and expiry of `GOLDEN_ATTEST_MESSAGE` over the golden claim.
+pub const ATTEST_CHAIN_ID: felt252 = 'SN_SEPOLIA';
+pub const ATTEST_EPOCH: u64 = 1;
+pub const ATTEST_EXPIRY: u64 = 1_000_000;
+/// `verifier::attestation_message` of the vector.
+pub const GOLDEN_ATTEST_MESSAGE: felt252 =
+    0x4a9843db8b0d686346c9f360dbe089f517fd6b4bbec0808115034abeb7c830;
+/// ECDSA signature `(r, s)` of `GOLDEN_ATTEST_MESSAGE` by `SECRET`.
+pub const GOLDEN_ATTEST_R: felt252 =
+    0x5cc3d18eb8a3a49380befc66f5b49d65f7b860b0afa7dc8c8cdab95fbfe58c9;
+pub const GOLDEN_ATTEST_S: felt252 =
+    0x27606a6561345390352e49714bb7ea39fa7141c85987f3200ff07a484e540b2;
+
+/// The golden claim:`[1, PILE10_HASH, 0, PLAYER, 0xabc, 1650, 1, 2, 431, 0x33]`.
 pub fn golden_claim() -> Outputs {
     Outputs {
         version: 1,

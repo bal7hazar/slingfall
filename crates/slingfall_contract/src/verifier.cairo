@@ -1,8 +1,10 @@
-//! `Verifier` interface over the evidence of a claimed `Outputs` (`docs/DESIGN.md` D9), with three
+//! `Verifier` interface over the evidence of a claimed `Outputs` (`docs/DESIGN.md` D9), with four
 //! implementations: `Snip36Verifier` (the SNIP-36 `proof_facts` of the transaction),
-//! `StubVerifier` (an admin-signed attestation, the interim path of research 01 §4 rank 2) and
-//! `SatelliteVerifier` (the Atlantic fact of the run, registered on Herodotus's Satellite:
-//! `docs/proving.md` "Atlantic + Integrity").
+//! `AttestationVerifier` (contract v2: an attestation bound to the chain, the contract, the
+//! program, the key epoch and an expiry; `docs/contract-v2.md`), `StubVerifier` (the v1 attestation
+//! over the outputs alone, kept for `slingfall_sizes`' fixtures) and `SatelliteVerifier` (the
+//! Atlantic fact of the run, registered on Herodotus's Satellite: `docs/proving.md` "Atlantic +
+//! Integrity").
 
 use core::ecdsa::check_ecdsa_signature;
 use core::integer::u128_byte_reverse;
@@ -18,16 +20,18 @@ use crate::simulate::MARKER;
 /// the facts that follow it.
 pub const PROGRAM_HASH_INDEX: usize = 0;
 
-/// The verifier `submit` runs, switched by the admin.
+/// The verifier `submit` (the provisional tier) runs, switched by the admin; `submit_settled` is
+/// always available beside it.
 #[derive(Copy, Drop, Serde, PartialEq, Debug, starknet::Store)]
 pub enum VerifierKind {
     /// `Snip36Verifier`: in-protocol proof facts (the target, `docs/DESIGN.md` D9).
     #[default]
     Snip36,
-    /// `StubVerifier`: an attestation signed by the admin's key.
+    /// `AttestationVerifier` in `Slingfall` (`StubVerifier` in `slingfall_sizes`): an attestation
+    /// signed by the admin's key. The v2 constructor's choice.
     Stub,
-    /// `SatelliteVerifier`: the Atlantic fact on the Satellite; `evidence` is the run's argument
-    /// (`[len(level), level..., len(inputs), inputs...]`) and the record is settled.
+    /// `Slingfall` v2: `submit` refuses everything (the provisional tier is closed, e.g. after a
+    /// key compromise); the settled tier is `submit_settled`.
     Satellite,
 }
 
@@ -38,11 +42,10 @@ pub const PEDERSEN_0_0: felt252 = 0x49ee3eba8c1600700ee1b87eb599f16716b0b1022947
 pub const NOT_MOCKED: bool = false;
 
 /// The constants of the fact chain, admin-settable (`set_satellite_config`); any zero field
-/// rejects everything.
+/// rejects everything. `c1main`'s program hash is not one of them (contract v2): it comes with each
+/// `submit_settled` and must be in the contract's program set (`pin_program`).
 #[derive(Copy, Drop, Serde, PartialEq, Debug, starknet::Store)]
 pub struct SatelliteConfig {
-    /// The bootloader's (Pedersen) hash of `c1main`, pinned per release of the proven program.
-    pub child_program_hash: felt252,
     /// Atlantic's bootloader program hash (`metadata.json` `program_hash`).
     pub atlantic_bootloader_hash: felt252,
     /// Integrity's `SHARP_BOOTLOADER_PROGRAM_HASH` (the outer program of the translated fact).
@@ -73,18 +76,21 @@ pub trait ISatellite<TState> {
 #[derive(Drop)]
 pub struct SatelliteVerifier {
     pub config: SatelliteConfig,
+    /// The bootloader's (Pedersen) hash of `c1main` the run was proven with; `0` rejects
+    /// everything. Whether it is accepted (the program set) is the contract's check.
+    pub child_program_hash: felt252,
 }
 
 impl SatelliteVerifierImpl of Verifier<SatelliteVerifier> {
     fn check(ref self: SatelliteVerifier, claim: Outputs, evidence: Span<felt252>) -> bool {
         let config = self.config;
-        if config.child_program_hash == 0
+        if self.child_program_hash == 0
             || config.atlantic_bootloader_hash == 0
             || config.sharp_bootloader_hash == 0
             || config.satellite_address.is_zero() {
             return false;
         }
-        let out = atlantic_output(config.child_program_hash, claim, evidence);
+        let out = atlantic_output(self.child_program_hash, claim, evidence);
         let satellite = ISatelliteDispatcher { contract_address: config.satellite_address };
         let fact = integrity_fact(
             config.sharp_bootloader_hash, config.atlantic_bootloader_hash, out.span(),
@@ -189,8 +195,9 @@ impl Snip36VerifierImpl of Verifier<Snip36Verifier> {
     }
 }
 
-/// Interim verifier: `evidence = [r, s]`, a Stark-curve ECDSA signature by `public_key` of
-/// `attestation_hash(outputs felts)`.
+/// The v1 attestation: `evidence = [r, s]`, a Stark-curve ECDSA signature by `public_key` of
+/// `attestation_hash(outputs felts)`, with no domain. Replaced in `Slingfall` by
+/// `AttestationVerifier`; kept for `slingfall_sizes`' fixtures.
 #[derive(Drop)]
 pub struct StubVerifier {
     /// The admin's attestation public key; `0` (unset) rejects everything.
@@ -205,6 +212,64 @@ impl StubVerifierImpl of Verifier<StubVerifier> {
         let hash = attestation_hash(claim.to_felts().span());
         check_ecdsa_signature(hash, self.public_key, *evidence[0], *evidence[1])
     }
+}
+
+/// Domain of the v2 attestations (the first felt of `attestation_message`).
+pub const ATTEST_DOMAIN: felt252 = 'SLINGFALL_ATTEST';
+
+/// Contract v2's attestation: `evidence = [program_hash, expiry, r, s]`, a Stark-curve ECDSA
+/// signature by `public_key` of `attestation_message(chain_id, contract, program_hash, epoch,
+/// expiry, outputs felts)`, valid while `now < expiry`. A signature cannot be replayed on another
+/// chain or deployment, after a key rotation (the epoch) or once expired; the program hash is
+/// signed as given, and whether it is accepted (the program set) is the contract's check.
+#[derive(Copy, Drop)]
+pub struct AttestationVerifier {
+    /// The admin's attestation public key; `0` (unset) rejects everything.
+    pub public_key: felt252,
+    /// `tx_info.chain_id`.
+    pub chain_id: felt252,
+    /// This contract's address.
+    pub contract: felt252,
+    /// The key's epoch (bumped by every `set_attestation_key`).
+    pub epoch: u64,
+    /// The block timestamp.
+    pub now: u64,
+}
+
+impl AttestationVerifierImpl of Verifier<AttestationVerifier> {
+    fn check(ref self: AttestationVerifier, claim: Outputs, evidence: Span<felt252>) -> bool {
+        if self.public_key == 0 || evidence.len() != 4 {
+            return false;
+        }
+        let expiry: Option<u64> = (*evidence[1]).try_into();
+        let Some(expiry) = expiry else {
+            return false;
+        };
+        if self.now >= expiry {
+            return false;
+        }
+        let hash = attestation_message(
+            self.chain_id, self.contract, *evidence[0], self.epoch, expiry, claim.to_felts().span(),
+        );
+        check_ecdsa_signature(hash, self.public_key, *evidence[2], *evidence[3])
+    }
+}
+
+/// What a v2 attestation signs: `poseidon_hash_span([ATTEST_DOMAIN, chain_id, contract,
+/// program_hash, epoch, expiry, outputs...])`.
+pub fn attestation_message(
+    chain_id: felt252,
+    contract: felt252,
+    program_hash: felt252,
+    epoch: u64,
+    expiry: u64,
+    outputs: Span<felt252>,
+) -> felt252 {
+    let mut felts: Array<felt252> = array![
+        ATTEST_DOMAIN, chain_id, contract, program_hash, epoch.into(), expiry.into(),
+    ];
+    felts.append_span(outputs);
+    poseidon_hash_span(felts.span())
 }
 
 /// Hash of an L2 to L1 message as `submit` looks for it among the proof facts:
@@ -228,16 +293,32 @@ mod tests {
     use slingfall_testing::opaque;
     use crate::simulate::MARKER;
     use crate::submit::fixtures::{
-        ATLANTIC_BOOTLOADER_HASH, ATTESTATION_KEY, E3A_CHILD_PROGRAM_HASH, GOLDEN_ATTESTATION_HASH,
-        GOLDEN_MESSAGE_HASH, GOLDEN_R, GOLDEN_S, MESSAGE_FROM as FROM, ONE_BLOCK_INTEGRITY_FACT,
-        ONE_BLOCK_SHARP_FACT, PILE10_INTEGRITY_FACT, PILE10_OUTPUT_LEN, PILE10_SHARP_FACT,
-        SHARP_BOOTLOADER_HASH, golden_claim, one_block_miss_inputs, one_block_miss_outputs,
-        reference_inputs, reference_outputs,
+        ATLANTIC_BOOTLOADER_HASH, ATTESTATION_KEY, ATTEST_CHAIN_ID, ATTEST_EPOCH, ATTEST_EXPIRY,
+        E3A_CHILD_PROGRAM_HASH, GOLDEN_ATTESTATION_HASH, GOLDEN_ATTEST_MESSAGE, GOLDEN_ATTEST_R,
+        GOLDEN_ATTEST_S, GOLDEN_MESSAGE_HASH, GOLDEN_R, GOLDEN_S, MESSAGE_FROM as FROM,
+        ONE_BLOCK_INTEGRITY_FACT, ONE_BLOCK_SHARP_FACT, PILE10_INTEGRITY_FACT, PILE10_OUTPUT_LEN,
+        PILE10_SHARP_FACT, SHARP_BOOTLOADER_HASH, golden_claim, one_block_miss_inputs,
+        one_block_miss_outputs, reference_inputs, reference_outputs,
     };
     use super::{
-        Snip36Verifier, StubVerifier, Verifier, atlantic_output, attestation_hash, integrity_fact,
-        message_hash, run_args, sharp_fact,
+        AttestationVerifier, Snip36Verifier, StubVerifier, Verifier, atlantic_output,
+        attestation_hash, attestation_message, integrity_fact, message_hash, run_args, sharp_fact,
     };
+
+    /// The verifier of the v2 golden vector at time `now`.
+    fn attestation(now: u64) -> AttestationVerifier {
+        AttestationVerifier {
+            public_key: ATTESTATION_KEY,
+            chain_id: ATTEST_CHAIN_ID,
+            contract: FROM,
+            epoch: ATTEST_EPOCH,
+            now,
+        }
+    }
+
+    fn golden_evidence() -> Array<felt252> {
+        array![E3A_CHILD_PROGRAM_HASH, ATTEST_EXPIRY.into(), GOLDEN_ATTEST_R, GOLDEN_ATTEST_S]
+    }
 
     /// `atlantic_output` of a level and inputs.
     fn output(
@@ -329,6 +410,137 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_attestation_message_is_golden() {
+        let outputs = golden_claim().to_felts();
+        let message = attestation_message(
+            ATTEST_CHAIN_ID,
+            FROM,
+            E3A_CHILD_PROGRAM_HASH,
+            ATTEST_EPOCH,
+            ATTEST_EXPIRY,
+            outputs.span(),
+        );
+        assert_eq!(message, GOLDEN_ATTEST_MESSAGE);
+        // Every field is committed to (the domain separates it from the v1 hash).
+        assert_ne!(message, attestation_hash(outputs.span()));
+        let others = array![
+            attestation_message(
+                'SN_MAIN',
+                FROM,
+                E3A_CHILD_PROGRAM_HASH,
+                ATTEST_EPOCH,
+                ATTEST_EXPIRY,
+                outputs.span(),
+            ),
+            attestation_message(
+                ATTEST_CHAIN_ID,
+                FROM + 1,
+                E3A_CHILD_PROGRAM_HASH,
+                ATTEST_EPOCH,
+                ATTEST_EXPIRY,
+                outputs.span(),
+            ),
+            attestation_message(
+                ATTEST_CHAIN_ID,
+                FROM,
+                E3A_CHILD_PROGRAM_HASH + 1,
+                ATTEST_EPOCH,
+                ATTEST_EXPIRY,
+                outputs.span(),
+            ),
+            attestation_message(
+                ATTEST_CHAIN_ID, FROM, E3A_CHILD_PROGRAM_HASH, 2, ATTEST_EXPIRY, outputs.span(),
+            ),
+            attestation_message(
+                ATTEST_CHAIN_ID, FROM, E3A_CHILD_PROGRAM_HASH, ATTEST_EPOCH, 1, outputs.span(),
+            ),
+            attestation_message(
+                ATTEST_CHAIN_ID,
+                FROM,
+                E3A_CHILD_PROGRAM_HASH,
+                ATTEST_EPOCH,
+                ATTEST_EXPIRY,
+                outputs.span().slice(0, 9),
+            ),
+        ];
+        for other in others {
+            assert_ne!(other, GOLDEN_ATTEST_MESSAGE);
+        }
+    }
+
+    #[test]
+    fn test_attestation_accepts_the_golden_signature_until_expiry() {
+        let mut verifier = attestation(0);
+        assert!(verifier.check(golden_claim(), golden_evidence().span()));
+        let mut verifier = attestation(ATTEST_EXPIRY - 1);
+        assert!(verifier.check(golden_claim(), golden_evidence().span()));
+    }
+
+    /// Replays across chain, contract, epoch, program and time, and malformed evidence.
+    #[test]
+    fn test_attestation_rejects() {
+        let good = attestation(0);
+        let mut other = golden_claim();
+        other.score += 1;
+        // (verifier, claim, evidence).
+        let cases: Array<(AttestationVerifier, Outputs, Array<felt252>)> = array![
+            (
+                AttestationVerifier { chain_id: 'SN_MAIN', ..good },
+                golden_claim(),
+                golden_evidence(),
+            ),
+            (AttestationVerifier { contract: FROM + 1, ..good }, golden_claim(), golden_evidence()),
+            (AttestationVerifier { epoch: 2, ..good }, golden_claim(), golden_evidence()),
+            (AttestationVerifier { now: ATTEST_EXPIRY, ..good }, golden_claim(), golden_evidence()),
+            (AttestationVerifier { public_key: 0, ..good }, golden_claim(), golden_evidence()),
+            (
+                AttestationVerifier { public_key: GOLDEN_R, ..good },
+                golden_claim(),
+                golden_evidence(),
+            ),
+            (attestation(0), other, golden_evidence()),
+            (
+                attestation(0),
+                golden_claim(),
+                array![
+                    E3A_CHILD_PROGRAM_HASH + 1, ATTEST_EXPIRY.into(), GOLDEN_ATTEST_R,
+                    GOLDEN_ATTEST_S,
+                ],
+            ),
+            (
+                attestation(0),
+                golden_claim(),
+                array![
+                    E3A_CHILD_PROGRAM_HASH, ATTEST_EXPIRY.into() + 1, GOLDEN_ATTEST_R,
+                    GOLDEN_ATTEST_S,
+                ],
+            ),
+            // An expiry that is not a `u64`.
+            (
+                attestation(0),
+                golden_claim(),
+                array![
+                    E3A_CHILD_PROGRAM_HASH, 0x10000000000000000, GOLDEN_ATTEST_R, GOLDEN_ATTEST_S,
+                ],
+            ),
+            // The v1 evidence, and one felt too many.
+            (attestation(0), golden_claim(), array![GOLDEN_R, GOLDEN_S]),
+            (
+                attestation(0),
+                golden_claim(),
+                array![
+                    E3A_CHILD_PROGRAM_HASH, ATTEST_EXPIRY.into(), GOLDEN_ATTEST_R, GOLDEN_ATTEST_S,
+                    0,
+                ],
+            ),
+        ];
+        for (verifier, claim, evidence) in cases {
+            let mut verifier = verifier;
+            assert!(!verifier.check(claim, evidence.span()));
+        }
+    }
+
     /// E3a vectors: the output and both facts of the two proven runs.
     #[test]
     fn test_atlantic_facts_are_the_e3a_facts() {
@@ -414,6 +626,19 @@ mod tests {
     fn steps_verifier_stub_check() {
         let mut verifier = StubVerifier { public_key: opaque(ATTESTATION_KEY) };
         let evidence = opaque(array![GOLDEN_R, GOLDEN_S]);
+        assert!(verifier.check(opaque(golden_claim()), evidence.span()));
+    }
+
+    #[test]
+    fn steps_verifier_attestation_check() {
+        let mut verifier = AttestationVerifier {
+            public_key: opaque(ATTESTATION_KEY),
+            chain_id: opaque(ATTEST_CHAIN_ID),
+            contract: opaque(FROM),
+            epoch: opaque(ATTEST_EPOCH),
+            now: opaque(0),
+        };
+        let evidence = opaque(golden_evidence());
         assert!(verifier.check(opaque(golden_claim()), evidence.span()));
     }
 

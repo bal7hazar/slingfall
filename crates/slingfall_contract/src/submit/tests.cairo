@@ -12,23 +12,32 @@ use snforge_std::{
     ContractClassTrait, DeclareResultTrait, EventSpyAssertionsTrait, MessageToL1,
     MessageToL1SpyAssertionsTrait, declare, spy_events, spy_messages_to_l1,
     start_cheat_block_number, start_cheat_block_timestamp, start_cheat_caller_address,
-    start_cheat_proof_facts,
+    start_cheat_chain_id, start_cheat_proof_facts,
 };
 use starknet::{ClassHash, ContractAddress};
-use crate::registry::{LEADERBOARD_SIZE, LevelMeta, Record};
+use crate::registry::{Best, LEADERBOARD_SIZE, LevelMeta};
 use crate::simulate::MARKER;
-use crate::verifier::{VerifierKind, attestation_hash, message_hash};
+use crate::verifier::{VerifierKind, attestation_message, message_hash};
 use super::fixtures::{
-    ATTESTATION_KEY, GOLDEN_R, GOLDEN_S, PLAYER, SECRET, golden_claim, reference_inputs,
-    reference_outputs,
+    ATTESTATION_KEY, ATTEST_CHAIN_ID, ATTEST_EXPIRY, E3A_CHILD_PROGRAM_HASH, GOLDEN_ATTEST_R,
+    GOLDEN_ATTEST_S, GOLDEN_R, GOLDEN_S, MESSAGE_FROM, PLAYER, SECRET, golden_claim,
+    reference_inputs, reference_outputs,
 };
 use super::{
     ISlingfallAdminDispatcher, ISlingfallAdminDispatcherTrait, ISlingfallAdminSafeDispatcher,
     ISlingfallAdminSafeDispatcherTrait, ISlingfallDispatcher, ISlingfallDispatcherTrait,
-    ISlingfallSafeDispatcher, ISlingfallSafeDispatcherTrait, Slingfall,
+    ISlingfallGovernanceDispatcher, ISlingfallGovernanceDispatcherTrait,
+    ISlingfallGovernanceSafeDispatcher, ISlingfallSafeDispatcher, ISlingfallSafeDispatcherTrait,
+    Slingfall,
 };
 
+mod governance;
+mod programs;
 mod settled;
+mod tiers;
+
+/// The program `setup_stub` pins (E3a's `c1main`, the one the settled vectors were proven with).
+const PROGRAM: felt252 = E3A_CHILD_PROGRAM_HASH;
 
 const ADMIN: felt252 = 'admin';
 const AUTHOR: felt252 = 'author';
@@ -49,17 +58,31 @@ struct Setup {
     game: ISlingfallDispatcher,
     safe: ISlingfallSafeDispatcher,
     admin: ISlingfallAdminDispatcher,
+    governance: ISlingfallGovernanceDispatcher,
+    governance_safe: ISlingfallGovernanceSafeDispatcher,
 }
 
-fn deploy() -> Setup {
-    let class = declare("Slingfall").unwrap().contract_class();
-    let (address, _) = class.deploy(@array![ADMIN]).unwrap();
+/// The dispatchers of the contract at `address`, on the chain `ATTEST_CHAIN_ID` at block and
+/// timestamp 0.
+fn setup_at(address: ContractAddress) -> Setup {
+    start_cheat_chain_id(address, ATTEST_CHAIN_ID);
+    start_cheat_block_number(address, 0);
+    start_cheat_block_timestamp(address, 0);
     Setup {
         address,
         game: ISlingfallDispatcher { contract_address: address },
         safe: ISlingfallSafeDispatcher { contract_address: address },
         admin: ISlingfallAdminDispatcher { contract_address: address },
+        governance: ISlingfallGovernanceDispatcher { contract_address: address },
+        governance_safe: ISlingfallGovernanceSafeDispatcher { contract_address: address },
     }
+}
+
+/// Deployed by `ADMIN`, on the chain `ATTEST_CHAIN_ID`.
+fn deploy() -> Setup {
+    let class = declare("Slingfall").unwrap().contract_class();
+    let (address, _) = class.deploy(@array![ADMIN]).unwrap();
+    setup_at(address)
 }
 
 /// Declares the `SlingfallSim` class (the simulation class `simulate` library-calls).
@@ -80,24 +103,44 @@ fn as_caller(setup: Setup, caller: felt252) {
     start_cheat_caller_address(setup.address, address(caller));
 }
 
-/// Deployed, `pile10` registered by `AUTHOR`, the stub verifier on `ATTESTATION_KEY`, the caller
-/// left to `PLAYER`.
-fn setup_stub() -> Setup {
-    let setup = deploy();
+/// `setup` configured by `ADMIN`: `pile10` registered by `AUTHOR`, the attestation key
+/// `ATTESTATION_KEY` (epoch 1; the verifier is the constructor's `Stub`), `PROGRAM` pinned; the
+/// caller left to `PLAYER`.
+fn configure(setup: Setup) -> Setup {
     as_caller(setup, AUTHOR);
     setup.game.register_level(pile10_felts());
     as_caller(setup, ADMIN);
-    setup.admin.set_verifier(VerifierKind::Stub);
     setup.admin.set_attestation_key(ATTESTATION_KEY);
+    setup.governance.pin_program(PROGRAM, 0);
     as_caller(setup, PLAYER);
     setup
 }
 
-/// `[r, s]` of `SECRET` over the claim's attestation hash (snforge's Stark-curve signer).
-fn sign(claim: Outputs) -> Array<felt252> {
+fn setup_stub() -> Setup {
+    configure(deploy())
+}
+
+/// The attestation evidence `[program_hash, expiry, r, s]` of `claim` by `SECRET` (snforge's
+/// Stark-curve signer) for the given chain, contract, program, epoch and expiry.
+fn attest(
+    claim: Outputs,
+    chain_id: felt252,
+    contract: ContractAddress,
+    program_hash: felt252,
+    epoch: u64,
+    expiry: u64,
+) -> Array<felt252> {
+    let message = attestation_message(
+        chain_id, contract.into(), program_hash, epoch, expiry, claim.to_felts().span(),
+    );
     let key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(SECRET);
-    let (r, s) = key_pair.sign(attestation_hash(claim.to_felts().span())).unwrap();
-    array![r, s]
+    let (r, s) = key_pair.sign(message).unwrap();
+    array![program_hash, expiry.into(), r, s]
+}
+
+/// The attestation of `claim` for the deployed contract, `PROGRAM`, epoch 1, `ATTEST_EXPIRY`.
+fn sign(setup: Setup, claim: Outputs) -> Array<felt252> {
+    attest(claim, ATTEST_CHAIN_ID, setup.address, PROGRAM, 1, ATTEST_EXPIRY)
 }
 
 /// A claim of `player` on pile10 with the given attempt id (its `inputs_hash`), score and win.
@@ -107,7 +150,12 @@ fn claim(player: felt252, inputs_hash: felt252, score: u32, won: bool) -> Output
 
 fn submit(setup: Setup, claim: Outputs) {
     as_caller(setup, claim.player);
-    setup.game.submit(claim.to_felts(), sign(claim));
+    setup.game.submit(claim.to_felts(), sign(setup, claim));
+}
+
+/// A provisional `Best` of `PROGRAM` at block and timestamp 0.
+fn provisional(inputs_hash: felt252, score: u32, won: bool) -> Best {
+    Best { score, won, inputs_hash, block: 0, timestamp: 0, settled: false, program_hash: PROGRAM }
 }
 
 /// The first felt of a failed call's panic data.
@@ -185,10 +233,14 @@ fn test_submit_inactive_level_rejected() {
     setup.game.set_level_active(PILE10_HASH, false);
     as_caller(setup, PLAYER);
     let claim = golden_claim();
-    assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), sign(claim))), 'submit: inactive');
+    assert_eq!(
+        panic_of(setup.safe.submit(claim.to_felts(), sign(setup, claim))), 'submit: inactive',
+    );
     // Unknown level.
     let unknown = Outputs { level_hash: 0x1234, ..claim };
-    assert_eq!(panic_of(setup.safe.submit(unknown.to_felts(), sign(unknown))), 'submit: level');
+    assert_eq!(
+        panic_of(setup.safe.submit(unknown.to_felts(), sign(setup, unknown))), 'submit: level',
+    );
 }
 
 #[test]
@@ -197,7 +249,7 @@ fn test_submit_wrong_caller_rejected() {
     let setup = setup_stub();
     as_caller(setup, OTHER);
     let claim = golden_claim();
-    assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), sign(claim))), 'submit: player');
+    assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), sign(setup, claim))), 'submit: player');
 }
 
 #[test]
@@ -205,11 +257,15 @@ fn test_submit_wrong_caller_rejected() {
 fn test_submit_replay_rejected() {
     let setup = setup_stub();
     let claim = golden_claim();
-    setup.game.submit(claim.to_felts(), sign(claim));
-    assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), sign(claim))), 'submit: nullifier');
+    setup.game.submit(claim.to_felts(), sign(setup, claim));
+    assert_eq!(
+        panic_of(setup.safe.submit(claim.to_felts(), sign(setup, claim))), 'submit: nullifier',
+    );
     // The nullifier ignores the score: the same inputs cannot be claimed twice.
     let other = Outputs { score: 1, ..claim };
-    assert_eq!(panic_of(setup.safe.submit(other.to_felts(), sign(other))), 'submit: nullifier');
+    assert_eq!(
+        panic_of(setup.safe.submit(other.to_felts(), sign(setup, other))), 'submit: nullifier',
+    );
 }
 
 #[test]
@@ -221,14 +277,17 @@ fn test_submit_malformed_outputs_rejected() {
     assert_eq!(panic_of(setup.safe.submit(felts, array![GOLDEN_R, GOLDEN_S])), 'outputs: length');
 }
 
-/// The Python vector (`tools/vectors.py golden`) is accepted by the deployed contract.
+/// The Python vector (`tools/vectors.py golden`: chain 'SN_SEPOLIA', contract `MESSAGE_FROM`,
+/// program `PROGRAM`, epoch 1) is accepted by a contract deployed at that address.
 #[test]
-fn test_stub_verifier_accepts_the_golden_attestation() {
-    let setup = setup_stub();
+fn test_attestation_accepts_the_golden_vector() {
+    let setup = setup_golden();
     let mut spy = spy_events();
     start_cheat_block_number(setup.address, 77);
-    setup.game.submit(golden_claim().to_felts(), array![GOLDEN_R, GOLDEN_S]);
-    let expected = Record { score: 1650, won: true, inputs_hash: 0xabc, block: 77, settled: false };
+    start_cheat_block_timestamp(setup.address, 1_000);
+    let evidence = array![PROGRAM, ATTEST_EXPIRY.into(), GOLDEN_ATTEST_R, GOLDEN_ATTEST_S];
+    setup.game.submit(golden_claim().to_felts(), evidence);
+    let expected = Best { block: 77, timestamp: 1_000, ..provisional(0xabc, 1650, true) };
     assert_eq!(setup.game.best(address(PLAYER), PILE10_HASH), expected);
     let event = Slingfall::LevelValidated {
         player: address(PLAYER),
@@ -237,6 +296,7 @@ fn test_stub_verifier_accepts_the_golden_attestation() {
         score: 1650,
         won: true,
         settled: false,
+        program_hash: PROGRAM,
     };
     spy.assert_emitted(@array![(setup.address, Slingfall::Event::LevelValidated(event))]);
     // snforge's signer derives the same public key as the Python helper.
@@ -246,21 +306,40 @@ fn test_stub_verifier_accepts_the_golden_attestation() {
 
 #[test]
 #[feature("safe_dispatcher")]
-fn test_stub_verifier_rejects() {
+fn test_attestation_rejects() {
     let setup = setup_stub();
     let claim = golden_claim();
     let felts = claim.to_felts();
-    let bad = array![GOLDEN_R, GOLDEN_S + 1];
+    let good = sign(setup, claim);
+    let bad = array![*good[0], *good[1], *good[2], *good[3] + 1];
     assert_eq!(panic_of(setup.safe.submit(felts.clone(), bad)), 'submit: proof');
-    // A signature of another claim.
-    let other = sign(Outputs { score: 9_999, ..claim });
+    // A signature of another claim, the v1 evidence, none.
+    let other = sign(setup, Outputs { score: 9_999, ..claim });
     assert_eq!(panic_of(setup.safe.submit(felts.clone(), other)), 'submit: proof');
+    let v1 = array![GOLDEN_R, GOLDEN_S];
+    assert_eq!(panic_of(setup.safe.submit(felts.clone(), v1)), 'submit: proof');
     assert_eq!(panic_of(setup.safe.submit(felts.clone(), array![])), 'submit: proof');
     // Another key.
     as_caller(setup, ADMIN);
     setup.admin.set_attestation_key(GOLDEN_R);
     as_caller(setup, PLAYER);
-    assert_eq!(panic_of(setup.safe.submit(felts, array![GOLDEN_R, GOLDEN_S])), 'submit: proof');
+    let evidence = attest(claim, ATTEST_CHAIN_ID, setup.address, PROGRAM, 2, ATTEST_EXPIRY);
+    assert_eq!(panic_of(setup.safe.submit(felts, evidence)), 'submit: proof');
+}
+
+/// `verifier = Satellite` closes the provisional tier.
+#[test]
+#[feature("safe_dispatcher")]
+fn test_satellite_kind_refuses_every_submit() {
+    let setup = setup_stub();
+    as_caller(setup, ADMIN);
+    setup.admin.set_verifier(VerifierKind::Satellite);
+    as_caller(setup, PLAYER);
+    let claim = golden_claim();
+    assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), sign(setup, claim))), 'submit: proof');
+    assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), array![])), 'submit: proof');
+    // Refused, so nothing was written: the attempt is still new.
+    assert_eq!(setup.game.attempt(PILE10_HASH, address(PLAYER), 0xabc), 0);
 }
 
 #[test]
@@ -287,7 +366,9 @@ fn test_snip36_verifier_reads_the_proof_facts() {
     // The facts of `simulate`'s message.
     start_cheat_proof_facts(setup.address, array![VIRTUAL_OS_HASH, 0x1, message].span());
     setup.game.submit(claim.to_felts(), array![]);
-    assert_eq!(setup.game.best(address(PLAYER), PILE10_HASH).score, 1650);
+    let best = setup.game.best(address(PLAYER), PILE10_HASH);
+    // The record names the simulation class (unset here).
+    assert_eq!((best.score, best.settled, best.program_hash), (1650, false, 0));
 }
 
 #[test]
@@ -330,8 +411,10 @@ fn test_leaderboard_order() {
     let expected = array![
         (address('p2'), 900), (address('p1'), 800), (address('p3'), 700), (address('p5'), 700),
     ];
-    assert_eq!(setup.game.leaderboard(PILE10_HASH), expected);
-    assert_eq!(setup.game.leaderboard(ONE_BLOCK_HASH), array![]);
+    assert_eq!(setup.game.leaderboard_provisional(PILE10_HASH), expected);
+    assert_eq!(setup.game.leaderboard_provisional(ONE_BLOCK_HASH), array![]);
+    // Nothing is settled.
+    assert_eq!(setup.game.leaderboard(PILE10_HASH), array![]);
 }
 
 #[test]
@@ -340,7 +423,7 @@ fn test_leaderboard_keeps_the_top_ten() {
     for i in 0..12_u32 {
         submit(setup, claim(0x100 + i.into(), i.into(), 100 + i, true));
     }
-    let board = setup.game.leaderboard(PILE10_HASH);
+    let board = setup.game.leaderboard_provisional(PILE10_HASH);
     assert_eq!(board.len(), LEADERBOARD_SIZE);
     assert_eq!(*board[0], (address(0x10b), 111));
     assert_eq!(*board[LEADERBOARD_SIZE - 1], (address(0x102), 102));
@@ -402,7 +485,7 @@ fn test_simulate_needs_the_sim_class() {
 fn test_admin() {
     let setup = deploy();
     assert_eq!(setup.admin.admin(), address(ADMIN));
-    assert_eq!(setup.admin.verifier(), VerifierKind::Snip36);
+    assert_eq!(setup.admin.verifier(), VerifierKind::Stub);
     assert_eq!(setup.admin.virtual_os_hash(), 0);
     let safe = ISlingfallAdminSafeDispatcher { contract_address: setup.address };
     as_caller(setup, OTHER);
@@ -414,10 +497,15 @@ fn test_admin() {
     as_caller(setup, ADMIN);
     setup.admin.set_virtual_os_hash(VIRTUAL_OS_HASH);
     setup.admin.set_sim_class_hash(other_class());
+    setup.admin.set_verifier(VerifierKind::Snip36);
     setup.admin.set_verifier(VerifierKind::Stub);
     setup.admin.set_attestation_key(ATTESTATION_KEY);
     assert_eq!(panic_of(safe.set_admin(address(0))), 'admin: zero');
+    // Two steps (`governance.cairo` has the details).
     setup.admin.set_admin(address(OTHER));
+    as_caller(setup, OTHER);
+    setup.governance.accept_admin();
+    as_caller(setup, ADMIN);
     assert_eq!(panic_of(safe.set_verifier(VerifierKind::Snip36)), 'admin: caller');
     as_caller(setup, OTHER);
     assert_eq!(
@@ -441,20 +529,30 @@ fn test_constructor_rejects_the_zero_admin() {
     }
 }
 
+/// `setup_stub()` at `MESSAGE_FROM`, where the golden attestation verifies.
+fn setup_golden() -> Setup {
+    let class = declare("Slingfall").unwrap().contract_class();
+    let (address, _) = class.deploy_at(@array![ADMIN], address(MESSAGE_FROM)).unwrap();
+    configure(setup_at(address))
+}
+
 /// Setup of `steps_submit__stub` without the submission: subtract it to get `submit` alone.
 #[test]
 fn steps_submit__stub_setup() {
-    let setup = setup_stub();
+    let setup = setup_golden();
     let claim = golden_claim();
-    let _ = (claim.to_felts(), array![GOLDEN_R, GOLDEN_S], setup);
+    let evidence = array![PROGRAM, ATTEST_EXPIRY.into(), GOLDEN_ATTEST_R, GOLDEN_ATTEST_S];
+    let _ = (claim.to_felts(), evidence, setup);
 }
 
-/// `submit` with the stub verifier: first record and leaderboard row of the player.
+/// `submit` with the attestation (v2 message, program check): first record and provisional
+/// leaderboard row of the player.
 #[test]
 fn steps_submit__stub() {
-    let setup = setup_stub();
+    let setup = setup_golden();
     let claim = golden_claim();
-    setup.game.submit(claim.to_felts(), array![GOLDEN_R, GOLDEN_S]);
+    let evidence = array![PROGRAM, ATTEST_EXPIRY.into(), GOLDEN_ATTEST_R, GOLDEN_ATTEST_S];
+    setup.game.submit(claim.to_felts(), evidence);
 }
 
 /// Deployment only: subtract it from `steps_register_level__pile10`.

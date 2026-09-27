@@ -7,6 +7,9 @@
 - `sign SECRET FELT...`: the attestation of `verifier::StubVerifier`: `z = poseidon_hash_span(felts)`
   and a Stark-curve ECDSA signature `(r, s)` of `z`, verified here as
   `core::ecdsa::check_ecdsa_signature` does (`s * R == z * G + r * Q`).
+- `attest SECRET CHAIN_ID CONTRACT PROGRAM_HASH EPOCH EXPIRY OUTPUT...`: the contract v2
+  attestation, `z = verifier::attestation_message(...)` = `poseidon_hash_span(['SLINGFALL_ATTEST',
+  chain_id, contract, program_hash, epoch, expiry, *outputs])`, and its signature `(r, s)`.
 - `golden`: prints every constant the Cairo tests pin (`src/submit/fixtures.cairo`,
   `src/verifier.cairo`).
 
@@ -42,6 +45,13 @@ PILE10_HASH = 0x17876831F245E0EC3D63220F2CB73C429EC93E7C888C2AA916D237CD9C114A3
 # `[version, level_hash, seed, player, inputs_hash, score, won, shots_used, ticks_run,
 # final_state_hash]` of the golden claim.
 OUTPUTS = [1, PILE10_HASH, 0, PLAYER, 0xABC, 1650, 1, 2, 431, 0x33]
+# Domain of the v2 attestation (`verifier::ATTEST_DOMAIN`) and the fields of its golden vector:
+# chain 'SN_SEPOLIA', contract `FROM`, E3a's `c1main` hash, epoch 1, expiry 1 000 000 s.
+ATTEST_DOMAIN = int.from_bytes(b"SLINGFALL_ATTEST", "big")
+CHAIN_ID = int.from_bytes(b"SN_SEPOLIA", "big")
+PROGRAM_HASH = 0x128791DF23988BEF1C8AEF3BE7CE36AD68278D19878369E5FB7ED2515D5B053
+EPOCH = 1
+EXPIRY = 1_000_000
 
 
 def on_curve(p: tuple[int, int]) -> bool:
@@ -140,6 +150,13 @@ def message_hash(from_address: int, to_address: int, payload: list[int]) -> int:
     return hash_span([from_address, to_address, len(payload), *payload])
 
 
+def attestation_message(
+    chain_id: int, contract: int, program_hash: int, epoch: int, expiry: int, outputs: list[int]
+) -> int:
+    """`verifier::attestation_message` (contract v2)."""
+    return hash_span([ATTEST_DOMAIN, chain_id, contract, program_hash, epoch, expiry, *outputs])
+
+
 def parse(text: str) -> int:
     if text.startswith("'") and text.endswith("'"):
         return int.from_bytes(text[1:-1].encode("ascii"), "big")
@@ -156,6 +173,12 @@ def golden() -> None:
     print(f"GOLDEN_R = {r:#x}")
     print(f"GOLDEN_S = {s:#x}")
     print(f"GOLDEN_MESSAGE_HASH = {message_hash(FROM, MARKER, OUTPUTS):#x}")
+    z = attestation_message(CHAIN_ID, FROM, PROGRAM_HASH, EPOCH, EXPIRY, OUTPUTS)
+    r, s = sign(SECRET, z)
+    assert verify(z, public_key, r, s)
+    print(f"GOLDEN_ATTEST_MESSAGE = {z:#x}")
+    print(f"GOLDEN_ATTEST_R = {r:#x}")
+    print(f"GOLDEN_ATTEST_S = {s:#x}")
 
 
 def main(argv: list[str]) -> int:
@@ -169,6 +192,14 @@ def main(argv: list[str]) -> int:
     elif argv[0] == "sign" and len(argv) >= 2:
         secret = parse(argv[1])
         z = hash_span([parse(a) for a in argv[2:]])
+        r, s = sign(secret, z)
+        assert verify(z, pubkey(secret), r, s)
+        print(f"hash {z:#x}\nr {r:#x}\ns {s:#x}")
+    elif argv[0] == "attest" and len(argv) >= 7:
+        secret = parse(argv[1])
+        chain_id, contract, program_hash, epoch, expiry = (parse(a) for a in argv[2:7])
+        outputs = [parse(a) for a in argv[7:]]
+        z = attestation_message(chain_id, contract, program_hash, epoch, expiry, outputs)
         r, s = sign(secret, z)
         assert verify(z, pubkey(secret), r, s)
         print(f"hash {z:#x}\nr {r:#x}\ns {s:#x}")
