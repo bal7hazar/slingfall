@@ -2,8 +2,8 @@
 //! the work it did (`slingfall_game::play::outputs`), so that nothing is dropped as unused.
 
 use rapier2d::prelude::{
-    CONTACT_FORCE_EVENTS, ColliderBuilder, ColliderBuilderTrait, Fixed, IntegrationParameters,
-    RigidBodyBuilderTrait, Vec2, WorldTrait,
+    BasicStepConfig, CONTACT_FORCE_EVENTS, ColliderBuilder, ColliderBuilderTrait, Fixed,
+    IntegrationParameters, RigidBodyBuilderTrait, Vec2, WorldTrait,
 };
 use slingfall_contract::simulate::SimulateHook;
 use slingfall_game::play::outputs;
@@ -86,7 +86,8 @@ pub impl WorldHook of SimulateHook {
     }
 }
 
-/// (c2) `GameTrait::new`: the world plus its `settle`, one `World::step` with `dt = 0`.
+/// (c2) `GameTrait::new`: the world plus its `settle`, one `step_with::<BasicStepConfig>` with
+/// `dt = 0`.
 pub impl GameNewHook of SimulateHook {
     fn simulate(level: @Level, inputs: @Inputs) -> Outputs {
         level.validate();
@@ -96,13 +97,14 @@ pub impl GameNewHook of SimulateHook {
     }
 }
 
-/// (d) `GameTrait::new` and one `World::step_with_force_events` (the tick's step).
+/// (d) `GameTrait::new` and one `step_with_force_events_with::<BasicStepConfig>` (the
+/// tick's step).
 pub impl OneStepHook of SimulateHook {
     fn simulate(level: @Level, inputs: @Inputs) -> Outputs {
         level.validate();
         inputs.validate(level);
         let mut game = GameTrait::new(level);
-        let (collisions, forces) = game.world.step_with_force_events();
+        let (collisions, forces) = game.world.step_with_force_events_with::<BasicStepConfig>();
         game.score = collisions.len() + forces.len();
         outputs(ref game, level, inputs)
     }
