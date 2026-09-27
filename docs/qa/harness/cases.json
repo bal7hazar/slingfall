@@ -1,0 +1,11 @@
+[
+ {"name": "pile10-owner", "level": "pile10", "pulls": [[-1022, -63]], "screenshot": true, "captures": [300, 700, 1100, 1600, 2200, 3000]},
+ {"name": "pile10-reference", "level": "pile10", "pulls": [[-604, -392]], "screenshot": true},
+ {"name": "cores3-reference", "level": "cores3", "pulls": [[-653, -304]], "screenshot": true},
+ {"name": "tower-reference", "level": "tower", "pulls": [[-604, -392]], "screenshot": true},
+ {"name": "bridge-reference", "level": "bridge", "pulls": [[-463, -552]], "screenshot": true},
+ {"name": "twin-reference", "level": "twin", "pulls": [[-503, -327], [-543, -472]], "screenshot": true},
+ {"name": "one_block-miss", "level": "one_block", "pulls": [[-150, -150]], "screenshot": true},
+ {"name": "pile10-three-shots", "level": "pile10", "pulls": [[-150, -150], [-200, -200], [-600, -392]], "screenshot": true},
+ {"name": "pile10-owner-nocapture", "level": "pile10", "pulls": [[-1022, -63]]}
+]

@@ -1,0 +1,9 @@
+[
+ {"name": "pile10-owner", "level": "pile10", "pull": [-1022, -63]},
+ {"name": "pile10-lob", "level": "pile10", "pull": [-500, -700]},
+ {"name": "cores3", "level": "cores3", "pull": [-653, -304]},
+ {"name": "tower", "level": "tower", "pull": [-604, -392]},
+ {"name": "bridge", "level": "bridge", "pull": [-463, -552]},
+ {"name": "twin", "level": "twin", "pull": [-503, -327]},
+ {"name": "one_block", "level": "one_block", "pull": [-600, -392]}
+]
