@@ -1,0 +1,3 @@
+# Raw outputs of the QA harness (screenshots, JSON, logs) and its generated bundle: local only.
+.raw/
+harness/qa-lib.mjs
