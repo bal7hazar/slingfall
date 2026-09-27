@@ -21,12 +21,13 @@ Nothing here needs a private key in a file. Wallet keys stay in your wallet; the
 Everything in `deploy/sepolia.json` is the source of truth; `client/.env.sepolia` is checked against it
 by `client/src/chain/config.test.ts`.
 
-**What this means for you.** The contract was deployed with `verifier = Satellite`, so the attested
-("provisional") `submit(outputs, [r, s])` is refused there: there is no attestation key registered.
-On this deployment the page therefore offers **Prove (settled)** instead of **Submit**, and the one
-path to the leaderboard is *proof, then settle*. The provisional path (below) works on a deployment whose
-verifier is `Stub` (the devnet of `docs/e2e.md`, or a Sepolia deployment made with
-`SLINGFALL_VERIFIER=stub`); it is documented because the page and the services support it.
+**Contract v1 on Sepolia, a v2 client.** The deployment above is contract v1 (lot E3b): `verifier =
+Satellite`, no attested tier, no program set. Since lot W1 the client, the services and the scripts
+speak **contract v2** (`docs/contract-v2.md`: two tiers, a relay, a program set with a grace
+period); a v2 Sepolia deployment is a later lot, and until it exists the page's reads do not match the
+v1 contract. Everything below describes the v2 flow, which runs today on the devnet of
+[`e2e.md`](e2e.md). On a deployment whose verifier is `Satellite` (the attested tier closed) the page
+offers **Prove (settled)** instead of **Submit**.
 
 ## 1. Open the client
 
@@ -72,66 +73,80 @@ end of the level the panel shows won / lost, the score and the ten output felts 
 (`{player, shots: [{pull_x, pull_y, delay}]}`); keep it, it is the whole attempt (the prover service's
 `prove --shot=PX,PY` takes the same pulls).
 
-The `player` output is the connected wallet's address: the page recomputes the outputs for it at
-submit time (the simulation never reads `player`; only `player` and `inputs_hash` change).
+The `player` output is the connected wallet's address: once you connect, the page recomputes the
+outputs for it and redraws the table (m11; the simulation never reads `player`, so only `player` and
+`inputs_hash` change).
 
-## 4. Provisional submit (a `Stub` deployment only)
+The panel shows both boards of the level: **Settled (proven)** (`leaderboard`, settled records only)
+and **Live (provisional and settled)** (`leaderboard_provisional`, each player's best of either
+tier; a provisional row is marked). Each row names the engine release (`program_hash`) its record was
+validated with, marked "older release" when it is not the contract's current program.
 
-Needs an **attestation service**; it signs `poseidon(outputs)` after verifying a proof of the outputs.
-On the machine that has the proof (`docs/proving.md`, `tools/prove/prove.py`):
+## 4. Provisional record, in seconds
+
+Needs an **attestation service**. It re-executes your attempt natively (`scarb execute` of the replay:
+seconds) and signs when its outputs equal the page's; the signature names the chain, the contract,
+the engine release, the key's epoch and an expiry (10 min). On the service's machine (a built replay:
+`scarb --manifest-path crates/slingfall_replay/Scarb.toml build`):
 
 ```sh
 export SLINGFALL_ATTEST_KEY=<the attestation secret>   # an environment variable, never a flag or a file in git
 python3 services/attest/attest.py pubkey                # the public key the admin registers (set_attestation_key)
-python3 services/attest/attest.py serve --verify-cmd "python3 tools/prove/verify.py"   # 127.0.0.1:8547
+python3 services/attest/attest.py serve --execute --contract <address> --rpc <RPC>   # 127.0.0.1:8547
 ```
 
-(`--no-verify` signs anything and is for a private devnet only; never expose it.) Point the page at it
-with `VITE_ATTEST_URL=http://127.0.0.1:8547` (the default) and give the proof's path in the panel's
-"proof path" field (a path on the service's machine). **Submit** sends the outputs to `/attest`,
-then `submit(outputs, [r, s])` through the wallet; the panel shows the transaction hash, its gas, your
-best and the leaderboard, and the tier **Provisional (attested)**. The service answers CORS for any
-origin, so a page served from elsewhere can call a service on `127.0.0.1` (see the browser limits
-under "Hosted build").
+(`--verify-cmd "python3 tools/prove/verify.py"` checks a proof you bring instead, through the panel's
+"proof path" field; `--no-verify` signs anything and is for a private devnet only, never expose it.)
+The service allows 20 requests per player per hour (`--rate`). Point the page at it with
+`VITE_ATTEST_URL=http://127.0.0.1:8547` (the default). **Submit** sends the level, the inputs and the
+outputs to `/attest`, then `submit(outputs, [program_hash, expiry, r, s])` through the wallet; the
+panel shows the transaction, your best and both boards, and the tier **Provisional (attested)**. The
+service answers CORS for any origin, so a page served from elsewhere can call a service on
+`127.0.0.1` (see the browser limits under "Hosted build").
 
-## 5. Settled submit (the Sepolia path)
+A provisional record that is never settled can be expired by anyone after 24 h: it then leaves the
+live board and your best falls back to your settled one.
 
-Needs the **prover service** and about **1.5 hours**. It holds the Atlantic API key (never the
-browser), so whoever runs it needs their own key and a machine that has built the proving tools
-(`docs/proving.md`, "Reproduce": the patched `cairo1-run` and `c1main`). On that machine:
+## 5. Settled record: proof in the background, relayed
+
+Needs the **prover service** and about **1.5 hours**, during which you may close the page when the
+service relays. It holds the Atlantic API key (never the browser), so whoever runs it needs their own
+key and a machine that has built the proving tools (`docs/proving.md`, "Reproduce": the patched
+`cairo1-run` and `c1main`). On that machine:
 
 ```sh
 export ATLANTIC_API_KEY=<your key>                       # in the environment only
-export STARKNET_RPC_URL=<a Sepolia RPC>                  # the Satellite reads
-# optional: with STARKNET_ACCOUNT_ADDRESS and STARKNET_PRIVATE_KEY of a funded Sepolia account the
-# service also sends the (permissionless) translation transaction, which makes settlement cheaper
-python3 services/prove/prove_service.py serve            # 127.0.0.1:8549
+export STARKNET_RPC_URL=<a Sepolia RPC>                  # the Satellite and contract reads
+export SLINGFALL_ADDRESS=<the v2 contract>
+# with STARKNET_ACCOUNT_ADDRESS and STARKNET_PRIVATE_KEY of a funded account the service can send the
+# (permissionless) translation transaction and, with --relay, submit_settled for the players
+python3 services/prove/prove_service.py serve --relay    # 127.0.0.1:8549
 ```
 
 then start the client with `VITE_PROVE_URL=http://127.0.0.1:8549` (in `client/.env.sepolia.local`, a
-git-ignored file with the single line `VITE_PROVE_URL=http://127.0.0.1:8549`, or exported in the shell
-before `npm run dev:sepolia`). Then:
+git-ignored file, or exported in the shell before `npm run dev:sepolia`). Then:
 
-1. finish a level, **Connect**. The panel recomputes and shows the outputs for *your* account under
-   "Submit on Starknet" (`inputs_hash`, `final_state_hash`) — the table above it, from before you
-   connected, still shows the default player's and is not what gets submitted;
-2. press **Prove (settled)**: the page posts `POST /prove {level, inputs}`; the job id is a hash of
-   level, inputs and program, so pressing again (or reloading and repeating the same attempt) reuses
-   the job. Before doing anything else the service checks its own `child_program_hash` against the
-   contract's `satellite_config()` (M6): if a re-pin (a rapier2d / c1main bump such as B3) has moved
-   the contract on since this service last proved, it refuses at once with `409` and both hashes,
-   instead of spending ~1.5 h of Atlantic on a proof the contract will not settle; the panel already
-   reads the same two hashes from `GET /health` when the page loads and disables **Prove (settled)**
-   up front when they differ, with both hashes in the message;
-3. keep the page open: it polls `GET /status/<id>` every minute (the service also survives a restart);
-4. when the fact is on the Satellite **and** the contract's program still matches the one the service
-   proved, the panel shows **Settle** (or **Settle (cheap)** once the Poseidon fact exists) - press it
-   and confirm in the wallet. `submit_settled(outputs, args)` reads the level back from the registry,
-   checks the fact and records the attempt as *settled*.
+1. after **Submit** (or **Prove (settled)** on a Satellite-only deployment) the page posts `POST /prove
+   {level, inputs}` by itself; the job id is a hash of level, inputs and program, so repeating the
+   same attempt reuses the job. Before anything else the service asks the contract whether its own
+   `child_program_hash` is still accepted (`program_valid_until > now`, M6): the current program, or
+   the previous one during its grace period after a re-pin. If not, it refuses at once with `409`
+   instead of spending ~1.5 h of Atlantic on a proof the contract will not settle; the panel reads the
+   same answer from `GET /health` when the page loads and says so up front;
+2. the page follows `GET /status/<id>` every minute. With a relay it tells you that you may close the
+   page: when the fact lands on the Satellite the service simulates, then sends, `submit_settled` for
+   you (the contract records it for the proof's player, whoever sends it), and the page shows
+   **Settled by the relay in 0x…** if it is still open;
+3. without a relay (or meanwhile), when the fact is on the Satellite **and** the proof's program is
+   still accepted, the panel shows **Settle** (or **Settle (cheap)** once the Poseidon fact exists):
+   press it and confirm in the wallet. `submit_settled(outputs, args, program)` reads the level back
+   from the registry, checks the fact and records the attempt as *settled*. If the relay got there
+   first the contract refuses the second settle (`'submit: nullifier'`): your record is settled
+   either way.
 
 You can also drive the same flow without the page (`docs/e2e.md` "Sepolia"): `prove_service.py prove
 --level pile10 --player <your address> --shot=-604,-392 --watch`, then `deploy/sepolia.sh settle <job>`
-(that script needs the deployer's environment, so it is for the owner).
+(any funded account may send it; the record is the proof's player's).
 
 ### What each status means
 
@@ -139,16 +154,20 @@ You can also drive the same flow without the page (`docs/e2e.md` "Sepolia"): `pr
 |---|---|
 | `Connected 0x…` | wallet connected; nothing sent |
 | `Outputs for 0x…: inputs_hash …, final_state_hash …` | the outputs recomputed for the connected account (m11): what the proof and the settlement actually carry |
-| `Prove blocked: this prover service proves program 0x…, but the contract now accepts 0x… (re-pinned). …` | M6: the service's `child_program_hash` no longer matches the contract's `satellite_config()` (a rapier2d / c1main bump re-pinned it); ask the operator to point the service at the new `c1main`, or wait for it to be updated |
-| `Attested (proof verified)` / `WITHOUT a proof` | (Stub) the attestation service signed; the second form means it runs `--no-verify`: not trustworthy |
-| `Provisional (attested)` | (Stub) `submit` accepted: the record exists, `settled = false`; a later settlement upgrades it |
-| `Proving · …` | the prover service builds the PIE (about 2 min), then Atlantic proves it (trace, SHARP proof, L1 verification, bridge: about 1.5 h in total). The suffix is the service's own description |
-| `Proving · proof made for program 0x…, but the contract now accepts 0x…: it cannot be settled` | M6: the fact is on the Satellite, but the contract was re-pinned after this proof was made; a fresh proof under the new program is needed |
-| `Settle` / `Settle (cheap)` button | the fact is on the Satellite **and** the contract's program still matches: `Settle` uses the bridged keccak fact (more L2 gas), `Settle (cheap)` the translated Poseidon fact |
+| `Proofs blocked: this prover service proves engine release 0x…, which the contract no longer accepts (current 0x…). …` | M6: the service's `child_program_hash` is past its grace period or revoked on the contract; ask the operator to point the service at the new `c1main` |
+| `Attested (execute)` / `Attested (verify)` / `WITHOUT a replay` | the attestation service signed after re-executing the attempt, or after verifying your proof; the last form means it runs `--no-verify`: not trustworthy |
+| `Provisional record in 0x… (L2 gas …): your best …` | `submit` accepted: the record exists, `settled = false`, it is on the live board; a later settlement upgrades it |
+| `Provisional (attested) · …; you may close this page: the prover service settles it for you …` | the proof is being made and the service relays: nothing more to do |
+| `Provisional (attested) · …; the proof takes about 1.5 h; come back to this level to settle it` | the service does not relay: come back for **Settle** |
+| `Proving · …` | (Satellite-only deployment) the prover service builds the PIE (about 2 min), then Atlantic proves it (trace, SHARP proof, L1 verification, bridge: about 1.5 h in total). The suffix is the service's own description |
+| `… proof made with engine release 0x…, which the contract no longer accepts (current 0x…): it cannot be settled` | M6: the fact is on the Satellite, but this proof's program is past its grace period (or revoked); a fresh proof is needed |
+| `Settle` / `Settle (cheap)` button | the fact is on the Satellite **and** the proof's program is still accepted: `Settle` uses the bridged keccak fact (more L2 gas), `Settle (cheap)` the translated Poseidon fact |
 | `Settling in 0x…` | `submit_settled` sent, waiting for the receipt |
-| `Settled in 0x… (L2 gas …)` | accepted: `LevelValidated{settled: true}`, your best and the leaderboard are updated; replaces the line above, not appended to it (m14) |
-| `Submit failed: this exact attempt was already submitted at this tier` (`'submit: nullifier'`) | this exact attempt (level, player, inputs) was already submitted at this tier: change a shot, or it is already recorded |
-| `Settle failed: the contract refuses this program or fact (it may have been re-pinned to a newer one)` (`'submit: proof'`) | the evidence was refused: a stale program (M6 should have caught it earlier), or the fact is not on the Satellite yet |
+| `Settled by the relay in 0x…: your settled best …` | the service's relay settled it for you; your settled best and the settled board are updated |
+| `Settled in 0x…: your settled best …` | your own settle was accepted: `LevelValidated{settled: true}`; replaces the line above, not appended to it (m14) |
+| `Submit failed: this exact attempt was already submitted at this tier (perhaps by the relay)` (`'submit: nullifier'`) | this exact attempt (level, player, inputs) was already submitted at this tier: change a shot, or it is already recorded |
+| `Settle failed: the contract no longer accepts the engine release …` (`'submit: program'`) | the proof's program is past its grace period or revoked |
+| `… refuses this proof or attestation …` (`'submit: proof'`) | no such fact on the Satellite yet, or an expired or stale attestation (key rotated) |
 | `Wallet: cancelled in the wallet` | the wallet connection (or the transaction) was cancelled by the user |
 | `Wallet: …` / `Settle failed: …` (anything else) | the wallet's or the node's own message, unchanged: contract panics (`submit: *`) and cancellations are translated to plain words (m14), everything else keeps its raw text |
 
@@ -204,4 +223,5 @@ Look at:
 * **One record per attempt.** The contract's nullifier accepts one submission per (level, player, inputs)
   and tier (attested, then settled).
 * **Cost and delay.** About 0.4 STRK of gas for `submit_settled` with the keccak fact (less with the translated
-  one), and 1 to 1.5 hours between the proof request and the settle button.
+  one; paid by the relay's account when the service relays), and 1 to 1.5 hours between the proof request and
+  the settlement. The provisional record takes one attested `submit` (seconds of replay, one transaction).

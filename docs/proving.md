@@ -434,16 +434,23 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
 
 `c1main`'s `child_program_hash` (`atlantic.py program-hash`, cairo-lang's Pedersen
 `compute_program_hash_chain` over the compiled program's felts): pinned per release in
-`deploy/slingfall.ts`'s `CHILD_PROGRAM_HASH` and, for the Sepolia deployment, in
-`deploy/sepolia.json`'s `satellite.child_program_hash` (`deploy/sepolia.sh set-config`, one admin
-`set_satellite_config` transaction; the other three `SatelliteConfig` fields never change). A proof
-made against an earlier hash no longer settles once the contract is re-pinned: the fact commits to
-the exact program, so an old proof's `child_program_hash` no longer matches the pinned one.
+`deploy/slingfall.ts`'s `CHILD_PROGRAM_HASH`. On the v1 Sepolia deployment it is
+`deploy/sepolia.json`'s `satellite.child_program_hash` (one admin `set_satellite_config`
+transaction), and a proof made against an earlier hash no longer settles once the contract is
+re-pinned: the fact commits to the exact program.
 
-Contract v2 (lot V2, `docs/contract-v2.md`; not deployed yet) replaces the single pin with a set:
-`pin_program(hash, grace_s)` keeps the previous hash valid for `grace_s` seconds, `revoke_program(hash)`
-voids one at once, and `submit_settled(outputs, args, child_program_hash)` names the hash the proof was
-made with. A proof in flight across a re-pin therefore settles until the grace period ends (QA M7).
+Contract v2 (lot V2, `docs/contract-v2.md`; wired by lot W1, not deployed yet) replaces the single pin
+with a set: `pin_program(hash, grace_s)` keeps the previous hash valid for `grace_s` seconds,
+`revoke_program(hash)` voids one at once, and `submit_settled(outputs, args, child_program_hash)` names
+the hash the proof was made with. A proof in flight across a re-pin therefore settles until the grace
+period ends (QA M7). The scripts: a fresh deployment pins with no grace (`deploy/slingfall.ts deploy`:
+key, `pin_program(c1main, 0)`, Satellite, levels); a re-pin is `deploy/sepolia.sh pin HASH
+(--bit-compatible | --grace S | --no-grace) [--yes]` (the grace is always an explicit choice:
+`--bit-compatible` = 86 400 s for a release that gives the same outputs, `--no-grace` for a numeric
+change or a defect), a defect also `deploy/sepolia.sh revoke HASH`. Both warn and refuse without
+`--yes` while `services/prove/out` holds jobs not known to be settled (Q3's guard, now on `pin`).
+`deploy/e2e.sh` checks a re-pin with grace on the devnet: an old proof settles inside the window and
+is refused with `'submit: program'` after it.
 
 | rapier2d | lot | `c1main` felts | `child_program_hash` | pinned on Sepolia |
 |---|---|---:|---|---|
@@ -549,13 +556,21 @@ the account. The whole deployment (declare 22.9 STRK, deploy, configure, six lev
 
 ### Client / service flow
 
-1. The client plays the level with the browser VM (same Cairo) and gets the 10 outputs; it submits
-   them attested (`submit(outputs, [r, s])`, provisional) where an attestation service exists.
-2. The **prover service** (`services/prove/prove_service.py`; it holds the Atlantic API key, never the
-   browser) receives `POST /prove {level, inputs}`. Before anything else (M6, below), once its own
-   `child_program_hash` is known it is compared to the contract's `satellite_config()`; a mismatch
-   answers `409` at once instead of spending the run and Atlantic's ~1.5 h on a proof the contract has
-   already stopped accepting. It then runs `cairo1-run` on `c1main` (≈ 2 min for pile10
+Contract v2 (lot W1): "play → provisional record in seconds → proof requested in the background →
+settled by the relay or by the player"; the page need not stay open while the proof runs.
+
+1. The client plays the level with the browser VM (same Cairo) and gets the 10 outputs. It asks the
+   **attestation service** (`services/attest/attest.py serve --execute`) with the level, the inputs and
+   its outputs: the service re-executes the replay natively (`scarb execute`, seconds), signs
+   `verifier::attestation_message(chain_id, contract, program_hash, epoch, expiry, outputs)` when the
+   outputs match (epoch read from the contract, rate limited per player), and the player sends the
+   attested `submit(outputs, [program_hash, expiry, r, s])`: a provisional record and a row on
+   `leaderboard_provisional`. `--verify-cmd` stays for players who bring a proof.
+2. The page then requests the proof on its own. The **prover service** (`services/prove/prove_service.py`;
+   it holds the Atlantic API key, never the browser) receives `POST /prove {level, inputs}`. Before
+   anything else (M6, below), once its own `child_program_hash` is known it asks the contract
+   `program_valid_until(hash)`; a program past its grace or revoked answers `409` at once instead of
+   spending the run and Atlantic's ~1.5 h on a proof the contract will refuse. It then runs `cairo1-run` on `c1main` (≈ 2 min for pile10
    plus ≈ 90 s of Python Pedersen for the program hash, cached per Sierra), checks the outputs, computes
    both facts, submits the PIE with `result = PROOF_VERIFICATION_ON_L2` (`--result` also takes
    `…_WITH_TRANSLATION`), `declaredJobSize` M (run steps + 3.6M bootloader ≤ 8M) else L, `dedupId` =
@@ -564,19 +579,23 @@ the account. The whole deployment (declare 22.9 STRK, deploy, configure, six lev
 3. Latency on Sepolia: trace generation 40-100 s, SHARP proof + L1 verification ≈ 1.5 h, bridge ≈ 4
    min. `GET /status/<id>` answers Atlantic's stages and the Satellite's two reads: `settleable_poseidon`
    (translated fact, cheap), `settleable_keccak` (bridged fact only) and `settleable` (either) —
-   all three also require `program_match` (M6: the job's `program_hash` against the contract's current
-   `contract_program_hash`; `null` on either side never blocks, only a confirmed mismatch does), since a
-   fact that exists on the Satellite can no longer settle once the contract has been re-pinned away from
-   the program that produced it. `translation` describes what the service does about the Poseidon fact
-   (E3c, below).
-4. (Contract v2: anyone may send `submit_settled(outputs, args, child_program_hash)`, e.g. the service
-   as a relay; the program check becomes `program_valid_until(hash) > now` instead of equality with
-   the current pin; the attestation of step 1 is `[program_hash, expiry, r, s]` over
-   `verifier::attestation_message`; `docs/contract-v2.md`. The client and services still speak v1.)
-   The player sends `submit_settled(outputs, args)` from their wallet ("Settle (cheap)" when the
-   Poseidon fact is on the Satellite, else "Settle"; the contract itself tries the Poseidon fact first
-   and falls back to the keccak one); it recomputes and checks the fact (above). Nothing
-   Atlantic-specific is signed by the player.
+   all three also require `program_match` (M6: the job's `program_hash` is valid on the contract now,
+   `program_valid_until > now`; `null` never blocks, only a confirmed refusal does), since a fact that
+   exists on the Satellite can no longer settle once its program is past its grace period or revoked.
+   The Satellite read is the one of the contract's `satellite_config()`. `translation` describes what
+   the service does about the Poseidon fact (E3c, below); `relay` / `relayed` /
+   `relay_transaction_hash` what the relay did (step 4).
+4. Settling. Contract v2 records `submit_settled(outputs, args, child_program_hash)` for `claim.player`
+   whoever sends it. With `serve --relay` (off by default; the account of the environment pays, as for
+   the translations) the service sends it itself once the job is `settleable`, the attempt is not
+   settled yet (`attempt(...)`) and a `simulateTransaction` of it succeeds (at most 3 attempts, 5 min
+   apart; `relay.py` drives `deploy/slingfall.ts submit-settled [--simulate]`); `/status` then reports
+   `relayed` and the transaction hash, and the page shows the settled record without the player
+   signing anything. The player can still settle themselves ("Settle (cheap)" when the Poseidon fact is
+   on the Satellite, else "Settle"; the contract tries the Poseidon fact first and falls back to the
+   keccak one): whoever comes second reverts on `'submit: nullifier'`, and the relay then records
+   `settled` and sends nothing. `prove_service.py relay <job>` runs one pass now (`deploy/e2e.sh` uses
+   it with a third devnet account). Nothing Atlantic-specific is signed by the player.
 
 ### Program match (M6, M7): refusing a proof the contract will not accept
 
@@ -586,18 +605,20 @@ old program was in flight: the fact was valid on the Satellite, but `submit_sett
 `'submit: proof'` since the contract recomputes the expected fact from its *current* pin, not from
 whichever program actually produced the proof. Neither `/prove` nor `/status` checked this before.
 
-The service now reads `satellite_config()` (`SLINGFALL_ADDRESS`, else `deploy/sepolia.json`'s
-`address`; `STARKNET_RPC_URL`, cached 30 s; `--no-program-check` disables it) and compares it with
-its own `child_program_hash`, known once a run of this process has computed one (there is no way to
-derive it from the Sierra alone without running it once, so a freshly started service's very first
-job is not checked, nor is any job when the RPC read fails: the check only ever refuses a *confirmed*
-mismatch, never blocks on uncertainty). `POST /prove` answers `409 {"error", "program_hash",
-"contract_program_hash"}`; `GET /status/<id>` and `GET /health` carry the same three fields
-(`program_hash`, `contract_program_hash`, `program_match`) so the page can show both hashes and
-disable Prove with a clear sentence before a wasted click, not after an hour. `deploy/sepolia.sh
-set-config` itself now warns and refuses (needs `--yes`) when `services/prove/out` holds jobs that
-are not known to be settled, since re-pinning strands them the same way (M7's contract-side grace
-period for the previous hash is a separate lot).
+The service asks the contract (v2; `SLINGFALL_ADDRESS`, else `deploy/sepolia.json`'s `address`;
+`STARKNET_RPC_URL`, cached 30 s; `--no-program-check` disables it) `program_valid_until(own hash)`,
+`current_program()` and the latest block's timestamp, and calls its own `child_program_hash` valid
+while `valid_until > now`: the current program, or the previous one during its grace period. Its
+hash is known once a run of this process has computed one (there is no way to derive it from the
+Sierra alone without running it once, so a freshly started service's very first job is not checked,
+nor is any job when the RPC read fails: the check only ever refuses a *confirmed* invalid program,
+never blocks on uncertainty; a failed read keeps the last known answer). `POST /prove` answers `409
+{"error", "program_hash", "contract_program_hash", "program_valid_until", "program_match"}`; `GET
+/status/<id>` (for the job's own program) and `GET /health` carry the same fields so the page can
+disable Prove with a clear sentence before a wasted click, not after an hour. (Against the v1
+deployment, which has no `program_valid_until`, the reads fail and the check stays open.) The
+re-pin side is `deploy/sepolia.sh pin` with an explicit grace, guarded by the unsettled-jobs warning
+("Program hash history" above).
 
 ### Translation (E3c): the service translates the fact itself
 

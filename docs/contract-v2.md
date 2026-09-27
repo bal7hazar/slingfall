@@ -2,8 +2,9 @@
 
 Lot V2 (2026-09-27): the `Slingfall` contract of `crates/slingfall_contract/src/submit.cairo`, as research
 06 §2.1-2.3 designed it (`docs/research/06-fast-validation.md`), closing QA M7 and the contract half of S10 /
-S12 (`docs/qa/2026-09-26-mac.md`). Code only: nothing is declared or deployed by this lot, and the client,
-the services and `deploy/**` still speak v1 (the interface changes they must follow are listed below).
+S12 (`docs/qa/2026-09-26-mac.md`). Code only: nothing is declared or deployed by this lot. Lot W1 (same
+branch) wires the client, the services and `deploy/**` to v2 ("Wiring (lot W1)" below); a v2 deployment
+is a later lot.
 
 ## What changes
 
@@ -176,3 +177,21 @@ admin, cancellation, `upgrade` to a test class, attestation replays across contr
 attested tier not relayable, a player that is not an address), `settled.cairo` (the E3a facts on v2, both
 tiers without a verifier switch, `Satellite` closing `submit`), and `verifier.cairo` (the golden
 `attestation_message`, each field committed, the verifier's refusals).
+
+## Wiring (lot W1)
+
+What speaks v2 on this branch, and where each change of the interface lands:
+
+| v2 change | where |
+|---|---|
+| 3-field `SatelliteConfig`; a fresh deployment = key + `pin_program(c1main, 0)` + Satellite + levels | `deploy/slingfall.ts deploy` (`deploy/devnet.sh`, `deploy/sepolia.sh deploy`) |
+| `pin_program(hash, grace_s)` with an explicit grace (`--bit-compatible` = 86 400 s, else 0 / `--grace S`); `revoke_program`; the unsettled-jobs guard (Q3) on both | `deploy/slingfall.ts pin-program` / `revoke-program`, `deploy/sepolia.sh pin` / `revoke` |
+| `set_attestation_key` (epoch), two-step admin, `upgrade`, `set_expire_delay` | `deploy/slingfall.ts set-attestation-key` / `set-admin` / `accept-admin` / `upgrade` / `set-expire-delay`, `deploy/sepolia.sh` |
+| the attestation message and `[program_hash, expiry, r, s]` evidence; epoch read from the contract | `services/attest/attest.py` (`--execute` re-executes the replay; `--verify-cmd` kept; rate limit per player), `client/src/chain/attest.ts` |
+| `program_valid_until(hash) > now` instead of equality with the pin; `child_program_hash` in `submit_settled` | `services/prove/prove_service.py` (409, `/status`, `/health`), `client/src/chain/slingfall.ts`, `panel.ts` |
+| `submit_settled` for `claim.player` (relay) | `services/prove/relay.py` (`serve --relay`, `relay <job>`), `/status` `relayed` |
+| `Best` (7 felts), `best_settled`, `leaderboard` settled, `leaderboard_provisional`, `LevelValidated.program_hash`, `expire` | `client/src/chain/slingfall.ts` (`readBoards`), `panel.ts` (two boards, the release of each row), `deploy/slingfall.ts best --settled` / `leaderboard --provisional` / `boards` / `expire` |
+
+`deploy/e2e.sh` runs both tiers on the devnet: the attested submit (the service re-executing), a relayed
+settle by a third account, a re-pin with grace (an old proof settles inside the window, `'submit:
+program'` after it) and an expired provisional record (`docs/e2e.md`).
