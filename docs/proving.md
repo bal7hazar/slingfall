@@ -408,9 +408,12 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
    The committed runs (rapier2d alpha.2, 454 101 felts): `CHILD_PROGRAM_HASH =
    0x128791df23988bef1c8aef3be7ce36ad68278d19878369e5fb7ed2515d5b053` (Atlantic's `child_program_hash`,
    recomputed locally by `atlantic.py program-hash`). `c1main` on alpha.3 (B2, 459 803 felts):
-   `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` (Atlantic's, E3b's Sepolia run; the
-   `child_program_hash` of the Sepolia deployment). It changes with any
-   change to the game, the engine, `c1main` or the Cairo compiler: pin it per release.
+   `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` (Atlantic's, E3b's Sepolia run).
+   It changes with any change to the game, the engine, `c1main` or the Cairo compiler: pin it per
+   release ("Program hash history" below). The Sepolia deployment (`deploy/sepolia.json`) pins the
+   current release's hash, re-pinned by an admin `set_satellite_config` each bump: proofs made with
+   an earlier program's hash can no longer settle after a re-pin (by design — the fact commits to the
+   program that produced it).
 3. **Bootloader output** (Atlantic's bootloader, `ATLANTIC_BOOTLOADER_PROGRAM_HASH =
    0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09`, a 728-felt program):
    `output = [0, pedersen(0, 0), 1, len(task) + 2, CHILD_PROGRAM_HASH, task…]`; `pedersen(0, 0) =
@@ -426,6 +429,27 @@ Every step is re-derived by `tools/atlantic/encoding.py` and tested against the 
    (`integrityFactHash`). The D9 shape `poseidon(PROGRAM_HASH, output_hash)` holds with
    `PROGRAM_HASH = SHARP_BOOTLOADER_PROGRAM_HASH` and `output_hash` the Poseidon of the doubly
    bootloaded output.
+
+### Program hash history
+
+`c1main`'s `child_program_hash` (`atlantic.py program-hash`, cairo-lang's Pedersen
+`compute_program_hash_chain` over the compiled program's felts): pinned per release in
+`deploy/slingfall.ts`'s `CHILD_PROGRAM_HASH` and, for the Sepolia deployment, in
+`deploy/sepolia.json`'s `satellite.child_program_hash` (`deploy/sepolia.sh set-config`, one admin
+`set_satellite_config` transaction; the other three `SatelliteConfig` fields never change). A proof
+made against an earlier hash no longer settles once the contract is re-pinned: the fact commits to
+the exact program, so an old proof's `child_program_hash` no longer matches the pinned one.
+
+| rapier2d | lot | `c1main` felts | `child_program_hash` | pinned on Sepolia |
+|---|---|---:|---|---|
+| alpha.2 | E3a | 454 101 | `0x128791df23988bef1c8aef3be7ce36ad68278d19878369e5fb7ed2515d5b053` | no (E3a: local / Atlantic round trip only, before the Sepolia deployment) |
+| alpha.3 | B2 / E3b | 459 803 | `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` | 2026-09-26 (E3b's deployment) |
+| alpha.5 | B3 | 582 399 | `0x3f961b5c5b590fbc720048672b0ddeda96aa52ab16b56365f6d1583c5ed27ec` | 2026-09-27 (`set_satellite_config` tx `0x1f3652885aec68ea61add59bb3814dbd44e55669f8e5727d74c347dc28a1447`) |
+
+The felt count jumps 26.6 % from alpha.3 to alpha.5 (CC1 + CC2 + LO2 + SH2a: shape casts, the CCD
+solver, Polyline / HeightField), well past a rapier2d MINOR version's usual size drift; none of it
+runs on Slingfall's own shapes (D5: CCD stays off), consistent with `SlingfallSim`'s own Sierra size
+growing from 196 801 to 273 632 felts over the same bump (`scarb build`, `crates/slingfall_contract`).
 
 ### Contract side (E3b): `SatelliteVerifier`
 
