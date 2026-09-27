@@ -8,10 +8,20 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { LevelSession } from '../game/session';
 import { linesToTrace } from '../trace/lines';
 import type { TraceEvent, TraceFrame, TraceLevel } from '../trace/types';
+import { slingfallContactTick, traceLevelFromFelts } from './cut';
 import { BALL_DROP_LOAD, VmClient, WorkerTraceSource, type WorkerPort } from './index';
-import { DEFAULT_PLAYER, ballDropProgram, decodeOutputs, readChunkHeader, type BallDropLevel, type SlingfallInputs } from './program';
-import { serveVm, type WorkerScope } from './serve';
+import {
+  DEFAULT_PLAYER,
+  ballDropProgram,
+  decodeOutputs,
+  readChunkHeader,
+  type BallDropLevel,
+  type SlingfallInputs,
+  type SlingfallLevel,
+} from './program';
+import { serveVm, type ContactPredictor, type WorkerScope } from './serve';
 import { engineFromModule, runShot, type ChunkReport, type RunnerModule, type VmEngine } from './shot';
+import { DEFAULT_SIZING } from './sizing';
 
 const vm = (path: string) => fileURLToPath(new URL(`../../vm/${path}`, import.meta.url));
 const PKG_NODE = vm('pkg-node/slingfall_vm_runner.js');
@@ -40,8 +50,14 @@ const BALL_DROP_TRACE_LEVEL: TraceLevel = {
   ],
 };
 
+/** `worker.ts`'s predictors (lot Q2's contact cut). */
+const CONTACT: Record<string, ContactPredictor> = {
+  slingfall: (level, inputs, shot, state, poses) =>
+    slingfallContactTick(level as SlingfallLevel, inputs as SlingfallInputs, shot, state, poses),
+};
+
 /** A worker served in-process: messages cross as structured clones, in order, asynchronously. */
-function inProcessWorker(engine: VmEngine): WorkerPort {
+function inProcessWorker(engine: VmEngine, contact: Record<string, ContactPredictor> = CONTACT): WorkerPort {
   const port: WorkerPort = {
     onmessage: null,
     postMessage: (m) => setTimeout(() => scope.onmessage?.({ data: structuredClone(m) })),
@@ -51,7 +67,7 @@ function inProcessWorker(engine: VmEngine): WorkerPort {
     onmessage: null,
     postMessage: (m) => setTimeout(() => port.onmessage?.({ data: structuredClone(m) })),
   };
-  serveVm(scope, async () => engine);
+  serveVm(scope, async () => engine, undefined, contact);
   return port;
 }
 
@@ -239,5 +255,69 @@ describe.skipIf(!hasPkg)('slingfall replay on cairo-vm wasm (pkg-node)', () => {
       );
     },
     300_000,
+  );
+});
+
+/** `fixtures/golden/cases.json`'s cases: the shots and the outputs of `main` (the proof build). */
+interface GoldenCase {
+  case: string;
+  level: string;
+  shots: [number, number, number][];
+  outputs: string[];
+}
+const GOLDEN_CASES = (JSON.parse(readFileSync(root('fixtures/golden/cases.json'), 'utf8')).cases as { name: string }[]).map(
+  ({ name }) => JSON.parse(readFileSync(root(`fixtures/golden/${name}.json`), 'utf8')) as GoldenCase,
+);
+
+describe.skipIf(!hasPkg)('lot Q2: every golden through the worker, chunked with the contact cut', () => {
+  let engine: VmEngine;
+
+  beforeAll(() => {
+    const mod = createRequire(import.meta.url)(PKG_NODE) as RunnerModule;
+    engine = engineFromModule(mod, replay('step_chunk'), { init: replay('init'), outputs: replay('outputs') });
+  });
+
+  it('decodes the level felts as init prints them (the arc reads that level)', async () => {
+    const client = new VmClient(inProcessWorker(engine));
+    await client.ready;
+    for (const name of ['pile10', 'cores3', 'tower', 'bridge', 'twin', 'one_block']) {
+      const level = { felts: JSON.parse(readFileSync(root(`fixtures/levels/${name}.felts.json`), 'utf8')).felts as string[] };
+      const lines: string[] = [];
+      await client.init(level, { onLine: (l) => lines.push(l) });
+      const printed = linesToTrace(lines).level;
+      const decoded = traceLevelFromFelts(level.felts);
+      expect({ ...decoded, bodies: decoded.bodies.map((b) => ({ ...b, material: '' })) }).toEqual({
+        ...printed,
+        bodies: printed.bodies.map((b) => ({ ...b, material: '' })),
+      });
+    }
+  }, 120_000);
+
+  it.each(GOLDEN_CASES.map((g) => [g.case, g] as const))(
+    '%s: the outputs of main, no chunk beyond its reserve, no reserve beyond the floor',
+    async (_, golden) => {
+      const client = new VmClient(inProcessWorker(engine));
+      await client.ready;
+      const level = { felts: JSON.parse(readFileSync(root(`fixtures/levels/${golden.level}.felts.json`), 'utf8')).felts as string[] };
+      const shots = golden.shots.map(([pull_x, pull_y, delay]) => ({ pull_x, pull_y, delay }));
+      let state = (await client.init(level)).state;
+      const chunks: ChunkReport[][] = [];
+      for (let shot = 0; shot < shots.length && !readChunkHeader(state).over; shot++) {
+        const inputs = { player: DEFAULT_PLAYER, shots: shots.slice(0, shot + 1) };
+        const reports: ChunkReport[] = [];
+        state = (await client.shot({ level, inputs, shot, state }, { onChunk: (c) => reports.push(c) })).state;
+        chunks.push(reports);
+      }
+      const outputs = (await client.outputs(state, { player: DEFAULT_PLAYER, shots })).state;
+      expect(outputs.map((f) => BigInt(f))).toEqual(golden.outputs.map((f) => BigInt(f)));
+      // The execution segment never outgrows its reserve (no doubling), and every reserve is the
+      // same block (the ceiling): the worker stays at its plateau.
+      for (const c of chunks.flat()) {
+        expect(c.execCells).toBeLessThanOrEqual(c.reserveCells);
+        expect(c.reserveCells).toBeLessThanOrEqual(DEFAULT_SIZING.maxReserveCells!);
+      }
+      console.log(`${golden.case}: K per shot ${chunks.map((s) => `[${s.map((c) => c.ticks).join(' ')}]`).join(' ')}`);
+    },
+    600_000,
   );
 });

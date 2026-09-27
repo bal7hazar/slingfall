@@ -32,6 +32,28 @@ export interface ChunkSizing {
    * memory and absorbs a chunk whose steps per tick jump at the impact.
    */
   minReserveCells?: number;
+  /**
+   * Ceiling of the reserve, cells (lot Q2): K is lowered (to 1 at least) until the rule's reserve
+   * fits. Wasm memory never shrinks and a larger reserve cannot reuse the freed block: pile10's
+   * owner shot asked 5.20M cells once, for 4.02M used, and the worker grew from 352 to 510 MB.
+   * Equal to the floor, every chunk reserves the same segment and the worker stays at its first
+   * chunk's plateau.
+   */
+  maxReserveCells?: number;
+  /**
+   * Contact cut (lot Q2, QA M4): with a predicted contact tick (`ShotOptions.predictContact`), the
+   * flight chunk ends `contactLead` ticks before it, so that the impact opens a fresh chunk
+   * instead of running into a 20-tick chunk sized on flight ticks (4.5-7.9M cells against the 5M
+   * floor: the segment doubled, 611-681 MB of wasm).
+   */
+  contactLead?: number;
+  /**
+   * K of the chunks after the cut until one has met the impact, during `impactWatch` ticks at
+   * most (`ContactCut`). Their reserve is the floor, sized on the flight: it must hold
+   * `impactTicks` ticks of impact (pile10: ~480k cells on the contact tick, 300-450k after it).
+   */
+  impactTicks?: number;
+  impactWatch?: number;
 }
 
 export const DEFAULT_SIZING: ChunkSizing = {
@@ -42,6 +64,10 @@ export const DEFAULT_SIZING: ChunkSizing = {
   priorCellsPerTick: 700_000,
   reserveFactor: 1.25,
   minReserveCells: 5_000_000,
+  maxReserveCells: 5_000_000,
+  contactLead: 1,
+  impactTicks: 8,
+  impactWatch: 16,
 };
 
 /** What a finished chunk measured (execution segment cells, not all segments). */
@@ -81,6 +107,54 @@ export function planChunk(
   }
   ticks = Math.max(1, Math.min(ticks, remaining));
   const cellsPerTick = measured ? prev.execCells / prev.ticks : sizing.priorCellsPerTick;
+  if (fixedTicks === undefined && sizing.maxReserveCells !== undefined) {
+    const fits = Math.floor(sizing.maxReserveCells / (sizing.reserveFactor * cellsPerTick));
+    ticks = Math.max(1, Math.min(ticks, fits));
+  }
   const reserveCells = Math.max(Math.ceil(sizing.reserveFactor * cellsPerTick * ticks), sizing.minReserveCells ?? 0);
   return { ticks, reserveCells };
+}
+
+/** A chunk after the cut whose steps per tick reach this multiple of the flight's has met the impact. */
+const IMPACT_RATIO = 2;
+
+/**
+ * The contact cut of one shot's chunk loop (lot Q2), from the predicted contact tick counted from
+ * the loop's start state (1-based; `null`: none, no cap). The flight runs until `contactLead` ticks
+ * before the contact tick; from there, chunks run `impactTicks` at most until one of them has met
+ * the impact (steps per tick >= 2x the last flight chunk's) or `impactWatch` ticks have passed
+ * (a prediction too early: the bodies moved). After that, the rule alone, whose K the ceiling
+ * (`maxReserveCells`) sizes on the impact's measured cells.
+ */
+export class ContactCut {
+  private readonly cut: number | null;
+  private readonly sizing: ChunkSizing;
+  private flightStepsPerTick = Infinity;
+  private impact = false;
+
+  constructor(contact: number | null, sizing: ChunkSizing = DEFAULT_SIZING) {
+    this.sizing = sizing;
+    this.cut = contact === null || sizing.impactTicks === undefined ? null : Math.max(contact - 1 - (sizing.contactLead ?? 0), 0);
+  }
+
+  /**
+   * The most ticks the chunk starting `stepped` ticks after the start may run (`Infinity`: no
+   * cap). The caller passes `min(remaining, cap)` as `planChunk`'s `remaining`, so that the reserve
+   * follows the capped K.
+   */
+  cap(stepped: number): number {
+    const { cut, sizing } = this;
+    if (cut === null) return Infinity;
+    if (stepped < cut) return cut - stepped;
+    if (!this.impact && stepped < cut + (sizing.impactWatch ?? 0)) return sizing.impactTicks ?? Infinity;
+    return Infinity;
+  }
+
+  /** Records the chunk that started `stepped` ticks after the start. */
+  record(stepped: number, chunk: ChunkMeasure) {
+    if (this.cut === null || chunk.ticks === 0) return;
+    const stepsPerTick = chunk.steps / chunk.ticks;
+    if (stepped < this.cut) this.flightStepsPerTick = stepsPerTick;
+    else if (stepsPerTick >= IMPACT_RATIO * this.flightStepsPerTick) this.impact = true;
+  }
 }
