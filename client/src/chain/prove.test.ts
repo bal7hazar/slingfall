@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProgramMismatchError, describeJob, fetchHealth, proofStatus, requestProof, settleLabel, waitCheap, waitSettleable } from './prove';
+import { ProgramMismatchError, describeJob, fetchHealth, proofStatus, requestProof, settleLabel, waitCheap, waitRelayed, waitSettleable } from './prove';
 
 const JOB = {
   id: 'bcbdf222b4585dc0821f5b88135a3026',
@@ -41,7 +41,7 @@ describe('prover service client', () => {
     const seen: string[] = [];
     const sleep = vi.fn(async () => {});
     const job = await waitSettleable('u', JOB.id, (j) => seen.push(describeJob(j)), { fetchFn, sleep });
-    expect(job.settleable).toBe(true);
+    expect(job?.settleable).toBe(true);
     expect(sleep).toHaveBeenCalledTimes(2);
     expect(seen[0]).toContain('proving on Atlantic (IN_PROGRESS');
     expect(seen[2]).toContain('ready to settle');
@@ -91,13 +91,33 @@ describe('prover service client', () => {
     await expect(waitSettleable('u', JOB.id, () => {}, { fetchFn, sleep: async () => {} })).rejects.toThrow('cairo1-run: exit 1');
   });
 
-  it('decodes the program hashes (M6) and reports a mismatch in the status line', async () => {
-    const body = { ...JOB, program_hash: '0x1', contract_program_hash: '0x2', program_match: false };
+  it('decodes the program state (M6, v2 grace) and reports an invalid program in the status line', async () => {
+    const body = { ...JOB, program_hash: '0x1', contract_program_hash: '0x2', program_valid_until: 1000, program_match: false };
     const job = await proofStatus('u', 'x', answers([200, body]));
-    expect(job).toMatchObject({ programHash: '0x1', contractProgramHash: '0x2', programMatch: false });
-    expect(describeJob(job)).toBe('proof made for program 0x1, but the contract now accepts 0x2: it cannot be settled');
+    expect(job).toMatchObject({ programHash: '0x1', contractProgramHash: '0x2', programValidUntil: 1000n, programMatch: false });
+    expect(describeJob(job)).toBe('proof made with engine release 0x1, which the contract no longer accepts (current 0x2): it cannot be settled');
     const unknown = await proofStatus('u', 'x', answers([200, JOB]));
-    expect(unknown).toMatchObject({ programHash: null, contractProgramHash: null, programMatch: null });
+    expect(unknown).toMatchObject({ programHash: null, contractProgramHash: null, programValidUntil: null, programMatch: null, relayState: 'off', relayed: false });
+  });
+
+  it('decodes the relay (S10) and stops polling once relayed', async () => {
+    const waiting = { ...POSEIDON, relay: { state: 'waiting' }, relayed: false };
+    const relayed = { ...POSEIDON, relay: { state: 'relayed', transaction_hash: '0x5e7' }, relayed: true, relay_transaction_hash: '0x5e7' };
+    const job = await proofStatus('u', 'x', answers([200, relayed]));
+    expect(job).toMatchObject({ relayed: true, relayTransactionHash: '0x5e7', relayState: 'relayed' });
+    expect(describeJob(job)).toBe('settled on Starknet by the relay in 0x5e7');
+    // Relayed before the page saw it settleable: waitSettleable returns it at once.
+    expect((await waitSettleable('u', JOB.id, () => {}, { fetchFn: answers([200, { ...JOB, relayed: true }]), sleep: async () => {} }))?.relayed).toBe(true);
+    const fetchFn = answers([200, waiting], [200, { ...waiting, relay: { state: 'waiting', error: 'simulate: busy' } }], [200, relayed]);
+    const seen: string[] = [];
+    const done = await waitRelayed('u', JOB.id, (j) => seen.push(j.relayState), { fetchFn, sleep: async () => {} });
+    expect(done?.relayed).toBe(true);
+    expect(seen).toEqual(['waiting', 'waiting', 'relayed']);
+    const gaveUp = { ...waiting, relay: { state: 'gave-up', error: 'send: boom' } };
+    expect(await waitRelayed('u', JOB.id, () => {}, { fetchFn: answers([200, gaveUp]), sleep: async () => {} })).toMatchObject({
+      relayState: 'gave-up',
+      relayError: 'send: boom',
+    });
   });
 
   it('throws ProgramMismatchError on a 409 (M6)', async () => {
@@ -108,9 +128,20 @@ describe('prover service client', () => {
   });
 
   it('reads /health, including the program hashes once known', async () => {
-    const fetchFn = answers([200, { result: 'PROOF_VERIFICATION_ON_L2', submit: true, queued: 0, program_hash: '0x1', contract_program_hash: '0x1', program_match: true }]);
+    const fetchFn = answers([
+      200,
+      { result: 'PROOF_VERIFICATION_ON_L2', submit: true, queued: 0, program_hash: '0x1', contract_program_hash: '0x1', program_match: true, relay: '0xre1a7' },
+    ]);
     const health = await fetchHealth('http://prove/', fetchFn);
-    expect(health).toEqual({ result: 'PROOF_VERIFICATION_ON_L2', submit: true, queued: 0, programHash: '0x1', contractProgramHash: '0x1', programMatch: true });
+    expect(health).toEqual({
+      result: 'PROOF_VERIFICATION_ON_L2',
+      submit: true,
+      queued: 0,
+      programHash: '0x1',
+      contractProgramHash: '0x1',
+      programMatch: true,
+      relay: '0xre1a7',
+    });
     expect(vi.mocked(fetchFn).mock.calls[0][0]).toBe('http://prove/health');
   });
 });

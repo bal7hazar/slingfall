@@ -1,6 +1,8 @@
-// The `Slingfall` contract as the client and `deploy/slingfall.ts` use it (docs/DESIGN.md D9):
-// calldata of `submit` / `submit_settled`, reads of `best` / `leaderboard`, the `LevelValidated` event and the gas of
-// a receipt. Felts by hand (the ABI is small and its layout is API): no ABI file to keep in sync.
+// The `Slingfall` contract (v2, docs/contract-v2.md) as the client and `deploy/slingfall.ts` use it:
+// calldata of `submit` / `submit_settled` / `expire` and of the admin entry points, reads of the two
+// tiers (`best` / `best_settled`, `leaderboard` / `leaderboard_provisional`) and of the program set,
+// the `LevelValidated` event and the gas of a receipt. Felts by hand (the ABI is small and its
+// layout is API): no ABI file to keep in sync.
 // No DOM; Node runs this file as is (type stripping), so imports carry their `.ts` extension.
 import { hash, num, type Call } from 'starknet';
 
@@ -10,6 +12,10 @@ export const N_OUTPUTS = 10;
 export const OUTPUT_PLAYER = 3;
 /** `VerifierKind` variants (their `Serde` index). */
 export const VERIFIER = { snip36: 0, stub: 1, satellite: 2 } as const;
+/** `nullifier::*`: the tier of an attempt (`attempt`). */
+export const ATTEMPT = { none: 0, attested: 1, settled: 2 } as const;
+/** `programs[hash]` of the current program (`u64::MAX`). */
+export const FOREVER = 2n ** 64n - 1n;
 
 /** What reads need: `RpcProvider` / `Account` in the app, a fake in the tests. */
 export interface ChainReader {
@@ -22,14 +28,18 @@ export interface ChainWriter {
   execute(calls: Call | Call[]): Promise<{ transaction_hash: string }>;
 }
 
-/** `registry::Record`: a player's best validated attempt (all zero when none). */
+/** `registry::Best`: a player's best validated attempt of a tier (all zero when none). */
 export interface BestRecord {
   score: number;
   won: boolean;
   inputsHash: string;
   block: number;
+  /** Block timestamp of the submission (`expire` counts from it). */
+  timestamp: number;
   /** Validated by the Satellite fact (else provisional: an attestation). */
   settled: boolean;
+  /** The engine release the attempt was validated with (`c1main`'s program hash). */
+  programHash: string;
 }
 
 export interface LeaderboardRow {
@@ -37,7 +47,7 @@ export interface LeaderboardRow {
   score: number;
 }
 
-/** The `LevelValidated` event of an accepted `submit`. */
+/** The `LevelValidated` event of an accepted `submit` / `submit_settled`. */
 export interface LevelValidated {
   player: string;
   levelHash: string;
@@ -45,6 +55,14 @@ export interface LevelValidated {
   score: number;
   won: boolean;
   settled: boolean;
+  programHash: string;
+}
+
+/** `SatelliteConfig` (v2: three fields). */
+export interface SatelliteConfig {
+  atlantic_bootloader_hash: string;
+  sharp_bootloader_hash: string;
+  satellite_address: string;
 }
 
 /** Gas of a transaction (RPC 0.8+ `execution_resources`) and its fee. */
@@ -71,14 +89,42 @@ export function submitCalldata(outputs: readonly string[], evidence: readonly st
   return [hex(outputs.length), ...outputs.map(feltHex), hex(evidence.length), ...evidence.map(feltHex)];
 }
 
+/** `submit(outputs, evidence)`; the attested tier's evidence is `[program_hash, expiry, r, s]`. */
 export function submitCall(contract: string, outputs: readonly string[], evidence: readonly string[]): Call {
   return { contractAddress: contract, entrypoint: 'submit', calldata: submitCalldata(outputs, evidence) };
 }
 
-/** `submit_settled(outputs, args)`: the layout of `submit`, `c1main`'s argument in place of the evidence. */
-export function submitSettledCall(contract: string, outputs: readonly string[], args: readonly string[]): Call {
-  return { contractAddress: contract, entrypoint: 'submit_settled', calldata: submitCalldata(outputs, args) };
+/** `submit_settled(outputs, args, child_program_hash)`: the layout of `submit`, `c1main`'s argument in
+ * place of the evidence, then the program the run was proven with. */
+export function submitSettledCall(contract: string, outputs: readonly string[], args: readonly string[], childProgramHash: string): Call {
+  return { contractAddress: contract, entrypoint: 'submit_settled', calldata: [...submitCalldata(outputs, args), feltHex(childProgramHash)] };
 }
+
+/** `expire(level_hash, player)`: anyone may demote an unsettled provisional record older than `expire_delay`. */
+export function expireCall(contract: string, levelHash: string, player: string): Call {
+  return { contractAddress: contract, entrypoint: 'expire', calldata: [feltHex(levelHash), feltHex(player)] };
+}
+
+/** Admin calls of v2 (`ISlingfallAdmin`, `ISlingfallSatellite`, `ISlingfallGovernance`). */
+export const adminCalls = {
+  setVerifier: (contract: string, kind: number): Call => ({ contractAddress: contract, entrypoint: 'set_verifier', calldata: [hex(kind)] }),
+  setAttestationKey: (contract: string, key: string): Call => ({ contractAddress: contract, entrypoint: 'set_attestation_key', calldata: [feltHex(key)] }),
+  setSatelliteConfig: (contract: string, c: SatelliteConfig): Call => ({
+    contractAddress: contract,
+    entrypoint: 'set_satellite_config',
+    calldata: [feltHex(c.atlantic_bootloader_hash), feltHex(c.sharp_bootloader_hash), feltHex(c.satellite_address)],
+  }),
+  pinProgram: (contract: string, programHash: string, graceS: number | bigint): Call => ({
+    contractAddress: contract,
+    entrypoint: 'pin_program',
+    calldata: [feltHex(programHash), hex(BigInt(graceS))],
+  }),
+  revokeProgram: (contract: string, programHash: string): Call => ({ contractAddress: contract, entrypoint: 'revoke_program', calldata: [feltHex(programHash)] }),
+  setAdmin: (contract: string, admin: string): Call => ({ contractAddress: contract, entrypoint: 'set_admin', calldata: [feltHex(admin)] }),
+  acceptAdmin: (contract: string): Call => ({ contractAddress: contract, entrypoint: 'accept_admin', calldata: [] }),
+  upgrade: (contract: string, classHash: string): Call => ({ contractAddress: contract, entrypoint: 'upgrade', calldata: [feltHex(classHash)] }),
+  setExpireDelay: (contract: string, seconds: number): Call => ({ contractAddress: contract, entrypoint: 'set_expire_delay', calldata: [hex(seconds)] }),
+};
 
 /** A shot as the replay takes it (D3). */
 export interface ShotFelts {
@@ -104,14 +150,17 @@ export function registerLevelCall(contract: string, felts: readonly string[]): C
   return { contractAddress: contract, entrypoint: 'register_level', calldata: [hex(felts.length), ...felts.map(feltHex)] };
 }
 
+/** `Best` from its 7 felts: `score, won, inputs_hash, block, timestamp, settled, program_hash`. */
 export function decodeRecord(felts: readonly string[]): BestRecord {
-  if (felts.length !== 5) throw new Error(`best: ${felts.length} felts, expected 5`);
+  if (felts.length !== 7) throw new Error(`best: ${felts.length} felts, expected 7`);
   return {
     score: Number(BigInt(felts[0])),
     won: BigInt(felts[1]) === 1n,
     inputsHash: hex(felts[2]),
     block: Number(BigInt(felts[3])),
-    settled: BigInt(felts[4]) === 1n,
+    timestamp: Number(BigInt(felts[4])),
+    settled: BigInt(felts[5]) === 1n,
+    programHash: hex(felts[6]),
   };
 }
 
@@ -130,7 +179,8 @@ interface RawEvent {
   data: readonly string[];
 }
 
-/** The `LevelValidated` events of `contract` in a receipt (keys: selector, player, level_hash). */
+/** The `LevelValidated` events of `contract` in a receipt (keys: selector, player, level_hash; data:
+ * inputs_hash, score, won, settled, program_hash). */
 export function levelValidatedEvents(receipt: { events?: readonly RawEvent[] }, contract: string): LevelValidated[] {
   const from = BigInt(contract);
   return (receipt.events ?? [])
@@ -142,6 +192,7 @@ export function levelValidatedEvents(receipt: { events?: readonly RawEvent[] }, 
       score: Number(BigInt(e.data[1])),
       won: BigInt(e.data[2]) === 1n,
       settled: BigInt(e.data[3] ?? 0) === 1n,
+      programHash: hex(e.data[4] ?? 0),
     }));
 }
 
@@ -169,11 +220,14 @@ export function mentionsPanic(error: unknown, message: string): boolean {
 
 /** The contract's panic messages (`submit/errors.cairo`), in plain words for the panel. */
 const PANIC_SENTENCES: readonly [string, string][] = [
-  ['submit: proof', 'the contract refuses this program or fact (it may have been re-pinned to a newer one)'],
-  ['submit: nullifier', 'this exact attempt was already submitted at this tier'],
+  ['submit: program', 'the contract no longer accepts the engine release this attempt was made with (re-pinned past its grace period, or revoked)'],
+  ['submit: proof', 'the contract refuses this proof or attestation (no such fact on the Satellite, or an expired or stale attestation)'],
+  ['submit: nullifier', 'this exact attempt was already submitted at this tier (perhaps by the relay)'],
   ['submit: player', 'the outputs are not for the connected account'],
   ['submit: level', 'this level is not registered on this deployment'],
   ['submit: inactive', 'this level was deactivated on this deployment'],
+  ['expire: early', 'this provisional record is not old enough to expire yet'],
+  ['expire: none', 'there is no unsettled provisional record to expire'],
 ];
 
 /**
@@ -190,7 +244,7 @@ export function explainWalletError(error: unknown): string {
   return message;
 }
 
-/** Reads and the player's `submit` on one deployed `Slingfall`. */
+/** Reads and the player's submissions on one deployed `Slingfall` (v2). */
 export class SlingfallContract {
   readonly address: string;
   private readonly reader: ChainReader;
@@ -200,27 +254,83 @@ export class SlingfallContract {
     this.reader = reader;
   }
 
-  /** The deployed verifier (`VERIFIER`): Sepolia runs `satellite`, where only a settled proof is accepted. */
-  async verifier(): Promise<number> {
-    const [kind] = await this.reader.callContract({ contractAddress: this.address, entrypoint: 'verifier', calldata: [] });
-    return Number(BigInt(kind));
+  private call(entrypoint: string, calldata: string[] = []): Promise<string[]> {
+    return this.reader.callContract({ contractAddress: this.address, entrypoint, calldata });
   }
 
+  private async one(entrypoint: string, calldata: string[] = []): Promise<bigint> {
+    const [value] = await this.call(entrypoint, calldata);
+    return BigInt(value);
+  }
+
+  /** The deployed verifier (`VERIFIER`): `satellite` closes the attested tier (settled proofs only). */
+  async verifier(): Promise<number> {
+    return Number(await this.one('verifier'));
+  }
+
+  /** The best attempt of either tier. */
   async best(player: string, levelHash: string): Promise<BestRecord> {
-    return decodeRecord(await this.reader.callContract({ contractAddress: this.address, entrypoint: 'best', calldata: [feltHex(player), feltHex(levelHash)] }));
+    return decodeRecord(await this.call('best', [feltHex(player), feltHex(levelHash)]));
+  }
+
+  /** The best settled attempt. */
+  async bestSettled(player: string, levelHash: string): Promise<BestRecord> {
+    return decodeRecord(await this.call('best_settled', [feltHex(player), feltHex(levelHash)]));
+  }
+
+  /** The tier of an attempt (`ATTEMPT`). */
+  async attempt(levelHash: string, player: string, inputsHash: string): Promise<number> {
+    return Number(await this.one('attempt', [feltHex(levelHash), feltHex(player), feltHex(inputsHash)]));
   }
 
   /** The registered level's `Serde` felts (empty when unknown). */
   async levelData(levelHash: string): Promise<string[]> {
-    const felts = await this.reader.callContract({ contractAddress: this.address, entrypoint: 'level_data', calldata: [feltHex(levelHash)] });
+    const felts = await this.call('level_data', [feltHex(levelHash)]);
     return felts.slice(1).map(feltHex);
   }
 
+  /** The settled board: top 10 won `best_settled` records. */
   async leaderboard(levelHash: string): Promise<LeaderboardRow[]> {
-    return decodeLeaderboard(await this.reader.callContract({ contractAddress: this.address, entrypoint: 'leaderboard', calldata: [feltHex(levelHash)] }));
+    return decodeLeaderboard(await this.call('leaderboard', [feltHex(levelHash)]));
   }
 
-  /** Sends `submit(outputs, evidence)` from `account` (the outputs' `player` must be it). */
+  /** The live board: top 10 won `best` records, either tier. */
+  async leaderboardProvisional(levelHash: string): Promise<LeaderboardRow[]> {
+    return decodeLeaderboard(await this.call('leaderboard_provisional', [feltHex(levelHash)]));
+  }
+
+  /** The last pinned program (`0x0` when none or revoked). */
+  async currentProgram(): Promise<string> {
+    return hex(await this.one('current_program'));
+  }
+
+  /** Until when `programHash` is accepted (exclusive block timestamp; `FOREVER`, `0` never / revoked). */
+  async programValidUntil(programHash: string): Promise<bigint> {
+    return this.one('program_valid_until', [feltHex(programHash)]);
+  }
+
+  async attestationEpoch(): Promise<number> {
+    return Number(await this.one('attestation_epoch'));
+  }
+
+  async expireDelay(): Promise<number> {
+    return Number(await this.one('expire_delay'));
+  }
+
+  async admin(): Promise<string> {
+    return hex(await this.one('admin'));
+  }
+
+  async pendingAdmin(): Promise<string> {
+    return hex(await this.one('pending_admin'));
+  }
+
+  async satelliteConfig(): Promise<SatelliteConfig> {
+    const [a, s, satellite] = await this.call('satellite_config');
+    return { atlantic_bootloader_hash: hex(a), sharp_bootloader_hash: hex(s), satellite_address: hex(satellite) };
+  }
+
+  /** Sends the attested `submit(outputs, evidence)` from `account` (the outputs' `player` must be it). */
   async submit(account: ChainWriter, outputs: readonly string[], evidence: readonly string[]): Promise<string> {
     if (BigInt(outputs[OUTPUT_PLAYER]) !== BigInt(account.address)) {
       throw new Error(`outputs player ${feltHex(outputs[OUTPUT_PLAYER])} is not the account ${feltHex(account.address)}`);
@@ -229,14 +339,56 @@ export class SlingfallContract {
     return transaction_hash;
   }
 
-  /** Sends `submit_settled(outputs, args)` from `account` (the run's fact must be on the Satellite). */
-  async submitSettled(account: ChainWriter, outputs: readonly string[], args: readonly string[]): Promise<string> {
-    if (BigInt(outputs[OUTPUT_PLAYER]) !== BigInt(account.address)) {
-      throw new Error(`outputs player ${feltHex(outputs[OUTPUT_PLAYER])} is not the account ${feltHex(account.address)}`);
-    }
-    const { transaction_hash } = await account.execute(submitSettledCall(this.address, outputs, args));
+  /** Sends `submit_settled(outputs, args, child_program_hash)` from `account`: the record is the
+   * outputs' `player`'s whoever sends it (a relay may), once the run's fact is on the Satellite. */
+  async submitSettled(account: ChainWriter, outputs: readonly string[], args: readonly string[], childProgramHash: string): Promise<string> {
+    const { transaction_hash } = await account.execute(submitSettledCall(this.address, outputs, args, childProgramHash));
     return transaction_hash;
   }
+
+  /** Sends `expire(level_hash, player)` from `account`. */
+  async expire(account: ChainWriter, levelHash: string, player: string): Promise<string> {
+    const { transaction_hash } = await account.execute(expireCall(this.address, levelHash, player));
+    return transaction_hash;
+  }
+}
+
+/** A row of a tier's board with the record behind it: the engine release (`programHash`) and, on the
+ * live board, whether the row is settled. */
+export interface TierRow extends LeaderboardRow {
+  programHash: string;
+  settled: boolean;
+}
+
+export interface Boards {
+  /** `leaderboard`: settled records only. */
+  settled: TierRow[];
+  /** `leaderboard_provisional`: each player's best of either tier. */
+  provisional: TierRow[];
+  /** `current_program()`: rows made with another release are marked. */
+  currentProgram: string;
+}
+
+/** Both boards of a level, each row with the program of its record (`best_settled` for the settled
+ * board, `best` for the live one). */
+export async function readBoards(contract: SlingfallContract, levelHash: string): Promise<Boards> {
+  const [settledRows, provisionalRows, currentProgram] = await Promise.all([
+    contract.leaderboard(levelHash),
+    contract.leaderboardProvisional(levelHash),
+    contract.currentProgram().catch(() => '0x0'),
+  ]);
+  const withRecords = (rows: LeaderboardRow[], read: (player: string) => Promise<BestRecord>) =>
+    Promise.all(
+      rows.map(async (row) => {
+        const record = await read(row.player);
+        return { ...row, programHash: record.programHash, settled: record.settled };
+      }),
+    );
+  const [settled, provisional] = await Promise.all([
+    withRecords(settledRows, (p) => contract.bestSettled(p, levelHash)),
+    withRecords(provisionalRows, (p) => contract.best(p, levelHash)),
+  ]);
+  return { settled, provisional, currentProgram };
 }
 
 /** A felt as a short `0xabcdef01…1234` for display (full felt when it is short). */

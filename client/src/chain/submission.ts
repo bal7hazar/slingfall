@@ -1,13 +1,15 @@
-// The "Submit" step after a level (lot G9), without DOM: the outputs for the connected wallet,
-// the attestation of the service, `submit(outputs, [r, s])` through the wallet, the receipt
-// (gas, `LevelValidated`), then `best` and the leaderboard.
+// The attested "Submit" step after a level (lots G9, W1), without DOM: the outputs for the connected
+// wallet, the attestation of the service (it re-executes the replay), `submit(outputs, [program_hash,
+// expiry, r, s])` through the wallet, the receipt (gas, `LevelValidated`), then both records and both
+// boards. The attempt is then *provisional*; the settled tier follows (prove.ts, panel.ts).
 import type { Attestation } from './attest.ts';
 import {
   levelValidatedEvents,
+  readBoards,
   receiptGas,
   type BestRecord,
+  type Boards,
   type ChainWriter,
-  type LeaderboardRow,
   type LevelValidated,
   type SlingfallContract,
   type TxGas,
@@ -39,10 +41,13 @@ export type SubmissionStep =
 
 export interface SubmissionResult {
   transactionHash: string;
+  outputs: string[];
   gas: TxGas;
   validated: LevelValidated;
+  /** The player's best of either tier (now the provisional record, unless a better one stands). */
   best: BestRecord;
-  leaderboard: LeaderboardRow[];
+  bestSettled: BestRecord;
+  boards: Boards;
 }
 
 export async function submitLevel(deps: SubmissionDeps, onStep: (step: SubmissionStep) => void = () => {}): Promise<SubmissionResult> {
@@ -51,7 +56,7 @@ export async function submitLevel(deps: SubmissionDeps, onStep: (step: Submissio
   onStep({ kind: 'outputs', outputs });
   const attestation = await deps.attest(outputs);
   onStep({ kind: 'attested', attestation });
-  const transactionHash = await contract.submit(account, outputs, attestation.signature);
+  const transactionHash = await contract.submit(account, outputs, attestation.evidence);
   onStep({ kind: 'sent', transactionHash });
   const receipt = await deps.waitForReceipt(transactionHash);
   if (receipt.execution_status === 'REVERTED') throw new Error(`submit reverted: ${receipt.revert_reason ?? 'no reason'}`);
@@ -60,6 +65,10 @@ export async function submitLevel(deps: SubmissionDeps, onStep: (step: Submissio
   const gas = receiptGas(receipt);
   onStep({ kind: 'accepted', gas, validated });
   const levelHash = outputs[1];
-  const [best, leaderboard] = await Promise.all([contract.best(account.address, levelHash), contract.leaderboard(levelHash)]);
-  return { transactionHash, gas, validated, best, leaderboard };
+  const [best, bestSettled, boards] = await Promise.all([
+    contract.best(account.address, levelHash),
+    contract.bestSettled(account.address, levelHash),
+    readBoards(contract, levelHash),
+  ]);
+  return { transactionHash, outputs, gas, validated, best, bestSettled, boards };
 }

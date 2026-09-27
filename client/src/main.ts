@@ -11,7 +11,7 @@ import { Hud, hudAt } from './render/hud';
 import { Playback } from './render/playback';
 import { RecordedTraceSource } from './trace/source';
 import type { TraceEvent } from './trace/types';
-import { OUTPUT_FIELDS, type Outputs } from './vm/program';
+import { OUTPUT_FIELDS, decodeOutputs, type Outputs } from './vm/program';
 import { VmClient } from './vm/index';
 
 /** Levels served from `public/levels/` (copies of `fixtures/levels/`). */
@@ -102,6 +102,10 @@ async function main(): Promise<void> {
   // The Submit step (lot G9) when a deployed contract is configured (docs/e2e.md).
   const config = chainConfig();
   const submit = config ? new SubmitPanel(ui.result, config) : null;
+  /** m11: the connected account; the outputs table shows the outputs a proof will carry for it. */
+  let connected: string | null = null;
+  /** The finished level whose outputs the table shows. */
+  let finished: { s: LevelSession; gen: number; summary: string } | null = null;
   /** The network, the contract (Voyager) and the on-chain hash of the level being played. */
   const showChainInfo = (levelHash: string) => {
     if (config === null) return;
@@ -270,6 +274,26 @@ async function main(): Promise<void> {
     if (autoshots.length > 0) loop.release(autoshots.shift()!);
   };
 
+  /** The outputs table for `player` (m11: recomputed when a wallet connects after the level ended). */
+  const showOutputsFor = async (player: string) => {
+    const done = finished;
+    if (done === null || done.gen !== generation) return;
+    try {
+      const felts = await done.s.outputsFor(player);
+      if (done.gen !== generation) return;
+      ui.resultSummary.textContent = `${done.summary} · the outputs a proof will carry for ${shortFelt(player)}:`;
+      showOutputs(decodeOutputs(felts));
+    } catch (e) {
+      console.warn('outputs for the connected account', e);
+    }
+  };
+  if (submit) {
+    submit.onAccount = (player) => {
+      connected = player;
+      void showOutputsFor(player);
+    };
+  }
+
   const finish = async (s: LevelSession, gen: number) => {
     const r = s.result()!;
     console.log(`level over: ${r.won ? 'won' : 'lost'}, score ${r.score}, shots ${r.shotsUsed}, ticks ${r.ticks}`);
@@ -283,9 +307,12 @@ async function main(): Promise<void> {
       const outputs = await s.outputs();
       if (gen !== generation) return;
       console.log(`outputs (${(performance.now() - t).toFixed(0)} ms): ${OUTPUT_FIELDS.map((f) => outputs[f]).join(' ')}`);
-      ui.resultSummary.textContent = `Score ${r.score} · shots ${r.shotsUsed} · ${r.ticks} ticks · the outputs a proof will carry:`;
+      const summary = `Score ${r.score} · shots ${r.shotsUsed} · ${r.ticks} ticks`;
+      ui.resultSummary.textContent = `${summary} · the outputs a proof will carry:`;
       showOutputs(outputs);
-      submit?.offer((player) => s.outputsFor(player), (player) => inputsFelts(player, s.shots));
+      finished = { s, gen, summary };
+      if (connected !== null) void showOutputsFor(connected);
+      submit?.offer(outputs.level_hash, (player) => s.outputsFor(player), (player) => inputsFelts(player, s.shots));
     } catch (e) {
       ui.resultSummary.textContent = `Score ${r.score} · outputs failed: ${e instanceof Error ? e.message : e}`;
     }
