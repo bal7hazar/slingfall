@@ -12,9 +12,10 @@ use super::{
 
 /// Golden: `poseidon_hash_span` of the 3 001 `ChunkState` felts of `init_state(pile10())`, no
 /// length prefix, recomputed in Python (`tools/levelc/poseidon.py` on the felts `init` returns
-/// after its header, `scarb execute`; lot P1b).
+/// after its header, `scarb execute`; lot P1b). Regenerated for `WorldState` version 3 (lot B3,
+/// rapier2d alpha.5): the felt count is unchanged, only some of `RigidBody`'s cold-data felts are.
 const PILE10_INIT_STATE_HASH: felt252 =
-    0x30f69f404f602598bbd9c6c5154347898f17caf810bbb5aec7f6c0e17f708fc;
+    0x352efda9b1ca31538e5e08d2e0c1f70ed2a5cba6c20b43ea79974f9489cc9d7;
 
 /// `init_state`: version 1, nothing played, the level not over.
 #[test]
