@@ -54,7 +54,7 @@
 // args`) or a prover-service job (`{"level_hash", "inputs", "child_program_hash"?}`); the program
 // is `--child-hash`, else the job's, else the contract's `current_program()`. Any account may send
 // it (the record is `claim.player`'s: the relay of `services/prove`). `--simulate` only simulates
-// it (`simulateTransaction`) and prints `{simulated: true}`, failing like the transaction would.
+// it (`starknet_estimateFee`, which executes it unsent) and prints `{simulated: true}`, failing like the transaction would.
 // `fake-fact` registers facts on the devnet's `FakeSatellite`. `translate` (lot E3c) calls the
 // Satellite's permissionless `translateFactHash(program_hash, output, false)` (`--output`: Atlantic's
 // output of the run, `atlantic.py translate`); prints `{transaction_hash, integrity_fact_hash, gas}`.
@@ -418,14 +418,13 @@ async function cmdSubmitSettled(): Promise<void> {
   if (opt.simulate) {
     const expected = opt['expect-panic'];
     const call = submitSettledCall(address, outputs, args, program);
+    // `starknet_estimateFee` executes the transaction without sending it and fails with the
+    // revert reason when it would revert (the simulation the relay needs, M6).
     let reason: string | null = null;
     try {
-      const [simulation] = (await sender.simulateTransaction([{ type: 'INVOKE', payload: call }])) as unknown as {
-        transaction_trace?: { execute_invocation?: { revert_reason?: string } };
-      }[];
-      reason = simulation?.transaction_trace?.execute_invocation?.revert_reason ?? null;
+      await sender.estimateInvokeFee(call);
     } catch (e) {
-      reason = e instanceof Error ? e.message : String(e);
+      reason = `${e instanceof Error ? e.message : String(e)} ${String((e as { data?: unknown }).data ?? '')}`;
     }
     if (reason === null && !expected) return print({ simulated: true, child_program_hash: program });
     if (reason !== null && expected && mentionsPanic(new Error(reason), expected)) return print({ simulated: false, rejected: expected });

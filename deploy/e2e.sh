@@ -180,7 +180,7 @@ assert not r["settleable"] and r["relay"]["state"] == "waiting" and not r["relay
 print(f"e2e: relay waits while the fact is absent: {r['relay']}", file=sys.stderr)
 EOF
 register_fact a1
-relay >"$OUT/relay.json"
+relay >"$OUT/relay.json" || { echo "e2e: the relay did not settle:" >&2; cat "$OUT/relay.json" >&2; exit 1; }
 cli best --config "$CONFIG" --player "$PLAYER" --level "$PILE10" >"$OUT/best-relayed.json"
 cli best --config "$CONFIG" --player "$PLAYER" --level "$PILE10" --settled >"$OUT/best-settled.json"
 cli boards --config "$CONFIG" --level "$PILE10" >"$OUT/boards-settled.json"
