@@ -42,6 +42,8 @@ export class TraceBuffer {
   readonly slotOfHandle = new Map<number, number>();
   readonly handles: number[] = [];
   readonly columns: Column[] = [];
+  /** Slots below this one are the level's bodies; the others are pebbles. */
+  readonly levelSlotCount: number;
   ticks = new Int32Array(INITIAL_CAPACITY);
   frameCount = 0;
 
@@ -62,6 +64,7 @@ export class TraceBuffer {
         });
       }
     }
+    this.levelSlotCount = this.handles.length;
   }
 
   get slotCount(): number {
@@ -90,6 +93,23 @@ export class TraceBuffer {
       c.state[i] = body.asleep ? ASLEEP : AWAKE;
     }
     this.frameCount = i + 1;
+  }
+
+  /** Index of the last frame at or before `tick` (ticks only grow), -1 if none. */
+  frameAtTick(tick: number): number {
+    let lo = 0;
+    let hi = this.frameCount - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.ticks[mid] <= tick) {
+        found = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return found;
   }
 
   private slotFor(handle: number): number {

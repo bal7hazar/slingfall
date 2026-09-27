@@ -4,10 +4,10 @@ import type { Pull } from './aim/pull';
 import { chainConfig, explorerLink } from './chain/config';
 import { SubmitPanel } from './chain/panel';
 import { inputsFelts, shortFelt } from './chain/slingfall';
+import { ShotLoop } from './game/play';
 import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
 import { Hud, hudAt } from './render/hud';
-import { ArrivalRate, liveSpeed } from './render/live';
 import { Playback } from './render/playback';
 import { RecordedTraceSource } from './trace/source';
 import type { TraceEvent } from './trace/types';
@@ -22,6 +22,17 @@ const CONTROLS_HEIGHT = 44;
 const INSETS = { top: 0, bottom: CONTROLS_HEIGHT };
 /** The outputs a proof binds the player to (highlighted). */
 const PROOF_FIELDS = new Set(['inputs_hash', 'final_state_hash']);
+/** Phones, portrait or landscape: short hints, a collapsed result panel (style.css has the same query). */
+const NARROW = window.matchMedia('(max-width: 600px), (max-height: 500px)');
+
+/** Hints of the controls bar: [wide screen, narrow screen]. */
+const HINTS = {
+  aim: ['Drag the pebble to aim · arrow keys fine-tune (Shift ×10), Enter shoots', 'Drag the pebble'],
+  simulating: ['Simulating in Cairo…', 'Simulating…'],
+  showing: ['Playing the shot…', 'Playing…'],
+  over: ['Level over', 'Level over'],
+  recorded: ['Recorded trace: aiming does not shoot', 'Recorded trace'],
+} as const;
 
 function element<T extends HTMLElement>(selector: string): T {
   const found = document.querySelector<T>(selector);
@@ -34,6 +45,7 @@ const ui = {
   simulating: element('#simulating'),
   banner: element('#banner'),
   result: element('#result'),
+  resultToggle: element<HTMLButtonElement>('#result-toggle'),
   resultTitle: element('[data-result="title"]'),
   resultSummary: element('[data-result="summary"]'),
   resultOutputs: element<HTMLTableElement>('[data-result="outputs"]'),
@@ -47,16 +59,32 @@ const ui = {
   chainInfo: element('#chain-info'),
 };
 
-/** `?level=<name>` picks the level; `?autoshot=px,py;px,py` releases those pulls (headless checks). */
+/** `?level=<name>` picks the level; `?autoshot=px,py;px,py` releases those pulls by itself (headless checks). */
 const params = new URLSearchParams(location.search);
 
-/** The page's playback of one stage: live (frames arriving from the worker) or recorded. */
+let hint: readonly [string, string] = HINTS.aim;
+const setHint = (next: readonly [string, string]) => {
+  hint = next;
+  ui.hint.textContent = next[NARROW.matches ? 1 : 0];
+};
+NARROW.addEventListener('change', () => setHint(hint));
+
+/** The result panel folds to its title and summary (always folded at first on a narrow screen). */
+const foldResult = (folded: boolean) => {
+  ui.result.classList.toggle('folded', folded);
+  ui.resultToggle.textContent = folded ? 'Details' : 'Hide';
+  ui.resultToggle.setAttribute('aria-expanded', String(!folded));
+};
+ui.resultToggle.addEventListener('click', () => foldResult(!ui.result.classList.contains('folded')));
+
+/** The page's playback of one stage: live (a `ShotLoop` over the worker) or recorded. */
 interface View {
   stage: Stage;
   events: readonly TraceEvent[];
   shots: number;
-  /** The worker is producing frames for this view. */
-  producing: () => boolean;
+  /** Ticks the shots were released at (the HUD counts a released shot as spent). */
+  releases: readonly number[];
+  loop: ShotLoop | null;
 }
 
 async function main(): Promise<void> {
@@ -86,50 +114,60 @@ async function main(): Promise<void> {
     ui.chainInfo.hidden = false;
   };
   const playback = new Playback(() => view?.stage.buffer.frameCount ?? 0);
-  const rate = new ArrivalRate();
   let view: View | null = null;
+  const producing = () => view?.loop?.producing ?? false;
 
-  const refreshPlay = () => (ui.play.textContent = playback.playing ? 'Pause' : 'Play');
-  ui.play.addEventListener('click', () => {
-    playback.toggle();
+  /** Play / Pause from the real state: "Pause" only while the head moves or waits for frames. */
+  const refreshPlay = () => {
+    const label = playback.running(producing()) ? 'Pause' : 'Play';
+    if (ui.play.textContent !== label) ui.play.textContent = label;
+  };
+  const togglePlay = () => {
+    playback.toggle(producing());
     refreshPlay();
-  });
+  };
+  ui.play.addEventListener('click', togglePlay);
   ui.scrub.addEventListener('input', () => playback.seek(Number(ui.scrub.value)));
   window.addEventListener('keydown', (event) => {
-    if (event.code !== 'Space') return;
+    if (event.code !== 'Space' || (event.target as HTMLElement | null)?.tagName === 'INPUT') return;
     event.preventDefault();
-    playback.toggle();
-    refreshPlay();
+    togglePlay();
   });
 
   let shownFrame = -1;
+  let shownReleases = -1;
   app.ticker.add((ticker) => {
     if (view === null) return;
-    const { buffer, scene, effects } = view.stage;
+    const { stage } = view;
+    const { buffer } = stage;
+    if (view.loop !== null) {
+      view.loop.advance(ticker.deltaMS);
+    } else {
+      playback.speed = 1;
+      playback.advance(ticker.deltaMS);
+    }
     const now = performance.now();
-    const producing = view.producing();
-    playback.speed = liveSpeed(buffer.frameCount - 1 - playback.position, producing, rate.fps(now));
-    playback.advance(ticker.deltaMS);
+    stage.update(playback.position, ticker.deltaMS, now);
+    ui.simulating.hidden = !(producing() && playback.speed < 1);
+    refreshPlay();
     const frame = Math.floor(playback.position);
-    if (buffer.frameCount > 0) effects.advance(buffer.ticks[frame], frame, now);
-    scene.update(playback.position, effects, now);
-    ui.simulating.hidden = !(producing && playback.speed < 1);
-    if (frame !== shownFrame && buffer.frameCount > 0) {
+    if ((frame !== shownFrame || view.releases.length !== shownReleases) && buffer.frameCount > 0) {
       shownFrame = frame;
+      shownReleases = view.releases.length;
       const tick = buffer.ticks[frame];
-      hud.set(hudAt(view.events, view.shots, tick), tick, buffer.ticks[buffer.frameCount - 1]);
+      hud.set(hudAt(view.events, view.shots, tick, view.releases), tick, buffer.ticks[buffer.frameCount - 1]);
       ui.scrub.max = String(playback.lastFrame);
       ui.scrub.value = String(frame);
     }
   });
 
   const show = (next: View) => {
+    view?.loop?.dispose();
     view?.stage.destroy();
     view = next;
     playback.position = 0;
     playback.playing = true;
     shownFrame = -1;
-    rate.reset();
     refreshPlay();
   };
 
@@ -143,11 +181,12 @@ async function main(): Promise<void> {
     ui.banner.textContent = `VM not built (${e instanceof Error ? e.message : e}): run client/vm/scripts/build.sh. Playing the recorded pile10 trace.`;
     ui.banner.hidden = false;
     ui.level.disabled = ui.retry.disabled = true;
-    ui.hint.textContent = 'Recorded trace: aiming does not shoot';
+    setHint(HINTS.recorded);
     const source = new RecordedTraceSource(TRACE_URL);
     const level = await source.level(); // loads the whole trace: `source.events` is complete
-    const stage = new Stage(app, level, source.events, INSETS, () => {});
-    show({ stage, events: source.events, shots: level.shots, producing: () => false });
+    const stage = new Stage(app, level, source.events, { insets: INSETS, onAim: (p) => hud.setPull(p), onRelease: () => {} });
+    stage.armed = false;
+    show({ stage, events: source.events, shots: level.shots, releases: [], loop: null });
     for await (const frame of source.frames()) stage.buffer.push(frame);
     return;
   }
@@ -163,55 +202,72 @@ async function main(): Promise<void> {
 
   let session: LevelSession | null = null;
   let generation = 0;
+  /** The last pull released: the arrow keys start from it after a Retry. */
+  let lastPull: Pull | undefined;
+  const setLeaving = (allowed: boolean) => (ui.retry.disabled = ui.level.disabled = !allowed);
 
   const begin = (s: LevelSession) => {
     generation++;
+    const gen = generation;
     s.reset();
     ui.result.hidden = true;
     submit?.hide();
-    const stage = new Stage(app, s.traceLevel, s.events, INSETS, (pull) => void fire(s, pull));
+    let loop: ShotLoop | null = null;
+    const stage = new Stage(app, s.traceLevel, s.events, {
+      insets: INSETS,
+      keys: window,
+      initialPull: lastPull,
+      onAim: (pull) => hud.setPull(pull),
+      onRelease: (pull) => {
+        if (loop?.release(pull)) lastPull = pull;
+      },
+    });
     stage.buffer.push(s.startFrame());
-    show({ stage, events: s.events, shots: s.traceLevel.shots, producing: () => s.phase === 'flying' });
-    ui.hint.textContent = 'Drag from the sling to aim';
-    if (autoshots.length > 0) void fire(s, autoshots.shift()!);
-  };
-
-  const fire = async (s: LevelSession, pull: Pull) => {
-    const stage = view!.stage;
-    const gen = generation;
-    stage.armed = false;
-    ui.retry.disabled = ui.level.disabled = true;
-    ui.hint.textContent = 'Simulating in Cairo…';
-    console.log(`shot ${s.shots.length}: release, pull (${pull.x}, ${pull.y})`);
-    try {
-      const report = await s.fire(pull, {
-        onFrame: (frame) => {
-          rate.push(performance.now());
-          if (gen === generation) stage.buffer.push(frame);
-        },
-      });
-      const worst = Math.max(...report.chunks.map((c) => c.wasmBytes)) / 2 ** 20;
-      console.log(
-        `shot ${report.shot}: first frame ${report.firstFrameMs?.toFixed(0)} ms, ${report.ticks} ticks, ` +
-          `${(report.steps / 1e6).toFixed(2)}M steps, ${(report.ms / 1000).toFixed(2)} s, ` +
-          `${report.chunks.length} chunks [${report.chunks.map((c) => c.ticks).join(' ')}], wasm ${worst.toFixed(0)} MB; ` +
-          `score ${s.header.score}, tick ${s.header.tick}`,
-      );
-    } catch (e) {
-      console.error(e);
-      ui.banner.textContent = `shot failed: ${e instanceof Error ? e.message : e}`;
-      ui.banner.hidden = false;
-    }
-    ui.retry.disabled = ui.level.disabled = false;
-    if (gen !== generation) return;
-    if (s.phase === 'over') {
-      ui.hint.textContent = 'Level over';
-      void finish(s, gen);
-    } else {
-      stage.armed = true;
-      ui.hint.textContent = 'Drag from the sling to aim';
-      if (autoshots.length > 0) void fire(s, autoshots.shift()!);
-    }
+    loop = new ShotLoop(s, stage.buffer, playback, {
+      released: (pull) => {
+        stage.armed = false;
+        setLeaving(false);
+        setHint(HINTS.simulating);
+        hud.setPull(pull);
+        console.log(`shot ${s.shots.length - 1}: release, pull (${pull.x}, ${pull.y})`);
+      },
+      produced: (report) => {
+        const worst = Math.max(...report.chunks.map((c) => c.wasmBytes)) / 2 ** 20;
+        console.log(
+          `shot ${report.shot}: first frame ${report.firstFrameMs?.toFixed(0)} ms, ${report.ticks} ticks, ` +
+            `${(report.steps / 1e6).toFixed(2)}M steps, ${(report.ms / 1000).toFixed(2)} s, ` +
+            `${report.chunks.length} chunks [${report.chunks.map((c) => c.ticks).join(' ')}], wasm ${worst.toFixed(0)} MB; ` +
+            `score ${s.header.score}, tick ${s.header.tick}`,
+        );
+        setLeaving(true);
+        setHint(HINTS.showing);
+        // The outputs run while the playback catches up; the panel shows them once it has.
+        if (s.phase === 'over') void s.outputs().catch(() => {});
+      },
+      failed: (e) => {
+        console.error(e);
+        ui.banner.textContent = `shot failed: ${e instanceof Error ? e.message : e}`;
+        ui.banner.hidden = false;
+        setLeaving(true);
+        stage.armed = true;
+        setHint(HINTS.aim);
+      },
+      armed: () => {
+        stage.armed = true;
+        hud.setPull(undefined);
+        setHint(HINTS.aim);
+        console.log(`shot ${s.shots.length - 1}: shown`);
+        if (autoshots.length > 0) loop?.release(autoshots.shift()!);
+      },
+      over: () => {
+        setHint(HINTS.over);
+        void finish(s, gen);
+      },
+    });
+    show({ stage, events: s.events, shots: s.traceLevel.shots, releases: s.releases, loop });
+    hud.setPull(undefined);
+    setHint(HINTS.aim);
+    if (autoshots.length > 0) loop.release(autoshots.shift()!);
   };
 
   const finish = async (s: LevelSession, gen: number) => {
@@ -220,6 +276,7 @@ async function main(): Promise<void> {
     ui.resultTitle.textContent = r.won ? 'Level won' : 'Level lost';
     ui.resultSummary.textContent = `Score ${r.score} · shots ${r.shotsUsed} · ${r.ticks} ticks · outputs: computing…`;
     ui.resultOutputs.replaceChildren();
+    foldResult(NARROW.matches);
     ui.result.hidden = false;
     try {
       const t = performance.now();
@@ -258,22 +315,24 @@ async function main(): Promise<void> {
     );
     setTimeout(() => (ui.copyInputs.textContent = 'Copy inputs'), 1500);
   });
+  /** Retry: allowed once the worker is idle, even while the playback still shows the last shot. */
   const retry = () => {
-    if (session !== null && session.phase !== 'flying') begin(session);
+    if (session !== null && (view?.loop?.canLeave ?? true) && session.phase !== 'flying') begin(session);
   };
   ui.retry.addEventListener('click', retry);
   ui.retryResult.addEventListener('click', retry);
 
   const open = async (name: string) => {
-    ui.level.disabled = ui.retry.disabled = true;
-    ui.hint.textContent = `Loading ${name}…`;
+    setLeaving(false);
+    setHint([`Loading ${name}…`, `Loading ${name}…`]);
     const doc = (await (await fetch(`${BASE}levels/${name}.felts.json`)).json()) as { felts: string[]; level_hash: string };
     showChainInfo(doc.level_hash);
     const t = performance.now();
     session = await LevelSession.open(vm, { felts: doc.felts });
     console.log(`level ${name}: init in ${(performance.now() - t).toFixed(0)} ms, ${session.traceLevel.bodies.length} bodies`);
     ui.level.value = name;
-    ui.level.disabled = ui.retry.disabled = false;
+    setLeaving(true);
+    lastPull = undefined;
     begin(session);
   };
   ui.level.addEventListener('change', () => void open(ui.level.value));

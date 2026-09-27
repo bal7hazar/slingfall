@@ -8,16 +8,22 @@
   </head>
   <body>
     <div id="app"></div>
-    <div id="hud" class="hud">
-      <span>Score <b data-hud="score">0</b></span>
-      <span>Shots <b data-hud="shots">0</b></span>
-      <span>Tick <b data-hud="tick">0 / 0</b></span>
-      <span id="simulating" class="simulating" hidden>simulating…</span>
+    <div class="top">
+      <div id="hud" class="hud">
+        <span>Score <b data-hud="score">0</b></span>
+        <span>Shots <b data-hud="shots">0</b></span>
+        <span>Tick <b data-hud="tick">0 / 0</b></span>
+        <span>Pull <b data-hud="pull">–</b></span>
+        <span id="simulating" class="simulating" hidden>simulating…</span>
+      </div>
+      <div id="chain-info" class="chain-info" hidden></div>
     </div>
-    <div id="chain-info" class="chain-info" hidden></div>
     <div id="banner" class="banner" hidden></div>
     <div id="result" class="result" hidden>
-      <h2 data-result="title"></h2>
+      <div class="result-head">
+        <h2 data-result="title"></h2>
+        <button id="result-toggle" type="button" aria-controls="result" aria-expanded="true">Hide</button>
+      </div>
       <p data-result="summary"></p>
       <table data-result="outputs"></table>
       <div class="result-buttons">
@@ -28,9 +34,9 @@
     <div id="controls" class="controls">
       <select id="level" aria-label="Level"></select>
       <button id="retry" type="button">Retry</button>
-      <button id="play" type="button">Pause</button>
+      <button id="play" type="button">Play</button>
       <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub" />
-      <span id="hint" class="hint">Drag from the sling to aim</span>
+      <span id="hint" class="hint"></span>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

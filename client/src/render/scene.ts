@@ -120,6 +120,8 @@ export class Scene {
       let f = i;
       let g = j;
       let alpha = 1;
+      // A spent pebble (its shot ended) is gone like a destroyed body (D5).
+      if (effects !== undefined && effects.spent(slot, i)) state = ABSENT;
       if (state === ABSENT && effects !== undefined) {
         // A destroyed body stays at its last pose while it fades.
         alpha = effects.fade(slot, now);

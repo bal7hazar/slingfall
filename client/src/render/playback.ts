@@ -34,9 +34,23 @@ export class Playback {
     this.position = Math.min(Math.max(position, 0), this.lastFrame);
   }
 
-  /** Play/pause; playing again from the end restarts the trace. */
-  toggle(): void {
-    if (!this.playing && this.atEnd) this.position = 0;
-    this.playing = !this.playing;
+  /**
+   * Whether the head actually moves or waits for frames on their way: playing, and either before
+   * the last frame or with a `producing` source. At the end of what exists (after a shot, after
+   * Retry, before the first shot) it is not running, whatever `playing` says. The Play / Pause
+   * label reads this.
+   */
+  running(producing = false): boolean {
+    return this.playing && (producing || !this.atEnd);
+  }
+
+  /** Play/pause; playing from the end of a finished source restarts the trace. */
+  toggle(producing = false): void {
+    if (this.running(producing)) {
+      this.playing = false;
+      return;
+    }
+    if (this.atEnd && !producing) this.position = 0;
+    this.playing = true;
   }
 }
