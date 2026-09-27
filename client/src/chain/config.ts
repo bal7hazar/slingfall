@@ -15,6 +15,12 @@ export interface ChainConfig {
   proveUrl: string | null;
   /** Devnet only (never offered on a public network): a prefunded account the page signs with itself. */
   devnetAccount: { address: string; privateKey: string } | null;
+  /**
+   * `VITE_DEPLOY_BLOCK`: the block of the contract's deployment transaction, so that `getEvents`
+   * (the player's `LevelValidated` history) pages from there instead of genesis (m10: the public
+   * RPC takes ~26 s, or fails, scanning from block 0). `0` when unset (devnet: genesis is cheap).
+   */
+  deployBlock: number;
 }
 
 type Env = Record<string, string | boolean | undefined>;
@@ -48,6 +54,7 @@ export function chainConfig(env: Env = import.meta.env): ChainConfig | null {
     attestUrl: get('VITE_ATTEST_URL') ?? 'http://127.0.0.1:8547',
     proveUrl: get('VITE_PROVE_URL') ?? null,
     devnetAccount: network === 'devnet' && devAddress && devKey ? { address: devAddress, privateKey: devKey } : null,
+    deployBlock: Number(get('VITE_DEPLOY_BLOCK') ?? 0),
   };
 }
 

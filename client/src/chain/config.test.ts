@@ -39,7 +39,14 @@ describe('client/.env.sepolia', () => {
   });
 
   it('holds no secret', () => {
-    expect(Object.keys(env).sort()).toEqual(['VITE_ATTEST_URL', 'VITE_NETWORK', 'VITE_PROVE_URL', 'VITE_SLINGFALL_ADDRESS', 'VITE_STARKNET_RPC_URL']);
+    expect(Object.keys(env).sort()).toEqual([
+      'VITE_ATTEST_URL', 'VITE_DEPLOY_BLOCK', 'VITE_NETWORK', 'VITE_PROVE_URL', 'VITE_SLINGFALL_ADDRESS', 'VITE_STARKNET_RPC_URL',
+    ]);
+  });
+
+  it('pins the deployment block for getEvents paging (m10)', () => {
+    expect(Number(env.VITE_DEPLOY_BLOCK)).toBeGreaterThan(0);
+    expect(config.deployBlock).toBe(Number(env.VITE_DEPLOY_BLOCK));
   });
 
   it('serves the levels registered on Sepolia, under the hashes it registered', () => {
@@ -74,8 +81,13 @@ describe('chainConfig', () => {
     expect(config.rpcUrl).toBe('http://127.0.0.1:5050/rpc');
     expect(config.explorerUrl).toBeNull();
     expect(config.devnetAccount).toEqual({ address: '0x1', privateKey: '0x2' });
+    expect(config.deployBlock).toBe(0);
     expect(walletKinds(config)).toEqual(['devnet', 'cartridge', 'get-starknet']);
     expect(explorerLink(config, 'tx', '0x1')).toBeNull();
+  });
+
+  it('reads VITE_DEPLOY_BLOCK when given', () => {
+    expect(chainConfig({ ...base, VITE_DEPLOY_BLOCK: '15666652' })!.deployBlock).toBe(15666652);
   });
 
   it('prefers VITE_STARKNET_RPC_URL to VITE_RPC_URL (the devnet.sh name)', () => {
@@ -120,7 +132,32 @@ describe('reads for the Sepolia panel', () => {
     ]);
     expect(filters).toHaveLength(2);
     expect(filters[0]).toMatchObject({ address: '0x5afe', keys: [[LEVEL_VALIDATED], [feltHex('0x59b')]] });
+    expect(filters[0]).toMatchObject({ from_block: { block_number: 0 } });
     expect(filters[1]).toMatchObject({ continuation_token: 'next' });
+  });
+
+  it('pages from fromBlock (m10), not genesis, when given', async () => {
+    const found = await playerValidations({ getEvents: async () => ({ events: [] }) }, '0x5afe', '0x59b', { fromBlock: 15666652 });
+    expect(found).toEqual([]);
+  });
+
+  it('retries a failed page once before giving up (m10)', async () => {
+    let calls = 0;
+    const reader = {
+      getEvents: async () => {
+        calls++;
+        if (calls === 1) throw new Error('-32701 broker: node error');
+        return { events: [{ transaction_hash: '0x1' }] };
+      },
+    };
+    const found = await playerValidations(reader, '0x5afe', '0x59b');
+    expect(found).toEqual([{ transactionHash: '0x1', blockNumber: null }]);
+    expect(calls).toBe(2);
+  });
+
+  it('gives up after the retry and throws (m10: the "unavailable" state)', async () => {
+    const reader = { getEvents: async () => { throw new Error('-32701 broker: node error'); } };
+    await expect(playerValidations(reader, '0x5afe', '0x59b')).rejects.toThrow('broker: node error');
   });
 
   it('shortens a felt for display', () => {

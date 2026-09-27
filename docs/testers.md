@@ -112,13 +112,22 @@ then start the client with `VITE_PROVE_URL=http://127.0.0.1:8549` (in `client/.e
 git-ignored file with the single line `VITE_PROVE_URL=http://127.0.0.1:8549`, or exported in the shell
 before `npm run dev:sepolia`). Then:
 
-1. finish a level, **Connect**, press **Prove (settled)**. The page recomputes the outputs for your
-   account and posts `POST /prove {level, inputs}`; the job id is a hash of level, inputs and program,
-   so pressing again (or reloading and repeating the same attempt) reuses the job;
-2. keep the page open: it polls `GET /status/<id>` every minute (the service also survives a restart);
-3. when the fact is on the Satellite the panel shows **Settle** (or **Settle (cheap)** once the Poseidon
-   fact exists) - press it and confirm in the wallet. `submit_settled(outputs, args)` reads the level
-   back from the registry, checks the fact and records the attempt as *settled*.
+1. finish a level, **Connect**. The panel recomputes and shows the outputs for *your* account under
+   "Submit on Starknet" (`inputs_hash`, `final_state_hash`) — the table above it, from before you
+   connected, still shows the default player's and is not what gets submitted;
+2. press **Prove (settled)**: the page posts `POST /prove {level, inputs}`; the job id is a hash of
+   level, inputs and program, so pressing again (or reloading and repeating the same attempt) reuses
+   the job. Before doing anything else the service checks its own `child_program_hash` against the
+   contract's `satellite_config()` (M6): if a re-pin (a rapier2d / c1main bump such as B3) has moved
+   the contract on since this service last proved, it refuses at once with `409` and both hashes,
+   instead of spending ~1.5 h of Atlantic on a proof the contract will not settle; the panel already
+   reads the same two hashes from `GET /health` when the page loads and disables **Prove (settled)**
+   up front when they differ, with both hashes in the message;
+3. keep the page open: it polls `GET /status/<id>` every minute (the service also survives a restart);
+4. when the fact is on the Satellite **and** the contract's program still matches the one the service
+   proved, the panel shows **Settle** (or **Settle (cheap)** once the Poseidon fact exists) - press it
+   and confirm in the wallet. `submit_settled(outputs, args)` reads the level back from the registry,
+   checks the fact and records the attempt as *settled*.
 
 You can also drive the same flow without the page (`docs/e2e.md` "Sepolia"): `prove_service.py prove
 --level pile10 --player <your address> --shot=-604,-392 --watch`, then `deploy/sepolia.sh settle <job>`
@@ -129,15 +138,19 @@ You can also drive the same flow without the page (`docs/e2e.md` "Sepolia"): `pr
 | shown | meaning |
 |---|---|
 | `Connected 0x…` | wallet connected; nothing sent |
+| `Outputs for 0x…: inputs_hash …, final_state_hash …` | the outputs recomputed for the connected account (m11): what the proof and the settlement actually carry |
+| `Prove blocked: this prover service proves program 0x…, but the contract now accepts 0x… (re-pinned). …` | M6: the service's `child_program_hash` no longer matches the contract's `satellite_config()` (a rapier2d / c1main bump re-pinned it); ask the operator to point the service at the new `c1main`, or wait for it to be updated |
 | `Attested (proof verified)` / `WITHOUT a proof` | (Stub) the attestation service signed; the second form means it runs `--no-verify`: not trustworthy |
 | `Provisional (attested)` | (Stub) `submit` accepted: the record exists, `settled = false`; a later settlement upgrades it |
 | `Proving · …` | the prover service builds the PIE (about 2 min), then Atlantic proves it (trace, SHARP proof, L1 verification, bridge: about 1.5 h in total). The suffix is the service's own description |
-| `Settle` / `Settle (cheap)` button | the fact is on the Satellite: `Settle` uses the bridged keccak fact (more L2 gas), `Settle (cheap)` the translated Poseidon fact |
+| `Proving · proof made for program 0x…, but the contract now accepts 0x…: it cannot be settled` | M6: the fact is on the Satellite, but the contract was re-pinned after this proof was made; a fresh proof under the new program is needed |
+| `Settle` / `Settle (cheap)` button | the fact is on the Satellite **and** the contract's program still matches: `Settle` uses the bridged keccak fact (more L2 gas), `Settle (cheap)` the translated Poseidon fact |
 | `Settling in 0x…` | `submit_settled` sent, waiting for the receipt |
-| `Settled in 0x… (L2 gas …)` | accepted: `LevelValidated{settled: true}`, your best and the leaderboard are updated |
-| `Submit failed: … 'submit: nullifier'` | this exact attempt (level, player, inputs) was already submitted at this tier: change a shot, or it is already recorded |
-| `Submit failed: … 'submit: proof'` | the evidence was refused (wrong attestation key, or the fact is not on the Satellite yet) |
-| `Wallet: …` | the wallet connection failed or was refused |
+| `Settled in 0x… (L2 gas …)` | accepted: `LevelValidated{settled: true}`, your best and the leaderboard are updated; replaces the line above, not appended to it (m14) |
+| `Submit failed: this exact attempt was already submitted at this tier` (`'submit: nullifier'`) | this exact attempt (level, player, inputs) was already submitted at this tier: change a shot, or it is already recorded |
+| `Settle failed: the contract refuses this program or fact (it may have been re-pinned to a newer one)` (`'submit: proof'`) | the evidence was refused: a stale program (M6 should have caught it earlier), or the fact is not on the Satellite yet |
+| `Wallet: cancelled in the wallet` | the wallet connection (or the transaction) was cancelled by the user |
+| `Wallet: …` / `Settle failed: …` (anything else) | the wallet's or the node's own message, unchanged: contract panics (`submit: *`) and cancellations are translated to plain words (m14), everything else keeps its raw text |
 
 `Provisional` is an attestation of the service's key; `Settled` rests on the SHARP proof verified on
 Ethereum and bridged to the Satellite (`proving.md`, "Trust").

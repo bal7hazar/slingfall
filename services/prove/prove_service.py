@@ -16,13 +16,23 @@
   (`c1main` under `cairo1-run` of the patched fork, as `atlantic.py c1-input` + the E3a
   command), checks the run's outputs, computes the facts (`encoding.slingfall_fact`) and submits
   the PIE to Atlantic (`declaredJobSize` by the run's steps, `dedupId` = the job id). One PIE at a
-  time.
+  time. **M6**: before any of that, once this service's own `child_program_hash` is known (a run
+  has computed it), a read-only `satellite_config()` of the deployed contract (`SLINGFALL_ADDRESS`,
+  else `deploy/sepolia.json`'s `address`) is compared to it; a mismatch (the contract was re-pinned
+  to another `c1main`, `docs/proving.md` "Program hash history") answers `409` with both hashes
+  (`program_hash`, `contract_program_hash`) instead of spending an hour on a proof the contract will
+  refuse. The check never blocks on an unreachable RPC or before the service's first run (`--no-
+  program-check` disables it).
 * `GET /status/<id>`: the job, Atlantic's status and stages, and the Satellite's answer for its
   facts (`isCairoFactValid` / `isKeccakVerifiedFactHashValid`): `"settleable_poseidon"` (the
   translated fact: the cheap `submit_settled`), `"settleable_keccak"` (the bridged keccak fact
-  only: the dearer one) and `"settleable"` (either: `submit_settled(outputs, inputs)` would pass),
-  and `"translation"`: what the service does about the Poseidon fact (below).
-* `GET /health`.
+  only: the dearer one) and `"settleable"` (either: `submit_settled(outputs, inputs)` would pass);
+  all three are also gated on `"program_match"` (M6: the job's `"program_hash"` against the
+  contract's current `"contract_program_hash"`, `null` when either side is unknown), since a fact
+  that exists on the Satellite still cannot settle once the contract has been re-pinned away from
+  the program that produced it. `"translation"`: what the service does about the Poseidon fact
+  (below).
+* `GET /health`: also carries `"program_hash"` / `"contract_program_hash"` / `"program_match"`.
 
 Translation (lot E3c). Atlantic's `PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION` stalled (E3a, E3b),
 so the queries ask for `PROOF_VERIFICATION_ON_L2`, which ends with the keccak fact bridged to the
@@ -31,8 +41,9 @@ after `TRANSLATE_GRACE` seconds (default 600; env or `--translate-grace`), a bac
 of `serve` calls the Satellite's permissionless `translateFactHash` itself (`atlantic.translate`,
 one transaction from the account of the environment: `STARKNET_ACCOUNT_ADDRESS` +
 `STARKNET_PRIVATE_KEY` + `STARKNET_RPC_URL`, or `SLINGFALL_*`; at most 3 attempts, 10 minutes
-apart). Without an account (or with `--no-translate`) the service only reports
-`settleable_keccak`. `translate <job>` translates one job now, grace or not.
+apart). Without an account (or with `--no-translate`) `"translation"` reports `"off"` from the
+first status read (m13: not `"grace"` for ten minutes and then a dead end), and the service only
+ever reports `settleable_keccak`. `translate <job>` translates one job now, grace or not.
 
 The job id is `sha256(level_hash, inputs, child program, result)`: the same attempt maps to the
 same job and the same Atlantic query (retries are idempotent). Jobs live in `--store`
@@ -43,7 +54,9 @@ the jobs whose PIE was not submitted yet.
 `status` reads a stored job. `--no-submit` stops after the PIE and the facts (tests, dry runs).
 
 Environment (never printed): `ATLANTIC_API_KEY` (submit, status), `STARKNET_RPC_URL` (the
-Satellite's reads), the account of the translations (above). Paths: `PROVE_CAIRO1_RUN` (default the fork build of `docs/proving.md`,
+Satellite's reads, and M6's `satellite_config()` read), the account of the translations (above).
+`SLINGFALL_ADDRESS`: the deployed `Slingfall` to check `satellite_config()` against (default
+`deploy/sepolia.json`'s `address`). Paths: `PROVE_CAIRO1_RUN` (default the fork build of `docs/proving.md`,
 `tools/atlantic/out/starkware-cairo-vm/target/release/cairo1-run`), `PROVE_SIERRA` (default
 `tools/atlantic/c1main/target/dev/c1main.sierra.json`, built by `scarb --manifest-path
 tools/atlantic/c1main/Scarb.toml build`).
@@ -76,6 +89,9 @@ LEVELS = ROOT / "fixtures" / "levels"
 DEFAULT_STORE = ROOT / "services" / "prove" / "out"
 DEFAULT_CAIRO1_RUN = ROOT / "tools" / "atlantic" / "out" / "starkware-cairo-vm" / "target" / "release" / "cairo1-run"
 DEFAULT_SIERRA = ROOT / "tools" / "atlantic" / "c1main" / "target" / "dev" / "c1main.sierra.json"
+# M6: the deployment whose `satellite_config()` a proof must match; `deploy/sepolia.json` is the
+# only Satellite deployment today (read only: this service never writes to it).
+DEFAULT_SEPOLIA_CONFIG = ROOT / "deploy" / "sepolia.json"
 # The result that completes today (E3a); `..._WITH_TRANSLATION` stalled after trace generation on
 # 2026-09-26 (`docs/proving.md`) and is accepted by `--result`.
 DEFAULT_RESULT = "PROOF_VERIFICATION_ON_L2"
@@ -95,9 +111,11 @@ MAX_BODY = 1 << 20
 
 
 class ProveError(Exception):
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, **extra: object):
         super().__init__(message)
         self.status = status
+        # M6: `POST /prove`'s 409 carries both program hashes alongside the message.
+        self.extra = extra
 
 
 # --------------------------------------------------------------------------- inputs
@@ -183,9 +201,10 @@ def translation_decision(atlantic_status: str | None, done_at: float | None, cha
 
     * `translated`: the translated fact is on the Satellite (Atlantic's or ours): nothing to do;
     * `unknown`: no chain answer (the reads failed or are off);
+    * `off`: no account (or `--no-translate`): translation will never happen, reported at once
+      (m13: not `grace` for ten minutes on a service that can never translate);
     * `waiting`: Atlantic is not `DONE`, or the keccak fact is not on the Satellite yet;
     * `grace`: keccak fact bridged, Atlantic's own translation may still come (`done_at` + `grace`);
-    * `no-account`: due, but there is no account to send the transaction from (keccak path only);
     * `gave-up`: `TRANSLATE_ATTEMPTS` transactions failed;
     * `backoff`: the last attempt is less than `TRANSLATE_RETRY` seconds old;
     * `translate`: send `translateFactHash` now."""
@@ -194,12 +213,12 @@ def translation_decision(atlantic_status: str | None, done_at: float | None, cha
         return "unknown"
     if chain["isCairoFactValid"]:
         return "translated"
+    if not has_account:
+        return "off"
     if atlantic_status != "DONE" or not chain["isKeccakVerifiedFactHashValid"]:
         return "waiting"
     if done_at is None or now - done_at < grace:
         return "grace"
-    if not has_account:
-        return "no-account"
     if translation.get("attempts", 0) >= TRANSLATE_ATTEMPTS:
         return "gave-up"
     if now - translation.get("last_attempt", -TRANSLATE_RETRY) < TRANSLATE_RETRY:
@@ -209,6 +228,26 @@ def translation_decision(atlantic_status: str | None, done_at: float | None, cha
 
 def declared_size(steps: int) -> str:
     return "M" if steps + BOOTLOADER_OVERHEAD <= SIZE_M_MAX else "L"
+
+
+def contract_address() -> int | None:
+    """The deployed `Slingfall` to check `satellite_config()` against (M6): `SLINGFALL_ADDRESS`,
+    else `deploy/sepolia.json`'s `address` (read only). `None`: the check is skipped."""
+    env = os.environ.get("SLINGFALL_ADDRESS")
+    if env:
+        return int(env, 0)
+    if DEFAULT_SEPOLIA_CONFIG.is_file():
+        return int(json.loads(DEFAULT_SEPOLIA_CONFIG.read_text())["address"], 0)
+    return None
+
+
+def contract_satellite_config(contract: int) -> dict[str, str]:
+    """`ISlingfallSatellite::satellite_config()` read from the chain (`STARKNET_RPC_URL`): the
+    pinned `child_program_hash` and the other three `SatelliteConfig` felts, in the order the
+    `Serde` struct returns them."""
+    child, atlantic_hash, sharp_hash, satellite = atlantic.starknet_call(contract, "satellite_config", [])
+    return {"child_program_hash": hex(child), "atlantic_bootloader_hash": hex(atlantic_hash),
+            "sharp_bootloader_hash": hex(sharp_hash), "satellite_address": hex(satellite)}
 
 
 # --------------------------------------------------------------------------- the run
@@ -247,6 +286,14 @@ class Runner:
         if not self.sierra.is_file():
             raise ProveError(500, f"no Sierra at {self.sierra}: scarb --manifest-path tools/atlantic/c1main/Scarb.toml build")
         return hashlib.sha256(self.sierra.read_bytes()).hexdigest()
+
+    def known_child_program_hash(self) -> int | None:
+        """The current Sierra's `child_program_hash`, if a run of this process has already computed
+        it (M6): `None` before the first run (the hash comes from a built PIE's program bytes, not
+        from the Sierra alone) or when the Sierra is missing."""
+        if not self.sierra.is_file():
+            return None
+        return self._child_hash.get(hashlib.sha256(self.sierra.read_bytes()).hexdigest())
 
     def child_program_hash(self, pie: Path) -> int:
         key = self.child_program()
@@ -363,14 +410,52 @@ class Service:
 
     def __init__(self, store: Store, runner: Runner, result: str = DEFAULT_RESULT, submit: bool = True,
                  chain: bool = True, submitter=submit_pie, status_of=atlantic_status, facts_of=satellite_facts,
-                 translator=None, grace: float = DEFAULT_TRANSLATE_GRACE, clock=time.time):
+                 translator=None, grace: float = DEFAULT_TRANSLATE_GRACE, clock=time.time,
+                 config_of=None, config_ttl: float = 30.0):
         """`translator(sharp_fact, output) -> dict` sends `translateFactHash` (None: no account, the
-        service only reports the keccak path); `grace` in seconds; `clock` is injectable for tests."""
+        service only reports the keccak path); `grace` in seconds; `clock` is injectable for tests.
+        `config_of() -> dict` reads the deployed contract's `satellite_config()` (M6; `None`: no
+        contract configured, the program-hash check never runs), cached for `config_ttl` seconds."""
         self.store, self.runner, self.result, self.submit, self.chain = store, runner, result, submit, chain
         self.submitter, self.status_of, self.facts_of = submitter, status_of, facts_of
         self.translator, self.grace, self.clock = translator, grace, clock
+        self.config_of, self.config_ttl = config_of, config_ttl
+        self._config_cache: tuple[float, dict] | None = None
         self.translate_lock = threading.Lock()
         self.queue: queue.Queue[str] = queue.Queue()
+
+    def contract_config(self) -> dict | None:
+        """`satellite_config()` of the deployed contract (M6), cached for `config_ttl` seconds.
+        `None` when unconfigured; on a failed read, the last known value (or `None`) so that a
+        flaky RPC never blocks proving on its own (fail open: refuse only a *known* mismatch)."""
+        if self.config_of is None:
+            return None
+        now = self.clock()
+        if self._config_cache is not None and now - self._config_cache[0] < self.config_ttl:
+            return self._config_cache[1]
+        try:
+            config = self.config_of()
+        except Exception:
+            return self._config_cache[1] if self._config_cache is not None else None
+        self._config_cache = (now, config)
+        return config
+
+    def check_program_match(self) -> None:
+        """M6: refuse a proof the contract will not accept because it was re-pinned to another
+        `c1main` since this service last proved (`docs/proving.md` "Program hash history"). Skipped
+        when either hash is not known yet (the service's very first job, or no contract configured,
+        or the RPC read failed): never blocks on uncertainty, only on a confirmed mismatch."""
+        own = self.runner.known_child_program_hash()
+        if own is None:
+            return
+        config = self.contract_config()
+        if config is None:
+            return
+        pinned = int(config["child_program_hash"], 16)
+        if pinned != own:
+            raise ProveError(409, f"prove: program mismatch (this service proves {hex(own)}, the "
+                                  f"contract accepts {hex(pinned)})",
+                             program_hash=hex(own), contract_program_hash=hex(pinned))
 
     def create(self, level: object, inputs: object) -> tuple[dict, bool]:
         """(job, created). The job is queued when new or not yet submitted."""
@@ -379,6 +464,7 @@ class Service:
             inputs = parse_inputs(inputs)
         except ValueError as e:
             raise ProveError(400, str(e)) from None
+        self.check_program_match()
         jid = job_id(level_hash, inputs, self.runner.child_program(), self.result)
         job = self.store.load(jid)
         if job is not None:
@@ -534,15 +620,25 @@ class Service:
             raise ProveError(404, "unknown job")
         answer = dict(job)
         answer.update({"settleable": False, "settleable_poseidon": False, "settleable_keccak": False})
+        # M6: the job's own program hash (as proven) against the contract's current pin; `None`
+        # ("unknown") on either side never blocks settling, only a *confirmed* mismatch does.
+        program_hash = (job.get("run") or {}).get("child_program_hash")
+        config = self.contract_config()
+        contract_hash = config["child_program_hash"] if config else None
+        program_match = (program_hash == contract_hash) if (program_hash and contract_hash) else None
+        answer["program_hash"] = program_hash
+        answer["contract_program_hash"] = contract_hash
+        answer["program_match"] = program_match
         atl, chain = self.observe(job)
         if atl is not None:
             answer["atlantic_status"] = atl
         if chain is not None:
             answer["chain"] = chain
             if "isCairoFactValid" in chain:
-                answer["settleable_poseidon"] = chain["isCairoFactValid"]
-                answer["settleable_keccak"] = chain["isKeccakVerifiedFactHashValid"]
-                answer["settleable"] = chain["isCairoFactValid"] or chain["isKeccakVerifiedFactHashValid"]
+                gate = program_match is not False
+                answer["settleable_poseidon"] = chain["isCairoFactValid"] and gate
+                answer["settleable_keccak"] = chain["isKeccakVerifiedFactHashValid"] and gate
+                answer["settleable"] = (chain["isCairoFactValid"] or chain["isKeccakVerifiedFactHashValid"]) and gate
                 answer["translation"] = {**(job.get("translation") or {}), "state": self.decide(job, atl, chain)}
         return answer
 
@@ -578,13 +674,20 @@ def make_handler(service: Service, log=sys.stderr):
         def do_GET(self):  # noqa: N802
             try:
                 if self.path == "/health":
-                    return self.answer(200, {"result": service.result, "submit": service.submit,
-                                             "queued": service.queue.qsize()})
+                    own = service.runner.known_child_program_hash()
+                    config = service.contract_config()
+                    contract_hash = config["child_program_hash"] if config else None
+                    program_hash = hex(own) if own is not None else None
+                    return self.answer(200, {
+                        "result": service.result, "submit": service.submit, "queued": service.queue.qsize(),
+                        "program_hash": program_hash, "contract_program_hash": contract_hash,
+                        "program_match": (program_hash == contract_hash) if (program_hash and contract_hash) else None,
+                    })
                 if self.path.startswith("/status/"):
                     return self.answer(200, service.status(self.path[len("/status/"):]))
                 self.answer(404, {"error": "not found"})
             except ProveError as e:
-                self.answer(e.status, {"error": str(e)})
+                self.answer(e.status, {"error": str(e), **e.extra})
 
         def do_POST(self):  # noqa: N802
             if self.path != "/prove":
@@ -602,7 +705,7 @@ def make_handler(service: Service, log=sys.stderr):
                 job, created = service.create(request.get("level"), request.get("inputs"))
                 self.answer(202 if created else 200, job)
             except ProveError as e:
-                self.answer(e.status, {"error": str(e)})
+                self.answer(e.status, {"error": str(e), **e.extra})
 
     return Handler
 
@@ -617,8 +720,12 @@ def make_service(args) -> Service:
         grace = float(os.environ.get("TRANSLATE_GRACE", DEFAULT_TRANSLATE_GRACE))
     # A translator only with an account (`atlantic.account_env`), else the keccak path alone.
     translator = send_translation if atlantic.account_env() and not getattr(args, "no_translate", False) else None
+    # M6: the satellite_config() check, unless disabled or no contract can be resolved.
+    contract = None if getattr(args, "no_program_check", False) else contract_address()
+    config_of = (lambda: contract_satellite_config(contract)) if contract is not None else None
     return Service(Store(Path(args.store)), runner, args.result, submit=not args.no_submit,
-                   chain=not getattr(args, "no_chain", False), translator=translator, grace=grace)
+                   chain=not getattr(args, "no_chain", False), translator=translator, grace=grace,
+                   config_of=config_of)
 
 
 def watch(service: Service, jid: str, interval: float) -> dict:
@@ -644,7 +751,8 @@ def cmd_serve(args) -> int:
     server = ThreadingHTTPServer((args.host, args.port), make_handler(service))
     print(f"prove: listening on http://{args.host}:{server.server_address[1]} (store {args.store}, "
           f"result {args.result}, submit {not args.no_submit}, {resumed} job(s) resumed, translation "
-          f"{'after ' + str(int(service.grace)) + ' s' if service.translator else 'off (no account or --no-translate)'})",
+          f"{'after ' + str(int(service.grace)) + ' s' if service.translator else 'off (no account or --no-translate)'}, "
+          f"program check {'against ' + hex(contract_address()) if service.config_of else 'off (--no-program-check or no contract configured)'})",
           file=sys.stderr, flush=True)
     try:
         server.serve_forever()
@@ -715,6 +823,8 @@ def main(argv: list[str]) -> int:
     common.add_argument("--store", default=str(DEFAULT_STORE))
     common.add_argument("--result", default=DEFAULT_RESULT, choices=RESULTS)
     common.add_argument("--no-submit", action="store_true", help="build the PIE and the facts only")
+    common.add_argument("--no-program-check", action="store_true",
+                        help="skip the satellite_config() match check against the deployed contract (M6)")
 
     p = sub.add_parser("serve", parents=[common], help="run the HTTP service")
     p.add_argument("--host", default="127.0.0.1")

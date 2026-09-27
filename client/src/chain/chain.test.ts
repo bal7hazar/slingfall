@@ -8,6 +8,7 @@ import {
   SlingfallContract,
   decodeLeaderboard,
   decodeRecord,
+  explainWalletError,
   feltHex,
   levelValidatedEvents,
   mentionsPanic,
@@ -137,6 +138,15 @@ describe('submit encoding', () => {
     expect(mentionsPanic(new Error("execution reverted: 'submit: nullifier'"), 'submit: nullifier')).toBe(true);
     expect(mentionsPanic(new Error('Failure reason: 0x7375626d69743a206e756c6c6966696572'), 'submit: nullifier')).toBe(true);
     expect(mentionsPanic(new Error('0x7375626d69743a2070726f6f66'), 'submit: nullifier')).toBe(false);
+  });
+
+  it('explains a wallet or contract error in plain words (m14)', () => {
+    expect(explainWalletError(new Error("RPC: starknet_estimateFee … Nested error: 0x7375626d69743a2070726f6f66 ('submit: proof')")))
+      .toBe('the contract refuses this program or fact (it may have been re-pinned to a newer one)');
+    expect(explainWalletError(new Error("execution reverted: 'submit: nullifier'"))).toBe('this exact attempt was already submitted at this tier');
+    expect(explainWalletError(new Error('User rejected request'))).toBe('cancelled in the wallet');
+    expect(explainWalletError(new Error('Execute failed'))).toBe('Execute failed');
+    expect(explainWalletError('boom')).toBe('boom');
   });
 });
 

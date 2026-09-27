@@ -167,6 +167,29 @@ export function mentionsPanic(error: unknown, message: string): boolean {
   return text.includes(message) || text.toLowerCase().includes(encoded);
 }
 
+/** The contract's panic messages (`submit/errors.cairo`), in plain words for the panel. */
+const PANIC_SENTENCES: readonly [string, string][] = [
+  ['submit: proof', 'the contract refuses this program or fact (it may have been re-pinned to a newer one)'],
+  ['submit: nullifier', 'this exact attempt was already submitted at this tier'],
+  ['submit: player', 'the outputs are not for the connected account'],
+  ['submit: level', 'this level is not registered on this deployment'],
+  ['submit: inactive', 'this level was deactivated on this deployment'],
+];
+
+/**
+ * A wallet or node error (m14) in plain words: a known contract panic (`PANIC_SENTENCES`) reads as
+ * a sentence, a user cancellation reads as "cancelled in the wallet", anything else keeps its raw
+ * message so nothing is hidden.
+ */
+export function explainWalletError(error: unknown): string {
+  for (const [panic, sentence] of PANIC_SENTENCES) {
+    if (mentionsPanic(error, panic)) return sentence;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (/user (abort|reject|cancel)/i.test(message)) return 'cancelled in the wallet';
+  return message;
+}
+
 /** Reads and the player's `submit` on one deployed `Slingfall`. */
 export class SlingfallContract {
   readonly address: string;
@@ -234,24 +257,37 @@ export interface EventReader {
   }): Promise<{ events: { transaction_hash: string; block_number?: number }[]; continuation_token?: string }>;
 }
 
-/** The transactions in which `contract` emitted `LevelValidated` for `player`, oldest first (`pages` chunks at most). */
+/**
+ * The transactions in which `contract` emitted `LevelValidated` for `player`, oldest first
+ * (`pages` chunks at most). `fromBlock` (m10: the contract's deployment block, `ChainConfig.
+ * deployBlock`) replaces the default genesis scan, which the public RPC answers slowly or not at
+ * all over a long range; a page that fails is retried once (`retries`) before the call throws.
+ */
 export async function playerValidations(
   reader: EventReader,
   contract: string,
   player: string,
-  pages = 4,
+  { fromBlock = 0, pages = 4, retries = 1 }: { fromBlock?: number; pages?: number; retries?: number } = {},
 ): Promise<{ transactionHash: string; blockNumber: number | null }[]> {
   const found: { transactionHash: string; blockNumber: number | null }[] = [];
   let token: string | undefined;
   for (let page = 0; page < pages; page++) {
-    const chunk = await reader.getEvents({
-      address: contract,
-      keys: [[LEVEL_VALIDATED], [feltHex(player)]],
-      from_block: { block_number: 0 },
-      to_block: 'latest',
-      chunk_size: 50,
-      ...(token ? { continuation_token: token } : {}),
-    });
+    let chunk;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        chunk = await reader.getEvents({
+          address: contract,
+          keys: [[LEVEL_VALIDATED], [feltHex(player)]],
+          from_block: { block_number: fromBlock },
+          to_block: 'latest',
+          chunk_size: 50,
+          ...(token ? { continuation_token: token } : {}),
+        });
+        break;
+      } catch (e) {
+        if (attempt >= retries) throw e;
+      }
+    }
     for (const e of chunk.events) found.push({ transactionHash: e.transaction_hash, blockNumber: e.block_number ?? null });
     token = chunk.continuation_token;
     if (!token) break;

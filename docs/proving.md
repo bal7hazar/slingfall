@@ -529,7 +529,10 @@ the account. The whole deployment (declare 22.9 STRK, deploy, configure, six lev
 1. The client plays the level with the browser VM (same Cairo) and gets the 10 outputs; it submits
    them attested (`submit(outputs, [r, s])`, provisional) where an attestation service exists.
 2. The **prover service** (`services/prove/prove_service.py`; it holds the Atlantic API key, never the
-   browser) receives `POST /prove {level, inputs}`, runs `cairo1-run` on `c1main` (≈ 2 min for pile10
+   browser) receives `POST /prove {level, inputs}`. Before anything else (M6, below), once its own
+   `child_program_hash` is known it is compared to the contract's `satellite_config()`; a mismatch
+   answers `409` at once instead of spending the run and Atlantic's ~1.5 h on a proof the contract has
+   already stopped accepting. It then runs `cairo1-run` on `c1main` (≈ 2 min for pile10
    plus ≈ 90 s of Python Pedersen for the program hash, cached per Sierra), checks the outputs, computes
    both facts, submits the PIE with `result = PROOF_VERIFICATION_ON_L2` (`--result` also takes
    `…_WITH_TRANSLATION`), `declaredJobSize` M (run steps + 3.6M bootloader ≤ 8M) else L, `dedupId` =
@@ -537,12 +540,37 @@ the account. The whole deployment (declare 22.9 STRK, deploy, configure, six lev
    on disk (`services/prove/out/<id>/job.json`).
 3. Latency on Sepolia: trace generation 40-100 s, SHARP proof + L1 verification ≈ 1.5 h, bridge ≈ 4
    min. `GET /status/<id>` answers Atlantic's stages and the Satellite's two reads: `settleable_poseidon`
-   (translated fact, cheap), `settleable_keccak` (bridged fact only), `settleable` (either), and
-   `translation` (E3c, below).
+   (translated fact, cheap), `settleable_keccak` (bridged fact only) and `settleable` (either) —
+   all three also require `program_match` (M6: the job's `program_hash` against the contract's current
+   `contract_program_hash`; `null` on either side never blocks, only a confirmed mismatch does), since a
+   fact that exists on the Satellite can no longer settle once the contract has been re-pinned away from
+   the program that produced it. `translation` describes what the service does about the Poseidon fact
+   (E3c, below).
 4. The player sends `submit_settled(outputs, args)` from their wallet ("Settle (cheap)" when the
    Poseidon fact is on the Satellite, else "Settle"; the contract itself tries the Poseidon fact first
    and falls back to the keccak one); it recomputes and checks the fact (above). Nothing
    Atlantic-specific is signed by the player.
+
+### Program match (M6, M7): refusing a proof the contract will not accept
+
+The QA run of 2026-09-26/27 (`docs/qa/2026-09-26-mac.md`) lost an hour of Atlantic proving because
+lot B3 re-pinned `satellite_config().child_program_hash` (alpha.3 → alpha.5) while a proof of the
+old program was in flight: the fact was valid on the Satellite, but `submit_settled` reverted with
+`'submit: proof'` since the contract recomputes the expected fact from its *current* pin, not from
+whichever program actually produced the proof. Neither `/prove` nor `/status` checked this before.
+
+The service now reads `satellite_config()` (`SLINGFALL_ADDRESS`, else `deploy/sepolia.json`'s
+`address`; `STARKNET_RPC_URL`, cached 30 s; `--no-program-check` disables it) and compares it with
+its own `child_program_hash`, known once a run of this process has computed one (there is no way to
+derive it from the Sierra alone without running it once, so a freshly started service's very first
+job is not checked, nor is any job when the RPC read fails: the check only ever refuses a *confirmed*
+mismatch, never blocks on uncertainty). `POST /prove` answers `409 {"error", "program_hash",
+"contract_program_hash"}`; `GET /status/<id>` and `GET /health` carry the same three fields
+(`program_hash`, `contract_program_hash`, `program_match`) so the page can show both hashes and
+disable Prove with a clear sentence before a wasted click, not after an hour. `deploy/sepolia.sh
+set-config` itself now warns and refuses (needs `--yes`) when `services/prove/out` holds jobs that
+are not known to be settled, since re-pinning strands them the same way (M7's contract-side grace
+period for the previous hash is a separate lot).
 
 ### Translation (E3c): the service translates the fact itself
 
@@ -570,8 +598,10 @@ against the keccak fact before sending anything.
   three attempts at most, ten minutes apart, recorded in `job.json` (`translation`). Atlantic's own
   translation, when it comes, wins (the fact is then already valid). Without an account
   (`STARKNET_ACCOUNT_ADDRESS`, `STARKNET_PRIVATE_KEY`, `STARKNET_RPC_URL`) or with `--no-translate` the
-  service only reports `settleable_keccak`. `/status`'s `translation.state`: `waiting`, `grace`,
-  `translate`, `translated`, `backoff`, `gave-up`, `no-account`, `unknown`
+  service only ever reports `settleable_keccak`, and `translation.state` is `off` from the very first
+  status read (m13: not `grace` for ten minutes on a service that can never translate, which the page
+  used to read as "a cheaper path follows in minutes"). `/status`'s `translation.state`: `waiting`,
+  `grace`, `translate`, `translated`, `backoff`, `gave-up`, `off`, `unknown`
   (`prove_service.translation_decision`, table-tested).
 - **Client.** The panel shows "Settle" on the keccak path and switches the button to "Settle (cheap)"
   when `settleable_poseidon` turns true (it keeps polling while the service can still translate).
