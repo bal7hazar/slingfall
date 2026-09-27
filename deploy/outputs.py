@@ -7,8 +7,9 @@ will `submit` them: the contract wants `player == caller`). Python 3 standard li
 
 Runs the proof build `main` of `crates/slingfall_replay` with `scarb execute`, as
 `tools/golden/golden.py` does, on the case's level and shots with `inputs.player = --player`,
-and writes `{"case", "player", "outputs": [10 x 0x felts], "steps", "args"}` (`args`: `c1main`'s
-argument, the evidence of `submit_settled`). The simulation never reads the player: every felt but
+and writes `{"case", "level", "player", "inputs", "outputs": [10 x 0x felts], "steps", "args"}`
+(`inputs`: the `Inputs` felts, what the attestation service replays; `args`: `c1main`'s argument,
+the evidence of `submit_settled`). The simulation never reads the player: every felt but
 `player` and `inputs_hash` must equal the golden's, which is checked. With `--child-hash` (the
 `SatelliteVerifier`'s `child_program_hash`) it adds the run's Atlantic facts (`facts`:
 `integrity_fact_hash`, `sharp_fact_hash`; `tools/atlantic/encoding.py`), the facts the devnet's
@@ -50,7 +51,8 @@ def replay(case_name: str, player: int, build: bool, child_hash: int | None = No
         raise SystemExit(f"{case_name}: player / inputs_hash are not the replayed inputs'")
     print(f"outputs: {case_name} for {player:#x}: {steps:,} steps, {time.time() - started:.0f} s", file=sys.stderr)
     args = [len(level.felts), *level.felts, len(inputs), *inputs]
-    doc = {"case": case_name, "player": hex(player), "outputs": [hex(v) for v in outputs], "steps": steps,
+    doc = {"case": case_name, "level": doc["level"], "player": hex(player),
+           "inputs": [hex(v % golden.P) for v in inputs], "outputs": [hex(v) for v in outputs], "steps": steps,
            "args": [hex(v % golden.P) for v in args]}
     if child_hash is not None:
         facts = encoding.slingfall_fact(child_hash, outputs, args)

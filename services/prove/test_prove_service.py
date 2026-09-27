@@ -270,71 +270,90 @@ class Service(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def programs(self, child: int, valid_until: dict[int, int] | None = None, current: int | None = None) -> dict:
+        """A fake contract program set: `valid_until` per hash (default: `child` forever), the
+        chain's `now` = `self.now`; installed as `program_of` with a zero TTL (a fresh read each time)."""
+        table = {child: ps.relaying.SETTLED << 62} if valid_until is None else valid_until
+        view = {"table": table, "current": child if current is None else current}
+        self.service.program_ttl = 0.0
+        self.service.program_of = lambda h: {"current_program": hex(view["current"]), "valid_until": view["table"].get(h, 0),
+                                             "now": int(self.now)}
+        return view
+
+    def built_job(self) -> tuple[dict, int]:
+        job, _ = self.service.create("pile10", INPUTS)
+        self.service.work(job["id"])
+        return job, int(self.service.store.load(job["id"])["run"]["child_program_hash"], 16)
+
     def test_program_check_is_skipped_before_the_first_run(self):
         self.assertIsNone(self.service.runner.known_child_program_hash())
-        self.service.config_of = lambda: (_ for _ in ()).throw(AssertionError("must not be called yet"))
+        self.service.program_of = lambda h: (_ for _ in ()).throw(AssertionError("must not be called yet"))
         self.service.check_program_match()  # the service does not know its own hash yet: no-op
         job, _ = self.service.create("pile10", INPUTS)  # create() calls it too: still no-op
         self.assertEqual(job["state"], "queued")
 
-    def test_program_mismatch_refuses_new_jobs_and_blocks_settling_existing_ones(self):
-        # M6: once the service knows its own hash (from a completed run) and the contract's differs,
-        # `POST /prove` refuses at once, and a job whose fact is already on the Satellite can no
-        # longer be reported settleable (the contract would recompute a different fact and revert
-        # with 'submit: proof', as B3's re-pin did in the QA run).
-        job, _ = self.service.create("pile10", INPUTS)
-        self.service.work(job["id"])
-        child = int(self.service.store.load(job["id"])["run"]["child_program_hash"], 16)
-
-        self.service.config_of = lambda: {"child_program_hash": hex(child)}
+    def test_program_past_its_grace_refuses_new_jobs_and_blocks_settling(self):
+        # M6 on contract v2: the job's program is valid while `program_valid_until > now` (the
+        # current program, or the previous one within the grace of a re-pin). Past it, `POST
+        # /prove` refuses at once and a job whose fact is on the Satellite is no longer settleable
+        # (the contract would revert with 'submit: program').
+        job, child = self.built_job()
+        view = self.programs(child)
         status = self.service.status(job["id"])
         self.assertEqual((status["program_hash"], status["contract_program_hash"], status["program_match"]),
                          (hex(child), hex(child), True))
 
-        self.service.config_of = lambda: {"child_program_hash": hex(child + 1)}
-        self.service._config_cache = None  # bypass the cache: a fresh read for this test
-        with self.assertRaises(ps.ProveError) as ctx:
-            self.service.create("one_block", [hex(PLAYER), "0x1", "0x1", "0x1", "0x0", "0x0"])
-        self.assertEqual(ctx.exception.status, 409)
-        self.assertEqual(ctx.exception.extra, {"program_hash": hex(child), "contract_program_hash": hex(child + 1)})
-
+        # Re-pinned to another program with a one-hour grace: still valid inside the window.
+        view["current"], view["table"] = child + 1, {child: int(self.now) + 3600, child + 1: 1 << 63}
         self.on_chain.update(isKeccakVerifiedFactHashValid=True, isCairoFactValid=True)
+        status = self.service.status(job["id"])
+        self.assertEqual((status["program_match"], status["program_valid_until"], status["contract_program_hash"]),
+                         (True, int(self.now) + 3600, hex(child + 1)))
+        self.assertTrue(status["settleable"])
+        self.service.create("one_block", [hex(PLAYER), "0x1", "0x1", "0x1", "0x0", "0x0"])  # accepted
+
+        # After the grace: refused.
+        self.now += 3600
+        with self.assertRaises(ps.ProveError) as ctx:
+            self.service.create("one_block", [hex(PLAYER), "0x1", "0x2", "0x1", "0x0", "0x0"])
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertEqual(ctx.exception.extra, {"program_hash": hex(child), "contract_program_hash": hex(child + 1),
+                                               "program_valid_until": int(self.now), "program_match": False})
         status = self.service.status(job["id"])
         self.assertFalse(status["program_match"])
         self.assertEqual((status["settleable"], status["settleable_poseidon"], status["settleable_keccak"]), (False, False, False))
 
-        # Re-pinned back: the same job settles again, no new proof needed.
-        self.service.config_of = lambda: {"child_program_hash": hex(child)}
-        self.service._config_cache = None
-        status = self.service.status(job["id"])
-        self.assertEqual((status["settleable"], status["program_match"]), (True, True))
+        # Pinned again (a rollback): the same job settles, no new proof needed.
+        view["current"], view["table"] = child, {child: 1 << 63}
+        self.assertEqual((self.service.status(job["id"])["settleable"],), (True,))
 
     def test_program_check_fails_open_on_an_unreachable_rpc(self):
-        job, _ = self.service.create("pile10", INPUTS)
-        self.service.work(job["id"])
+        job, child = self.built_job()
 
-        def broken():
+        def broken(_):
             raise ps.atlantic.AtlanticError("rpc down")
 
-        self.service.config_of = broken
-        self.service._config_cache = None
-        self.service.check_program_match()  # a confirmed own hash, but the contract's cannot be read: never blocks
+        self.service.program_of = broken
+        self.service.check_program_match()  # a confirmed own hash, but the contract cannot be read: never blocks
         self.on_chain.update(isKeccakVerifiedFactHashValid=True)
         status = self.service.status(job["id"])
         self.assertIsNone(status["contract_program_hash"])
         self.assertIsNone(status["program_match"])
         self.assertTrue(status["settleable"])
+        # A known answer survives a later failed read (cached, then the RPC goes down).
+        self.programs(child, {child: 0})
+        self.assertFalse(self.service.status(job["id"])["program_match"])
+        self.service.program_of = broken
+        self.assertFalse(self.service.status(job["id"])["program_match"])
 
     def test_health_reports_the_program_hashes(self):
         self.assertEqual(
             {"result": ps.DEFAULT_RESULT, "submit": True, "queued": 0, "program_hash": None,
-             "contract_program_hash": None, "program_match": None},
+             "contract_program_hash": None, "program_valid_until": None, "program_match": None, "relay": None},
             self._health(),
         )
-        job, _ = self.service.create("pile10", INPUTS)
-        self.service.work(job["id"])
-        child = int(self.service.store.load(job["id"])["run"]["child_program_hash"], 16)
-        self.service.config_of = lambda: {"child_program_hash": hex(child)}
+        _, child = self.built_job()
+        self.programs(child)
         health = self._health()
         self.assertEqual((health["program_hash"], health["contract_program_hash"], health["program_match"]),
                          (hex(child), hex(child), True))
@@ -348,6 +367,117 @@ class Service(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+class FakeRelay:
+    """The relay account: `tier` (the attempt on chain), `simulate`, `send`; failures on demand."""
+
+    address = "0xre1a7"
+
+    def __init__(self):
+        self.tier_value = 0
+        self.fail: dict[str, str] = {}
+        self.calls: list[tuple[str, str]] = []
+
+    def _call(self, name: str, job: dict):
+        self.calls.append((name, job["id"]))
+        if name in self.fail:
+            raise ps.relaying.RelayError(self.fail[name])
+
+    def tier(self, job):
+        self._call("tier", job)
+        return self.tier_value
+
+    def simulate(self, job):
+        self._call("simulate", job)
+        return {"simulated": True}
+
+    def send(self, job):
+        self._call("send", job)
+        self.tier_value = ps.relaying.SETTLED
+        return {"transaction_hash": "0x5e771e", "gas": {"l2Gas": 8}}
+
+
+class Relay(unittest.TestCase):
+    """`relay_job`: the settle is sent for the player once settleable, never twice, never after the
+    player settled, and never before a simulation passes."""
+
+    programs = Service.programs
+    tearDown = Service.tearDown
+
+    def setUp(self):
+        Service.setUp(self)
+        self.relayer = FakeRelay()
+        self.service.relayer = self.relayer
+
+    def submitted(self) -> str:
+        job, _ = self.service.create("pile10", INPUTS)
+        return self.service.work(job["id"])["id"]
+
+    def test_relays_once_the_fact_lands(self):
+        jid = self.submitted()
+        self.assertEqual(self.service.status(jid)["relay"], {"state": "waiting"})
+        self.service.relay_job(jid)
+        self.assertEqual(self.relayer.calls, [])  # not settleable yet: nothing read, nothing sent
+        self.on_chain["isKeccakVerifiedFactHashValid"] = True
+        self.assertEqual(self.service.relay_due(), 1)
+        self.assertEqual([c[0] for c in self.relayer.calls], ["tier", "simulate", "send"])
+        status = self.service.status(jid)
+        self.assertEqual((status["relayed"], status["relay_transaction_hash"], status["relay"]["relayer"]),
+                         (True, "0x5e771e", FakeRelay.address))
+        self.assertEqual(self.service.relay_due(), 0)  # never twice
+        self.assertEqual(len(self.relayer.calls), 3)
+
+    def test_the_player_settled_first(self):
+        jid = self.submitted()
+        self.on_chain["isCairoFactValid"] = True
+        self.relayer.tier_value = ps.relaying.SETTLED
+        self.service.relay_job(jid)
+        status = self.service.status(jid)
+        self.assertEqual((status["relay"]["state"], status["relayed"]), ("settled", False))
+        self.assertEqual([c[0] for c in self.relayer.calls], ["tier"])
+
+    def test_a_failed_simulation_sends_nothing_backs_off_and_gives_up(self):
+        jid = self.submitted()
+        self.on_chain["isCairoFactValid"] = True
+        self.relayer.fail["simulate"] = "submit: program"
+        self.service.relay_job(jid)
+        state = self.service.status(jid)["relay"]
+        self.assertEqual((state["attempts"], state["error"]), (1, "simulate: submit: program"))
+        self.assertNotIn("send", [c[0] for c in self.relayer.calls])
+        self.service.relay_job(jid)  # backoff: nothing
+        self.assertEqual(self.service.status(jid)["relay"]["attempts"], 1)
+        for _ in range(ps.relaying.RELAY_ATTEMPTS - 1):
+            self.now += ps.relaying.RELAY_RETRY
+            self.service.relay_job(jid)
+        self.assertEqual(self.service.status(jid)["relay"]["state"], "gave-up")
+        self.now += ps.relaying.RELAY_RETRY
+        self.assertEqual(self.service.relay_due(), 0)
+        # `relay <job>` forces one more pass (the operator fixed the cause).
+        del self.relayer.fail["simulate"]
+        self.service.relay_job(jid, force=True)
+        self.assertTrue(self.service.status(jid)["relayed"])
+
+    def test_no_relay_before_the_program_is_valid_or_without_a_relayer(self):
+        jid = self.submitted()
+        child = int(self.service.store.load(jid)["run"]["child_program_hash"], 16)
+        self.on_chain["isCairoFactValid"] = True
+        self.programs(child, {child: 0})  # revoked
+        self.service.relay_job(jid, force=True)
+        self.assertEqual(self.relayer.calls, [])
+        self.service.relayer = None
+        self.programs(child)
+        self.service.relay_job(jid, force=True)
+        self.assertEqual(self.service.status(jid)["relay"], {"state": "off"})
+
+    def test_node_relay_files(self):
+        job = {"outputs": E3A["outputs"], "level_hash": E3A["outputs"][1], "inputs": INPUTS,
+               "run": {"child_program_hash": "0xc1"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            outputs, args = ps.relaying.job_files(job, Path(tmp))
+            self.assertEqual(json.loads(outputs.read_text()), {"outputs": E3A["outputs"]})
+            self.assertEqual(json.loads(args.read_text()), {"level_hash": E3A["outputs"][1], "inputs": INPUTS,
+                                                            "child_program_hash": "0xc1"})
 
 
 class TranslationDecision(unittest.TestCase):
@@ -402,6 +532,23 @@ class Helpers(unittest.TestCase):
         self.assertEqual(ps.parse_program_output("Program Output : [1 2\n3]\n"), [1, 2, 3])
         with self.assertRaises(ps.ProveError):
             ps.parse_program_output("nothing")
+
+    def test_contract_reads(self):
+        calls = []
+
+        def call(contract, entry_point, calldata):
+            calls.append((contract, entry_point, calldata))
+            return {"program_valid_until": [99], "current_program": [0xC1], "satellite_config": [0xA, 0xB, 0x5A7]}[entry_point]
+
+        saved = ps.atlantic.starknet_call, ps.atlantic.rpc
+        ps.atlantic.starknet_call = call
+        ps.atlantic.rpc = lambda method, params: {"timestamp": 42}
+        try:
+            self.assertEqual(ps.contract_program(0x5AFE, 0xC0), {"current_program": "0xc1", "valid_until": 99, "now": 42})
+            self.assertEqual(ps.contract_satellite(0x5AFE), 0x5A7)
+        finally:
+            ps.atlantic.starknet_call, ps.atlantic.rpc = saved
+        self.assertEqual(calls[0], (0x5AFE, "program_valid_until", [0xC0]))
 
     def test_contract_address_defaults_to_the_sepolia_deployment(self):
         old = os.environ.pop("SLINGFALL_ADDRESS", None)

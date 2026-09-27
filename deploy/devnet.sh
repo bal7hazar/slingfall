@@ -6,10 +6,12 @@
 #   deploy/devnet.sh deploy    build the class and deploy on the running devnet
 #   deploy/devnet.sh down      stop the devnet this script started
 #
-# The devnet runs `--seed 0` (deterministic prefunded accounts); account #0 is the admin. `deploy`
-# declares `Slingfall` (not `SlingfallSim`), deploys it, sets `verifier = Stub` and the attestation
-# key, deploys a `FakeSatellite` (deploy/contract: true for the facts it is told) as the
-# `SatelliteVerifier`'s Satellite, registers the six fixture levels and writes:
+# The devnet runs `--seed 0` with three prefunded accounts (deterministic): #0 is the admin, #1 and
+# #2 play or relay (`deploy/e2e.sh`). `deploy` declares `Slingfall` v2 (not `SlingfallSim`), deploys
+# it and configures it as a fresh deployment (`deploy/slingfall.ts deploy`): the attestation key,
+# `pin_program(c1main, 0)`, a `FakeSatellite` (deploy/contract: true for the facts it is told) as
+# the `SatelliteVerifier`'s Satellite, the verifier left `Stub`; registers the six fixture levels
+# and writes:
 #   deploy/devnet.json   network, RPC, class hash, address, admin, attestation key, level hashes, gas
 #   deploy/devnet.env    VITE_* variables of the client (docs/e2e.md), with the devnet account
 #
@@ -69,7 +71,7 @@ up() {
   fi
   install_devnet
   echo "devnet: $(starknet-devnet --version) on $RPC (log $RUN/devnet-${PORT}.log)" >&2
-  starknet-devnet --seed 0 --accounts 2 --host 127.0.0.1 --port "$PORT" >"$RUN/devnet-${PORT}.log" 2>&1 &
+  starknet-devnet --seed 0 --accounts 3 --host 127.0.0.1 --port "$PORT" >"$RUN/devnet-${PORT}.log" 2>&1 &
   echo $! >"$PID_FILE"
   for _ in $(seq 1 100); do
     if alive; then return; fi

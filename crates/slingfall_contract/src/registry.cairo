@@ -19,7 +19,7 @@ pub struct LevelMeta {
     pub registered_at: u64,
 }
 
-/// A player's best validated attempt on a level (all zero when there is none).
+/// The v1 record (`Slingfall` v1, kept for `slingfall_sizes`' fixtures): `Best` in contract v2.
 #[derive(Copy, Drop, Serde, PartialEq, Debug, starknet::Store)]
 pub struct Record {
     pub score: u32,
@@ -29,6 +29,86 @@ pub struct Record {
     pub block: u64,
     /// Validated by the Satellite fact (`submit_settled`), else provisional (an attestation).
     pub settled: bool,
+}
+
+/// A player's best validated attempt on a level in one view (`best`: either tier; `best_settled`:
+/// settled only), all zero when there is none. The v1 `Record` plus `timestamp` (what `expire`
+/// measures) and `program_hash` (the engine release of the row).
+#[derive(Copy, Drop, Serde, PartialEq, Debug)]
+pub struct Best {
+    pub score: u32,
+    pub won: bool,
+    pub inputs_hash: felt252,
+    /// Block number of the submission.
+    pub block: u64,
+    /// Block timestamp of the submission.
+    pub timestamp: u64,
+    /// Validated by the Satellite fact (`submit_settled`), else provisional.
+    pub settled: bool,
+    /// The program the attempt was validated with: `c1main`'s hash (settled, and attested: the
+    /// attestation names it), `SlingfallSim`'s class hash (SNIP-36).
+    pub program_hash: felt252,
+}
+
+/// `Best` in storage: three felts (`score | won << 32 | settled << 33 | block << 34`, plus
+/// `timestamp << 128`), `inputs_hash`, `program_hash`. Seven slots unpacked (measured:
+/// `docs/contract-v2.md` "Gas").
+#[derive(Copy, Drop, starknet::Store)]
+pub struct PackedBest {
+    meta: felt252,
+    inputs_hash: felt252,
+    program_hash: felt252,
+}
+
+const TWO_32: u128 = 0x100000000;
+const TWO_33: u128 = 0x200000000;
+const TWO_34: u128 = 0x400000000;
+
+pub impl BestStorePacking of starknet::storage_access::StorePacking<Best, PackedBest> {
+    fn pack(value: Best) -> PackedBest {
+        let low: u128 = value.score.into()
+            + if value.won {
+                TWO_32
+            } else {
+                0
+            }
+            + if value.settled {
+                TWO_33
+            } else {
+                0
+            }
+            + value.block.into() * TWO_34;
+        let meta: u256 = u256 { low, high: value.timestamp.into() };
+        PackedBest {
+            meta: meta.try_into().unwrap(),
+            inputs_hash: value.inputs_hash,
+            program_hash: value.program_hash,
+        }
+    }
+
+    fn unpack(value: PackedBest) -> Best {
+        let meta: u256 = value.meta.into();
+        let (block, flags) = DivRem::div_rem(meta.low, TWO_34.try_into().unwrap());
+        let (settled, rest) = DivRem::div_rem(flags, TWO_33.try_into().unwrap());
+        let (won, score) = DivRem::div_rem(rest, TWO_32.try_into().unwrap());
+        Best {
+            score: score.try_into().unwrap(),
+            won: won != 0,
+            inputs_hash: value.inputs_hash,
+            block: block.try_into().unwrap(),
+            timestamp: meta.high.try_into().unwrap(),
+            settled: settled != 0,
+            program_hash: value.program_hash,
+        }
+    }
+}
+
+/// `(won, score)` beats the stored best: `improves` on a `Best`.
+pub fn improves_best(best: @Best, won: bool, score: u32) -> bool {
+    if won != *best.won {
+        return won;
+    }
+    score > *best.score
 }
 
 /// One leaderboard row.
@@ -75,11 +155,25 @@ pub fn insert(board: Span<Entry>, player: ContractAddress, score: u32) -> Array<
     cut
 }
 
+/// The leaderboard without `player`'s row (the same board when it has none).
+pub fn remove(board: Span<Entry>, player: ContractAddress) -> Array<Entry> {
+    let mut result: Array<Entry> = array![];
+    for entry in board {
+        if *entry.player != player {
+            result.append(*entry);
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use slingfall_testing::opaque;
     use starknet::ContractAddress;
-    use super::{Entry, LEADERBOARD_SIZE, Record, improves, insert};
+    use super::{
+        Best, BestStorePacking, Entry, LEADERBOARD_SIZE, Record, improves, improves_best, insert,
+        remove,
+    };
 
     fn address(value: felt252) -> ContractAddress {
         value.try_into().unwrap()
@@ -152,6 +246,80 @@ mod tests {
         assert_eq!(pushed.len(), LEADERBOARD_SIZE);
         assert_eq!(*pushed[5], entry(99, 55));
         assert_eq!(*pushed[LEADERBOARD_SIZE - 1], entry(9, 20));
+    }
+
+    /// `improves_best` is `improves` on the same fields.
+    #[test]
+    fn test_improves_best_is_improves() {
+        let records = array![
+            Record { score: 0, won: false, inputs_hash: 0, block: 0, settled: false },
+            Record { score: 100, won: false, inputs_hash: 0, block: 0, settled: false },
+            Record { score: 100, won: true, inputs_hash: 0, block: 0, settled: false },
+        ];
+        for record in records {
+            let best = Best {
+                score: record.score,
+                won: record.won,
+                inputs_hash: 7,
+                block: 1,
+                timestamp: 2,
+                settled: true,
+                program_hash: 3,
+            };
+            for (won, score) in array![
+                (false, 0), (false, 101), (true, 1), (true, 100), (true, 101),
+            ] {
+                assert_eq!(improves_best(@best, won, score), improves(@record, won, score));
+            }
+        }
+    }
+
+    /// Packing round-trips every field at its extremes.
+    #[test]
+    fn test_best_packing_round_trips() {
+        let max = Best {
+            score: 0xffffffff,
+            won: true,
+            inputs_hash: -1,
+            block: 0xffffffffffffffff,
+            timestamp: 0xffffffffffffffff,
+            settled: true,
+            program_hash: -1,
+        };
+        let cases = array![
+            max, Best { won: false, ..max }, Best { settled: false, ..max },
+            Best { score: 0, block: 0, ..max },
+            Best {
+                score: 1650,
+                won: true,
+                inputs_hash: 0xabc,
+                block: 77,
+                timestamp: 1_000,
+                settled: false,
+                program_hash: 0x12,
+            },
+            Best {
+                score: 0,
+                won: false,
+                inputs_hash: 0,
+                block: 0,
+                timestamp: 0,
+                settled: false,
+                program_hash: 0,
+            },
+        ];
+        for best in cases {
+            assert_eq!(BestStorePacking::unpack(BestStorePacking::pack(best)), best);
+        }
+    }
+
+    #[test]
+    fn test_remove() {
+        let board = array![entry(1, 90), entry(2, 80), entry(3, 70)];
+        assert_eq!(rows(remove(board.span(), address(2))), array![(1, 90), (3, 70)]);
+        assert_eq!(rows(remove(board.span(), address(1))), array![(2, 80), (3, 70)]);
+        assert_eq!(remove(board.span(), address(9)), board);
+        assert_eq!(remove(array![].span(), address(1)), array![]);
     }
 
     #[test]
