@@ -30,7 +30,7 @@ pub fn first_difference(a: Span<felt252>, b: Span<felt252>) -> Option<u32> {
 }
 
 #[test]
-fn test_init_world_is_mains() {
+fn steps_init_world_is_mains() {
     install();
     let level = pile10();
     let mut game = GameTrait::new(@level);

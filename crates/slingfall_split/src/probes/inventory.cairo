@@ -106,8 +106,10 @@ pub mod PlusLoop {
 #[starknet::contract]
 pub mod PlusRulesCall {
     use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
-    use crate::hashes::{GameClasses, PinnedSplit};
-    use crate::world::{LibraryCallRules, SlimStep};
+    use crate::hashes::GameClasses;
+    use crate::probes::hashes::PinnedProbes;
+    use crate::probes::world::LibraryCallRules;
+    use crate::world::SlimStep;
     use super::NoEdits;
 
     #[storage]
@@ -124,7 +126,7 @@ pub mod PlusRulesCall {
     ) -> (BasicWorldState, Array<felt252>, u32, bool) {
         let mut rules = rules;
         let (world, stepped, over) = crate::chunk::run::<
-            Array<felt252>, SlimStep<GameClasses>, LibraryCallRules<PinnedSplit>, NoEdits,
+            Array<felt252>, SlimStep<GameClasses>, LibraryCallRules<PinnedProbes>, NoEdits,
         >(from_basic_state(world), ref rules, inputs.span(), shot, k);
         (into_basic_state(world), rules, stepped, over)
     }
@@ -135,7 +137,8 @@ pub mod PlusRulesCall {
 pub mod PlusEditCrossing {
     use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
     use crate::hashes::{GameClasses, PinnedSplit};
-    use crate::world::{CrossingEdits, SlimStep};
+    use crate::probes::world::CrossingEdits;
+    use crate::world::SlimStep;
     use super::NoRules;
 
     #[storage]
@@ -348,7 +351,7 @@ pub mod MinusForceEvents {
     use rapier2d::world::WorldTrait;
     use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
     use crate::hashes::GameClasses;
-    use crate::stages::SlimForceStages;
+    use crate::probes::stages::SlimForceStages;
 
     #[storage]
     struct Storage {}
@@ -368,15 +371,16 @@ pub mod MinusForceEvents {
     }
 }
 
-/// `SlimCaller` with the tick-hook emulation (`crate::stages::HookStages`): the plumbing a
+/// `SlimCaller` with the tick-hook emulation (`crate::probes::stages::HookStages`): the plumbing a
 /// `TickHook` stage slot would compile into the caller, without applying the removals.
 #[starknet::contract]
 pub mod PlusHook {
     use rapier2d::prelude::BasicStepConfig;
     use rapier2d::world::WorldTrait;
     use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
-    use crate::hashes::{GameClasses, PinnedSplit};
-    use crate::stages::HookStages;
+    use crate::hashes::GameClasses;
+    use crate::probes::hashes::PinnedProbes;
+    use crate::probes::stages::HookStages;
 
     #[storage]
     struct Storage {}
@@ -388,7 +392,7 @@ pub mod PlusHook {
         while i != steps {
             let _ = world
                 .step_with_force_events_with_stages::<
-                    BasicStepConfig, HookStages<GameClasses, PinnedSplit>,
+                    BasicStepConfig, HookStages<GameClasses, PinnedProbes>,
                 >();
             i += 1;
         }

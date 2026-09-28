@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Throwaway lever builds of spike S36a (sizes only, as rapier-cairo's `scripts/cs3_levers.py`):
+"""Throwaway lever builds of spike S36a (layout (e), `WorldClass`) (sizes only, as rapier-cairo's `scripts/cs3_levers.py`):
 each lever rewrites the sources of `crates/slingfall_split` (textual replacements), builds, prints
 the CASM and Sierra felts of the classes it names, then restores the sources. The results are
 sizes of code that is not meant to run (a lever may stub a piece out).
@@ -14,8 +14,9 @@ import sys
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
+ROOT = PACKAGE.parents[1]
 SRC = PACKAGE / "src"
-TARGET = PACKAGE / "target" / "dev"
+TARGET = ROOT / "target" / "dev"
 
 LEAN = "lean.cairo"
 VIEWS = "        write_views(ref world, watch.span(), ref calldata);\n"
@@ -38,7 +39,7 @@ EDIT_BLOCK = """        if !edit.is_empty() {
             inserted = Serde::deserialize(ref ret).expect(errors::DECODE);
         }
 """
-RULES_CALL = """        let mut ret = library_call_syscall(G::lean_rules(), selector, calldata.span())
+RULES_CALL = """        let mut ret = library_call_syscall(G::rules(), selector, calldata.span())
             .unwrap_syscall();
         let (
             next, edit, next_watch, status,
@@ -56,18 +57,18 @@ RULES_STUB = """        let (next, edit, next_watch, status): (
 
 # lever: (classes to report, [(file, old, new)]).
 LEVERS = {
-    "e": (["LayoutE"], []),
-    "e-no-views": (["LayoutE"], [(LEAN, VIEWS, "        calldata.append(0);\n")]),
-    "e-no-events": (["LayoutE"], [(LEAN, EVENTS, "        calldata.append(0);\n")]),
-    "e-no-edit-block": (["LayoutE"], [(LEAN, EDIT_BLOCK, "")]),
-    "e-no-rules-call": (["LayoutE"], [(LEAN, RULES_CALL, RULES_STUB)]),
-    "e-loop-only": (["LayoutE"], [
+    "e": (["WorldClass"], []),
+    "e-no-views": (["WorldClass"], [(LEAN, VIEWS, "        calldata.append(0);\n")]),
+    "e-no-events": (["WorldClass"], [(LEAN, EVENTS, "        calldata.append(0);\n")]),
+    "e-no-edit-block": (["WorldClass"], [(LEAN, EDIT_BLOCK, "")]),
+    "e-no-rules-call": (["WorldClass"], [(LEAN, RULES_CALL, RULES_STUB)]),
+    "e-loop-only": (["WorldClass"], [
         (LEAN, VIEWS, "        calldata.append(0);\n"),
         (LEAN, EDIT_BLOCK, ""),
         (LEAN, EVENTS, "        calldata.append(0);\n"),
         (LEAN, RULES_CALL, RULES_STUB),
     ]),
-    "e-no-views-edit-events": (["LayoutE"], [
+    "e-no-views-edit-events": (["WorldClass"], [
         (LEAN, VIEWS, "        calldata.append(0);\n"),
         (LEAN, EDIT, "        if edit.len() == 0xffffffff {\n            let mut calldata"),
         (LEAN, EVENTS, "        calldata.append(0);\n"),
@@ -95,7 +96,7 @@ def run(name):
             if old not in text:
                 sys.exit(f"{name}: pattern not found in {file}")
             path.write_text(text.replace(old, new, 1))
-        build = subprocess.run(["scarb", "build"], cwd=PACKAGE, capture_output=True, text=True)
+        build = subprocess.run(["scarb", "build", "-p", "slingfall_split"], cwd=ROOT, capture_output=True, text=True)
         if build.returncode != 0:
             sys.exit(f"{name}: build failed\n{build.stdout[-3000:]}")
         for cls, (sierra, casm) in sizes(classes).items():

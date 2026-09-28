@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Where a world class's code goes beyond another's: the Sierra functions reachable from class
 A's entry points and not from class B's, with their statement counts, from the library's Sierra
-program (`target/dev/slingfall_split.sierra.json`, `[lib] sierra = true`). The functions are
+program (`target/dev/slingfall_split.sierra.json` of the workspace root, `[lib] sierra = true`, built with
+`scarb build -p slingfall_split --features probes` when a class of `crate::probes` is named). The functions are
 lowered as in the contract classes (same compiler, same settings); a Sierra statement is roughly
 2-3 CASM felts.
 
-    python3 crates/slingfall_split/scripts/attribution.py LayoutE SlimCaller [--top N]
+    python3 crates/slingfall_split/scripts/attribution.py WorldClass SlimCaller [--top N]
     python3 crates/slingfall_split/scripts/attribution.py SlimCaller --modules [--depth N]
         # one class's statements by module path (N segments)
 
@@ -47,7 +48,7 @@ def main():
     ap.add_argument("--modules", action="store_true")
     ap.add_argument("--depth", type=int, default=3)
     args = ap.parse_args()
-    program = json.loads((PACKAGE / "target" / "dev" / "slingfall_split.sierra.json").read_text())
+    program = json.loads((ROOT / "target" / "dev" / "slingfall_split.sierra.json").read_text())
     funcs, _ = classsize.sierra_functions(program.get("program", program))
     by_id = {f[0]: f for f in funcs}
     if args.modules:
