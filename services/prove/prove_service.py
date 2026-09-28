@@ -9,6 +9,21 @@
     prove_service.py status <job-id> [--store DIR] [--watch [--interval S]] [--no-chain]
     prove_service.py translate <job-id> [--store DIR] [--dry-run]
     prove_service.py relay <job-id> [--store DIR]
+    (every command) [--snip36 fake|snip36 [--prover-url URL] [--budget L2GAS] [--parallel N]]
+    prove_service.py prove --tier proven --snip36 fake|snip36 ...
+
+The SNIP-36 path (lot W3, contract v3's *proven* tier; `snip36.py`, `docs/proving.md` "SNIP-36"),
+beside Atlantic's, with `--snip36`: `POST /prove` with `"tier": "proven"` plans the attempt as the
+chain of the contract's `current_chain()` (layout (e): `init`, `step_chunk` x n, `outputs`, each
+virtual transaction under `--budget` L2 gas), proves every transaction in parallel through the
+prover (`fake`: the devnet's execution, facts laid out as the protocol does; `snip36`:
+`starknet_proveTransaction` of `--prover-url`), sends one Invoke per proof (`submit_chunk` per
+message) and `finalize`, all from the account of the environment (a relay: the record is
+`inputs.player`'s). It refuses (409) unless `chain_bundle(current_chain())` is this service's bundle
+and `chain_valid_until` is in the future. `/status/<id>` of such a job says `"tier": "proven"`, its
+`state` (`queued`, `planning`, `proving`, `submitting`, `finalizing`, `proven`, `failed`), `plan`
+(transactions, their L2 gas), each proof's state in `proofs`, `finalize` and the chain check;
+`/health` carries `"tiers"` and `"proven"` (the prover, the chain, `chain_match`, `available`).
 
 `serve`: HTTP on `--host:--port` (default 127.0.0.1:8549).
 
@@ -99,6 +114,7 @@ import encoding  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import relay as relaying  # noqa: E402
+import snip36  # noqa: E402
 
 P = encoding.P
 LEVELS = ROOT / "fixtures" / "levels"
@@ -112,6 +128,8 @@ DEFAULT_SEPOLIA_CONFIG = ROOT / "deploy" / "sepolia.json"
 # 2026-09-26 (`docs/proving.md`) and is accepted by `--result`.
 DEFAULT_RESULT = "PROOF_VERIFICATION_ON_L2"
 RESULTS = ("PROOF_VERIFICATION_ON_L2", "PROOF_VERIFICATION_ON_L2_WITH_TRANSLATION")
+# `POST /prove`'s `tier`: Atlantic + the Satellite (contract v2's settled tier), or SNIP-36 (v3's proven).
+TIERS = ("settled", "proven")
 N_OUTPUTS = 10
 # Translation (E3c): the wait for Atlantic's own translation, the retries of a failed transaction,
 # the pause of the background thread.
@@ -433,21 +451,25 @@ class Service:
     def __init__(self, store: Store, runner: Runner, result: str = DEFAULT_RESULT, submit: bool = True,
                  chain: bool = True, submitter=submit_pie, status_of=atlantic_status, facts_of=satellite_facts,
                  translator=None, grace: float = DEFAULT_TRANSLATE_GRACE, clock=time.time,
-                 program_of=None, program_ttl: float = 30.0, relayer=None):
+                 program_of=None, program_ttl: float = 30.0, relayer=None, proven=None):
         """`translator(sharp_fact, output) -> dict` sends `translateFactHash` (None: no account, the
         service only reports the keccak path); `grace` in seconds; `clock` is injectable for tests.
         `program_of(hash) -> {"current_program", "valid_until", "now"}` reads the deployed
         contract's view of a program (`contract_program`; M6; `None`: no contract configured, the
         check never runs), cached for `program_ttl` seconds. `relayer`: a `relay.NodeRelay` (or a
-        fake with `address`, `tier`, `simulate`, `send`); `None`: the relay is off."""
+        fake with `address`, `tier`, `simulate`, `send`); `None`: the relay is off. `proven`: a
+        `snip36.Snip36`, the SNIP-36 path (contract v3's proven tier); `None`: settled tier only."""
         self.store, self.runner, self.result, self.submit, self.chain = store, runner, result, submit, chain
         self.submitter, self.status_of, self.facts_of = submitter, status_of, facts_of
         self.translator, self.grace, self.clock = translator, grace, clock
         self.program_of, self.program_ttl, self.relayer = program_of, program_ttl, relayer
+        self.proven = proven
         self._program_cache: dict[int, tuple[float, dict]] = {}
         self.translate_lock = threading.Lock()
         self.relay_lock = threading.Lock()
         self.queue: queue.Queue[str] = queue.Queue()
+        # The SNIP-36 jobs have their own worker: a chain's minutes never wait behind a PIE.
+        self.proven_queue: queue.Queue[str] = queue.Queue()
 
     def program_state(self, program_hash: int | None) -> dict:
         """M6 for one program: `{"contract_program_hash", "program_valid_until", "program_match"}`,
@@ -482,13 +504,18 @@ class Service:
                                   f"no longer accepts; its current program is {state['contract_program_hash']})",
                              program_hash=hex(own), **state)
 
-    def create(self, level: object, inputs: object) -> tuple[dict, bool]:
-        """(job, created). The job is queued when new or not yet submitted."""
+    def create(self, level: object, inputs: object, tier: object = "settled") -> tuple[dict, bool]:
+        """(job, created). The job is queued when new or not yet submitted. `tier`: `settled`
+        (Atlantic, the Satellite) or `proven` (SNIP-36, `snip36`)."""
+        if tier not in TIERS:
+            raise ProveError(400, f"tier: one of {', '.join(TIERS)}")
         try:
             name, level_hash, felts = resolve_level(level)
             inputs = parse_inputs(inputs)
         except ValueError as e:
             raise ProveError(400, str(e)) from None
+        if tier == "proven":
+            return self.create_proven(name, level_hash, inputs)
         self.check_program_match()
         jid = job_id(level_hash, inputs, self.runner.child_program(), self.result)
         job = self.store.load(jid)
@@ -504,17 +531,73 @@ class Service:
         self.queue.put(jid)
         return job, True
 
+    def create_proven(self, name: str, level_hash: int, inputs: list[int]) -> tuple[dict, bool]:
+        """A SNIP-36 job: refused (409) unless the contract's current chain is this service's bundle
+        and valid now (the proven tier's program check)."""
+        if self.proven is None:
+            raise ProveError(400, "tier proven: this service has no SNIP-36 path (serve --snip36 fake|snip36)")
+        try:
+            view = self.proven.check()
+        except snip36.ChainMismatch as e:
+            raise ProveError(409, str(e), **e.view) from None
+        jid = job_id(level_hash, inputs, self.proven.job_id_key(), "PROVEN")
+        job = self.store.load(jid)
+        if job is not None:
+            if job["state"] == "failed":  # asked again: resume from the stored plan and proofs
+                job.update({"state": "queued", "error": None})
+                self.proven_queue.put(self.store.save(job)["id"])
+            return job, False
+        job = self.store.save({
+            "id": jid, "tier": "proven", "state": "queued", "level": name, "level_hash": hex(level_hash),
+            "inputs": [hex(x) for x in inputs], "chain": view.get("chain"), "error": None,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        self.proven_queue.put(jid)
+        return job, True
+
+    def work_proven(self, jid: str) -> dict:
+        """Runs one SNIP-36 job to `proven` (or `failed`); resumable from its stored plan and proofs."""
+        job = self.store.load(jid)
+        if job is None or not self.pending(job):
+            return job
+        try:
+            return self.proven.work(self.store, job, self.store.save)
+        except (snip36.Snip36Error, ProveError) as e:
+            job = self.store.load(jid) or job
+            job["state"], job["error"] = "failed", str(e)
+            return self.store.save(job)
+
+    def proven_worker(self) -> None:
+        while True:
+            jid = self.proven_queue.get()
+            try:
+                self.work_proven(jid)
+            except Exception as e:  # noqa: BLE001  (a worker never dies)
+                job = self.store.load(jid) or {"id": jid}
+                job["state"], job["error"] = "failed", f"internal: {e}"
+                self.store.save(job)
+            finally:
+                self.proven_queue.task_done()
+
     def resume(self) -> int:
         """Queues the stored jobs that stopped before their submission (a restart)."""
         n = 0
         for job in self.store.all():
             if self.pending(job):
-                self.queue.put(job["id"])
+                if job.get("tier") == "proven":
+                    if self.proven is None:
+                        continue
+                    self.proven_queue.put(job["id"])
+                else:
+                    self.queue.put(job["id"])
                 n += 1
         return n
 
     def pending(self, job: dict) -> bool:
-        """The job still has work: its run, or its submission (a `built` job, submitting now)."""
+        """The job still has work: its run, or its submission (a `built` job, submitting now); a
+        SNIP-36 job until it is `proven`."""
+        if job.get("tier") == "proven":
+            return job["state"] in snip36.PENDING
         return job["state"] in ("queued", "running") or (job["state"] == "built" and self.submit)
 
     def work(self, jid: str) -> dict:
@@ -684,7 +767,7 @@ class Service:
         """One pass of the relay thread over the submitted jobs; returns the transactions sent."""
         sent = 0
         for job in self.store.all():
-            if job.get("state") != "submitted" or (job.get("relay") or {}).get("state") in ("relayed", "settled", "gave-up"):
+            if job.get("tier") == "proven" or job.get("state") != "submitted" or (job.get("relay") or {}).get("state") in ("relayed", "settled", "gave-up"):
                 continue
             try:
                 after = (self.relay_job(job["id"]) or {}).get("relay") or {}
@@ -706,7 +789,12 @@ class Service:
         job = self.store.load(jid)
         if job is None:
             raise ProveError(404, "unknown job")
+        if job.get("tier") == "proven":
+            if self.proven is None:
+                return {**job, "proven": job.get("state") == "proven", "settleable": False}
+            return self.proven.status(job)
         answer = dict(job)
+        answer["tier"] = "settled"
         answer.update({"settleable": False, "settleable_poseidon": False, "settleable_keccak": False})
         # M6: the job's own program (as proven) must be valid on the contract now; `None`
         # ("unknown") never blocks settling, only a *confirmed* refusal does.
@@ -769,6 +857,8 @@ def make_handler(service: Service, log=sys.stderr):
                         "result": service.result, "submit": service.submit, "queued": service.queue.qsize(),
                         "program_hash": hex(own) if own is not None else None, **service.program_state(own),
                         "relay": service.relayer.address if service.relayer else None,
+                        "tiers": ["settled", "proven"] if service.proven else ["settled"],
+                        "proven": service.proven.health() if service.proven else None,
                     })
                 if self.path.startswith("/status/"):
                     return self.answer(200, service.status(self.path[len("/status/"):]))
@@ -789,7 +879,7 @@ def make_handler(service: Service, log=sys.stderr):
                     raise ProveError(400, f"body: {e}") from None
                 if not isinstance(request, dict):
                     raise ProveError(400, "body: expected a JSON object")
-                job, created = service.create(request.get("level"), request.get("inputs"))
+                job, created = service.create(request.get("level"), request.get("inputs"), request.get("tier", "settled"))
                 self.answer(202 if created else 200, job)
             except ProveError as e:
                 self.answer(e.status, {"error": str(e), **e.extra})
@@ -828,7 +918,31 @@ def make_service(args) -> Service:
         relayer = relaying.NodeRelay(contract, account)
     return Service(Store(Path(args.store)), runner, args.result, submit=not args.no_submit,
                    chain=not getattr(args, "no_chain", False), facts_of=facts_of, translator=translator,
-                   grace=grace, program_of=program_of, relayer=relayer)
+                   grace=grace, program_of=program_of, relayer=relayer, proven=make_proven(args, account, contract))
+
+
+def make_proven(args, account: dict | None, contract: int | None) -> snip36.Snip36 | None:
+    """The SNIP-36 path (`--snip36 fake|snip36`): the account of the environment simulates the chain,
+    sends the proofs and `finalize` (a relay); the contract's `current_chain()` is the chain proven."""
+    kind = getattr(args, "snip36", None)
+    if kind is None:
+        return None
+    if account is None or contract is None:
+        sys.exit("prove: --snip36 needs an account (STARKNET_ACCOUNT_ADDRESS, STARKNET_PRIVATE_KEY, "
+                 "STARKNET_RPC_URL) and a contract (SLINGFALL_ADDRESS)")
+    rpc = snip36.Rpc(account["STARKNET_RPC"])
+    runner = snip36.ChainRunner(rpc, int(account["SLINGFALL_ACCOUNT_ADDRESS"], 16))
+    chain = snip36.NodeChain(contract, account)
+    if kind == "fake":
+        prover = snip36.FakeProver(rpc, runner)
+    else:
+        url = args.prover_url or os.environ.get("PROVE_SNIP36_URL")
+        if not url:
+            sys.exit("prove: --snip36 snip36 needs --prover-url (or PROVE_SNIP36_URL): a starknet_proveTransaction endpoint")
+        prover = snip36.Snip36Prover(url, rpc, chain.sign_virtual)
+    bundle = snip36.own_bundle()
+    return snip36.Snip36(runner, prover, chain, lambda: snip36.chain_state(rpc, contract, bundle), bundle,
+                         level_felts=lambda name: resolve_level(name)[2], budget=args.budget, parallel=args.parallel)
 
 
 def watch(service: Service, jid: str, interval: float) -> dict:
@@ -849,6 +963,8 @@ def cmd_serve(args) -> int:
     service = make_service(args)
     resumed = service.resume()
     threading.Thread(target=service.worker, daemon=True).start()
+    if service.proven is not None:
+        threading.Thread(target=service.proven_worker, daemon=True).start()
     if service.translator is not None:
         threading.Thread(target=service.translator_loop, daemon=True).start()
     if service.relayer is not None:
@@ -858,7 +974,8 @@ def cmd_serve(args) -> int:
           f"result {args.result}, submit {not args.no_submit}, {resumed} job(s) resumed, translation "
           f"{'after ' + str(int(service.grace)) + ' s' if service.translator else 'off (no account or --no-translate)'}, "
           f"program check {'against ' + hex(contract_address()) if service.program_of else 'off (--no-program-check or no contract configured)'}, "
-          f"relay {'from ' + service.relayer.address if service.relayer else 'off'})",
+          f"relay {'from ' + service.relayer.address if service.relayer else 'off'}, "
+          f"SNIP-36 {'prover ' + service.proven.prover.name if service.proven else 'off'})",
           file=sys.stderr, flush=True)
     try:
         server.serve_forever()
@@ -878,6 +995,13 @@ def cmd_prove(args) -> int:
         for px, py, delay in args.shot:
             from_shots += [px % P, py % P, delay, 0]
         inputs = [hex(x) for x in from_shots]
+    if args.tier == "proven":
+        job, _ = service.create(args.level, inputs, "proven")
+        if service.pending(job):
+            service.work_proven(job["id"])
+        status = service.status(job["id"])
+        print(json.dumps(status, indent=2))
+        return 0 if status["state"] == "proven" else 1
     job, _ = service.create(args.level, inputs)
     job = service.work(job["id"]) if service.pending(job) else job
     print(json.dumps(job, indent=2))
@@ -943,6 +1067,12 @@ def main(argv: list[str]) -> int:
     common.add_argument("--no-submit", action="store_true", help="build the PIE and the facts only")
     common.add_argument("--no-program-check", action="store_true",
                         help="skip the satellite_config() match check against the deployed contract (M6)")
+    common.add_argument("--snip36", choices=("fake", "snip36"),
+                        help="the SNIP-36 path (contract v3's proven tier) with this prover: fake (devnet) or snip36")
+    common.add_argument("--prover-url", help="starknet_proveTransaction endpoint of --snip36 snip36 (or PROVE_SNIP36_URL)")
+    common.add_argument("--budget", type=int, default=snip36.DEFAULT_BUDGET,
+                        help=f"L2 gas per proven transaction (default {snip36.DEFAULT_BUDGET:,})")
+    common.add_argument("--parallel", type=int, default=4, help="proofs in flight (default 4)")
 
     p = sub.add_parser("serve", parents=[common], help="run the HTTP service")
     p.add_argument("--host", default="127.0.0.1")
@@ -961,6 +1091,7 @@ def main(argv: list[str]) -> int:
     p.add_argument("--shot", type=parse_shot, action="append", default=[])
     p.add_argument("--watch", action="store_true")
     p.add_argument("--interval", type=float, default=300)
+    p.add_argument("--tier", choices=TIERS, default="settled", help="proven: the SNIP-36 path (needs --snip36)")
     p.set_defaults(run=cmd_prove)
 
     p = sub.add_parser("status", parents=[common], help="a stored job, Atlantic and the Satellite")
