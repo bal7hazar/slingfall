@@ -18,6 +18,15 @@
 //! public states (the shot in progress, the level not over, the last state finished) are made in
 //! the transactions (`crate::rules::check_turn`, [`OutputsClass`]): a transaction that fails them
 //! reverts, and the virtual OS proves no reverted transaction.
+//!
+//! **The payload layouts above are API** (V3 escalation 2): contract v3's `submit_chunk` decodes
+//! them (`slingfall_contract::submit::chunks::parse`, kinds `INIT` / `STEP` / `OUTPUTS`), the
+//! prover service forwards them (`services/prove/snip36.py`); changing one is a contract change.
+//! [`MARKER`] is the value contract v3's `set_chunk_marker` is given. One deployment of
+//! [`SplitChain`] is one release's class bundle: the classes it library-calls are fixed by its
+//! constructor (no setter; `tests::chain::test_chain_bundle_*`), those its world class calls are
+//! compiled in ([`crate::hashes`]); contract v3 pins the deployment's address with the bundle
+//! hash (`pin_chain`).
 
 use core::poseidon::poseidon_hash_span;
 use rapier2d::prelude::{Handle, RigidBodyTrait, WorldTrait};
@@ -139,8 +148,9 @@ pub mod OutputsClass {
 }
 
 /// The deployed contract of the chain: the three proven transactions. The classes it
-/// library-calls are storage (set at deployment): a new layout or class version is a new
-/// deployment or an admin write, as the class hashes the world class compiles.
+/// library-calls are storage, written once by the constructor and never again (no setter, no
+/// upgrade): a new layout or class version is a new deployment, as the class hashes the world
+/// class compiles are a new world class.
 #[starknet::contract]
 pub mod SplitChain {
     use slingfall_game::chunk::hash_felts;
