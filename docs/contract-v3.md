@@ -211,11 +211,15 @@ v2 until a SNIP-36 proof can be made there, `docs/proving.md` "SNIP-36 tier"):
 | the proven tier's program check: `chain_bundle(current_chain())` = the service's bundle, `chain_valid_until > now` | `services/prove/prove_service.py` (409, `/status`, `/health` `proven`) |
 | `attempt()` = 3 (`PROVEN`), `LevelValidated.proven`, a proven record's `program_hash` = its bundle hash | `client/src/chain/slingfall.ts` (`ATTEMPT.proven`, `LevelValidated.proven`, `readBoards`: each row's proof, `describeProof`), `panel.ts` (the proven path when `/health` offers it, the settled one otherwise), `deploy/slingfall.ts attempt` / `boards` |
 
-The bundle order (`SPLIT_BUNDLE_CLASSES`, `snip36.BUNDLE_CLASSES`): `SplitChain`, `BuildClass`, `SettleClass`,
-`EditClass`, `WorldClass`, `OutputsClass` (the chain's class and its constructor's, in constructor order), then the
-classes `WorldClass` compiles in: `RulesClass`, `ContactBallClass`, `ContactPolygonClass`, `SolverClass`,
-`SolveAdvanceClass`, `IslandsClass`, `BroadPhaseClass`, `MassClass`, `NarrowPhaseClass`, `ActiveSetClass`,
-`ForceEventsClass`. On today's pins: `0x5bb15de9dd18b5b54ac337bb16aea411064a56a7f4449991bc7e2913dcfc06f`.
+The bundle order (`SPLIT_BUNDLE_CLASSES`, `snip36.BUNDLE_CLASSES`, both derived from
+`crates/slingfall_split/classes.json`, lot H3): `SplitChain`, `BuildClass`, `SettleClass`, `EditClass`, `WorldClass`,
+`OutputsClass` (the chain's class and its constructor's, in constructor order), then the classes `WorldClass`
+compiles in: `RulesClass`, and the eight rapier classes the game's layouts call, `ContactBallClass`,
+`ContactPolygonClass`, `SolveAdvanceClass`, `IslandsClass`, `BroadPhaseClass`, `MassClass`, `NarrowPhaseClass`,
+`ActiveSetClass` (15 classes; `SolverClass` and `ForceEventsClass` are neither built nor declared: the slim layout
+never calls them, `docs/research/07-split-game-step.md` "Status after H3"). On today's pins:
+`0x31e8cf85968b72f60645e8687591a8c7dacb476f60cbfe07fb9ef3341351fbd` (H2's 17-class bundle was
+`0x5bb15de9dd18b5b54ac337bb16aea411064a56a7f4449991bc7e2913dcfc06f`).
 
 `deploy/e2e.sh` runs it on the devnet: a v2 deployment with three attested records, upgraded (every value read
 back), the proven tier opened, the player's attested record proven by SNIP-36 (fake prover, 4 proofs, relayed),

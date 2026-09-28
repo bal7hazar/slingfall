@@ -2,6 +2,7 @@
 //! alpha.6 executables, `scripts/fixtures.py`), their Cairo steps per window, the class hashes the
 //! world classes compile.
 
+mod called;
 mod chain;
 mod harness;
 mod hashes;

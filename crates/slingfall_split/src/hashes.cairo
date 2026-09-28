@@ -23,7 +23,6 @@ pub const CONTACT_BALL_HASH: felt252 =
     0x7821f7fd3f73ec3e2000804015f615c63a5dde2495e2a8b3097f6e701f4153f;
 pub const CONTACT_POLYGON_HASH: felt252 =
     0x641aec5d123fca908fcb15ac8ea473bbd08dc2a2d06ca6fba995f4e0ac98676;
-pub const SOLVER_HASH: felt252 = 0x447d2dddc0d41fd2ac6d384e96f468d300f0509756eeb49435f004eac8a33ef;
 pub const SOLVE_ADVANCE_HASH: felt252 =
     0x484f69de20d79c8ec04effc9557b3ce9a63cc0940d9643f9a954c4a436c4239;
 pub const ISLANDS_HASH: felt252 = 0x6124b2b6093c09826da9b57e8008363ad730eae18a95ad5d6f5208342830f54;
@@ -34,8 +33,6 @@ pub const NARROW_PHASE_HASH: felt252 =
     0x69d00ab7e3ebdb09cfeaee8bb6acc4b2f49468e06d516c72f16936b44dcf336;
 pub const ACTIVE_SET_HASH: felt252 =
     0x4a6e55fafd8273f75152b3509aa40223f5f50e882ab1978a91beeb895201d02;
-pub const FORCE_EVENTS_HASH: felt252 =
-    0x322bab3a8c6a846ade7d18d85db51f1ad5cd92c1680dfc79e7049510928fe5a;
 pub const RULES_HASH: felt252 = 0x1252255e389d7be57c38073f06d273ece226ba8c5158f0631603aeb1591b4ae;
 pub const EDIT_HASH: felt252 = 0x38c35b4f684d8228998d652f48a13d0631be9b9db51bc5e46eb4c86c5cb1dd5;
 pub const STEP_HASH: felt252 = 0x3730c4a319a31a3a9f2c399cce7c1ac8f1535feda549cc6059022ba4763f5;
@@ -48,6 +45,11 @@ pub const SETTLE_HASH: felt252 = 0x7e9a195cd593b728e4ee7b5338d81f564673afbad5b7d
 pub const OUTPUTS_HASH: felt252 = 0x30e684c2fd7005e22c7fe4200681c27d76ab2bbe8abcf3633da59ebc0b0558d;
 pub const SPLIT_CHAIN_HASH: felt252 =
     0x6faa02c304d1de84c0111cc0d72e12ab02fcb40934b19008384f34bbcf4712a;
+
+/// The class hash of the stage classes the game never calls (`SolverClass`, `ForceEventsClass`:
+/// `SlimSplitStages` runs the solve in `SolveAdvanceClass` and the force events in process,
+/// `tests/called.cairo`): none is built or declared, and a call of it fails on an undeclared class.
+const NOT_DECLARED: ClassHash = 0.try_into().unwrap();
 
 /// The stage classes of `rapier2d_classes` at their declared hashes.
 pub impl GameClasses of ClassHashes {
@@ -62,8 +64,7 @@ pub impl GameClasses of ClassHashes {
     }
 
     fn solver() -> ClassHash {
-        const H: ClassHash = SOLVER_HASH.try_into().unwrap();
-        H
+        NOT_DECLARED
     }
 
     fn solve_advance() -> ClassHash {
@@ -97,8 +98,7 @@ pub impl GameClasses of ClassHashes {
     }
 
     fn force_events() -> ClassHash {
-        const H: ClassHash = FORCE_EVENTS_HASH.try_into().unwrap();
-        H
+        NOT_DECLARED
     }
 }
 
@@ -124,10 +124,9 @@ pub impl PinnedSplit of SplitHashes {
 pub fn pinned() -> Array<(ByteArray, felt252)> {
     array![
         ("ContactBallClass", CONTACT_BALL_HASH), ("ContactPolygonClass", CONTACT_POLYGON_HASH),
-        ("SolverClass", SOLVER_HASH), ("SolveAdvanceClass", SOLVE_ADVANCE_HASH),
-        ("IslandsClass", ISLANDS_HASH), ("BroadPhaseClass", BROAD_PHASE_HASH),
-        ("MassClass", MASS_HASH), ("NarrowPhaseClass", NARROW_PHASE_HASH),
-        ("ActiveSetClass", ACTIVE_SET_HASH), ("ForceEventsClass", FORCE_EVENTS_HASH),
+        ("SolveAdvanceClass", SOLVE_ADVANCE_HASH), ("IslandsClass", ISLANDS_HASH),
+        ("BroadPhaseClass", BROAD_PHASE_HASH), ("MassClass", MASS_HASH),
+        ("NarrowPhaseClass", NARROW_PHASE_HASH), ("ActiveSetClass", ACTIVE_SET_HASH),
         ("RulesClass", RULES_HASH), ("EditClass", EDIT_HASH), ("StepClass", STEP_HASH),
         ("WorldClass", WORLD_HASH), ("FallbackGame", FALLBACK_GAME_HASH),
         ("BuildClass", BUILD_HASH), ("SettleClass", SETTLE_HASH), ("OutputsClass", OUTPUTS_HASH),

@@ -57,6 +57,7 @@ import encoding  # noqa: E402  (Poseidon, starknet_keccak)
 P = encoding.P
 SLINGFALL_CLI = ROOT / "deploy" / "slingfall.ts"
 HASHES = ROOT / "crates" / "slingfall_split" / "src" / "hashes.cairo"
+CLASSES = ROOT / "crates" / "slingfall_split" / "classes.json"
 
 
 def short_string(text: str) -> int:
@@ -84,11 +85,10 @@ PROTOCOL_CAP = 1_100_000_000
 FIRST_K = 60
 SHRINK = 0.95
 MAX_TICKS = 360 * 5
-# The order of a bundle (`client/src/chain/slingfall.ts` `SPLIT_BUNDLE_CLASSES`).
-BUNDLE_CLASSES = ("SplitChain", "BuildClass", "SettleClass", "EditClass", "WorldClass", "OutputsClass",
-                  "RulesClass", "ContactBallClass", "ContactPolygonClass", "SolverClass", "SolveAdvanceClass",
-                  "IslandsClass", "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass",
-                  "ForceEventsClass")
+# The order of a bundle (`client/src/chain/slingfall.ts` `SPLIT_BUNDLE_CLASSES`): the chain's classes,
+# then the rapier classes the game calls, from the split crate's one list (`classes.json`, lot H3).
+_CLASSES = json.loads(CLASSES.read_text())
+BUNDLE_CLASSES = (*_CLASSES["chain"], *_CLASSES["rapier"])
 NOT_FINISHED = "split: not finished"
 # How a node reports a run stopped by its step or gas cap (blockifier / cairo-vm).
 OUT_OF_RESOURCES = ("no remaining steps", "Out of gas", "out of gas")

@@ -13,9 +13,9 @@ use starknet::{ClassHash, ContractAddress, SyscallResultTrait};
 #[cfg(not(feature: 'probes'))]
 pub fn classes() -> Array<ByteArray> {
     array![
-        "ContactBallClass", "ContactPolygonClass", "SolverClass", "SolveAdvanceClass",
-        "IslandsClass", "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass",
-        "ForceEventsClass", "RulesClass", "EditClass", "StepClass",
+        "ContactBallClass", "ContactPolygonClass", "SolveAdvanceClass", "IslandsClass",
+        "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass", "RulesClass",
+        "EditClass", "StepClass",
     ]
 }
 
@@ -23,9 +23,9 @@ pub fn classes() -> Array<ByteArray> {
 #[cfg(feature: 'probes')]
 pub fn classes() -> Array<ByteArray> {
     array![
-        "ContactBallClass", "ContactPolygonClass", "SolverClass", "SolveAdvanceClass",
-        "IslandsClass", "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass",
-        "ForceEventsClass", "RulesClass", "EditClass", "StepClass", "TypedRulesClass",
+        "ContactBallClass", "ContactPolygonClass", "SolveAdvanceClass", "IslandsClass",
+        "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass", "RulesClass",
+        "EditClass", "StepClass", "TypedRulesClass",
     ]
 }
 
@@ -35,8 +35,16 @@ pub fn declared(name: ByteArray) -> ClassHash {
 
 /// Declares every class the world classes library-call.
 pub fn install() {
+    install_except(@"");
+}
+
+/// [`install`] without the class `skip` (`""`: none): a library call of it then fails
+/// (`tests/called.cairo` measures which classes a shot calls).
+pub fn install_except(skip: @ByteArray) {
     for name in classes() {
-        let _ = declared(name);
+        if @name != skip {
+            let _ = declared(name);
+        }
     }
 }
 

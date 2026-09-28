@@ -392,13 +392,19 @@ describe('proven tier (v3)', () => {
     const simulate = readFileSync(root('crates/slingfall_contract/src/simulate.cairo'), 'utf8');
     const [, marker] = simulate.match(/pub const MARKER: felt252 = '(\w+)';/)!;
     expect(CHUNK_MARKER).toBe(feltHex(`0x${Buffer.from(marker).toString('hex')}`));
+    // One list (lot H3): the split crate's `classes.json`, which the prover service reads itself
+    // (`snip36.BUNDLE_CLASSES`) and `classes.py` copies into `SPLIT_BUNDLE_CLASSES`.
+    const listed = JSON.parse(readFileSync(root('crates/slingfall_split/classes.json'), 'utf8')) as {
+      chain: string[];
+      rapier: Record<string, string>;
+    };
+    expect([...SPLIT_BUNDLE_CLASSES]).toEqual([...listed.chain, ...Object.keys(listed.rapier)]);
     const service = readFileSync(root('services/prove/snip36.py'), 'utf8');
-    const [, tuple] = service.match(/BUNDLE_CLASSES = \(([^)]*)\)/)!;
-    expect([...tuple.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual([...SPLIT_BUNDLE_CLASSES]);
+    expect(service).toContain('BUNDLE_CLASSES = (*_CLASSES["chain"], *_CLASSES["rapier"])');
     const classes = SPLIT_BUNDLE_CLASSES.map((_, i) => feltHex(i + 1));
     expect(bundleHash(classes)).toBe(feltHex(hash.computePoseidonHashOnElements(classes.map(BigInt))));
     expect(bundleHash([...classes].reverse())).not.toBe(bundleHash(classes));
-    expect(() => bundleHash(classes.slice(1))).toThrow('16 class hashes');
+    expect(() => bundleHash(classes.slice(1))).toThrow(`${classes.length - 1} class hashes`);
   });
 
   it('reads the chain and virtual-OS sets', async () => {

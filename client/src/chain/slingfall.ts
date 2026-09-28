@@ -182,14 +182,12 @@ export const SPLIT_BUNDLE_CLASSES = [
   'RulesClass',
   'ContactBallClass',
   'ContactPolygonClass',
-  'SolverClass',
   'SolveAdvanceClass',
   'IslandsClass',
   'BroadPhaseClass',
   'MassClass',
   'NarrowPhaseClass',
   'ActiveSetClass',
-  'ForceEventsClass',
 ] as const;
 
 /** The bundle hash of a chain (`pin_chain`'s, the `program_hash` of the records it proves): Poseidon
