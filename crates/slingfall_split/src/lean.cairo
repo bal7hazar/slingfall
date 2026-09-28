@@ -12,7 +12,7 @@
 //!
 //! The world class compiles no `Rules`, `TickOut`, `Op` or `Launch` code.
 
-use rapier2d::prelude::{BodyPose, ContactForceEvent, Handle, Pose2, RigidBodySetTrait, WorldTrait};
+use rapier2d::prelude::{ContactForceEvent, Handle, RigidBodyTrait, WorldTrait};
 use rapier2d::world::World;
 use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
 use starknet::SyscallResultTrait;
@@ -68,31 +68,47 @@ pub fn run<impl St: Stepper, impl G: SplitHashes>(
         events = array![];
         if !edit.is_empty() {
             let mut calldata = array![];
-            into_basic_state(world).serialize(ref calldata);
+            save(world, ref calldata);
             calldata.append_span(edit.span());
             let mut ret = library_call_syscall(G::edit(), selector!("edit"), calldata.span())
                 .unwrap_syscall();
-            let (state, added): (BasicWorldState, Array<Handle>) = Serde::deserialize(ref ret)
-                .expect(errors::DECODE);
-            world = from_basic_state(state);
-            inserted = added;
+            world = load(ref ret);
+            inserted = Serde::deserialize(ref ret).expect(errors::DECODE);
         }
-        if status == CALM {
-            selector = selector!("calm");
-            continue;
-        }
-        if status == OVER || stepped == k {
+        if status == OVER || (status != CALM && stepped == k) {
             over = status == OVER;
             break;
         }
-        let (next, stepped_events) = St::step(world);
-        world = next;
-        events = stepped_events;
-        watch.append_span(inserted.span());
-        stepped += 1;
-        selector = selector!("tick");
+        if status != CALM {
+            let (next, stepped_events) = St::step(world);
+            world = next;
+            events = stepped_events;
+            watch.append_span(inserted.span());
+            stepped += 1;
+        }
+        // One tail, the selector a merge of two constants: a constant here would make the
+        // compiler clone the loop per constant (const specialization: three loops, +4k CASM).
+        selector = if status == CALM {
+            selector!("calm")
+        } else {
+            selector!("tick")
+        };
     }
     (world, stepped, over)
+}
+
+/// The world of the basic codec's felts at the front of `felts` (the one decoding site of the
+/// class: the entry point's and the edit crossing's).
+#[inline(never)]
+pub fn load(ref felts: Span<felt252>) -> World {
+    let state: BasicWorldState = Serde::deserialize(ref felts).expect(errors::DECODE);
+    from_basic_state(state)
+}
+
+/// Appends `world`'s basic-codec felts to `out` (the one encoding site of the class).
+#[inline(never)]
+pub fn save(world: World, ref out: Array<felt252>) {
+    into_basic_state(world).serialize(ref out);
 }
 
 /// The views of `watch` as `Span<View>`'s felts (`Option<Motion>`: `[0, x, y, vx, vy, w]` for
@@ -100,15 +116,15 @@ pub fn run<impl St: Stepper, impl G: SplitHashes>(
 fn write_views(ref world: World, watch: Span<Handle>, ref out: Array<felt252>) {
     out.append(watch.len().into());
     for handle in watch {
-        let handle = *handle;
-        if world.is_sleeping(handle).unwrap() {
+        // One read of the whole body (as main's calm rule): smaller here than three field reads.
+        let body = world.body(*handle).unwrap();
+        if body.is_sleeping() {
             out.append(1);
         } else {
             out.append(0);
-            let pose: Pose2 = world.bodies.get_field::<Pose2, BodyPose>(handle).unwrap();
-            pose.translation.serialize(ref out);
-            world.linvel(handle).unwrap().serialize(ref out);
-            world.angvel(handle).unwrap().serialize(ref out);
+            body.translation().serialize(ref out);
+            body.linvel().serialize(ref out);
+            body.angvel().serialize(ref out);
         }
     }
 }
@@ -155,27 +171,63 @@ pub fn edit(world: World, ops: Span<Op>, launch: Option<Launch>) -> (World, Arra
 /// Layout (e)'s world class.
 #[starknet::contract]
 pub mod LayoutE {
-    use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
     use crate::hashes::{GameClasses, PinnedSplit};
     use crate::world::SlimStep;
 
     #[storage]
     struct Storage {}
 
+    /// The state as one length-prefixed span (`world ++ rules`: the basic codec's felts, then the
+    /// rules state's, length-prefixed), the world decoded and encoded by `load` / `save`; returns
+    /// `world ++ rules ++ [stepped, over]` as one array.
     #[external(v0)]
     fn step_chunk(
-        self: @ContractState,
-        world: BasicWorldState,
-        rules: Array<felt252>,
-        inputs: Array<felt252>,
-        shot: u8,
-        k: u32,
-    ) -> (BasicWorldState, Array<felt252>, u32, bool) {
-        let mut rules = rules;
+        self: @ContractState, state: Span<felt252>, inputs: Array<felt252>, shot: u8, k: u32,
+    ) -> Array<felt252> {
+        let mut state = state;
+        let world = super::load(ref state);
+        let mut rules: Array<felt252> = Serde::deserialize(ref state)
+            .expect(crate::world::errors::DECODE);
         let (world, stepped, over) = super::run::<
             SlimStep<GameClasses>, PinnedSplit,
-        >(from_basic_state(world), ref rules, inputs.span(), shot, k);
-        (into_basic_state(world), rules, stepped, over)
+        >(world, ref rules, inputs.span(), shot, k);
+        let mut out = array![];
+        super::save(world, ref out);
+        rules.serialize(ref out);
+        out.append(stepped.into());
+        out.append(over.into());
+        out
+    }
+}
+
+/// Layout (f): layout (e) with the force events collected in `ForceEventsClass`
+/// (`crate::stages::SlimForceStages`, rapier-cairo's lever 3).
+#[starknet::contract]
+pub mod LayoutF {
+    use crate::hashes::{GameClasses, PinnedSplit};
+    use crate::world::ForceStep;
+
+    #[storage]
+    struct Storage {}
+
+    /// As `LayoutE::step_chunk`.
+    #[external(v0)]
+    fn step_chunk(
+        self: @ContractState, state: Span<felt252>, inputs: Array<felt252>, shot: u8, k: u32,
+    ) -> Array<felt252> {
+        let mut state = state;
+        let world = super::load(ref state);
+        let mut rules: Array<felt252> = Serde::deserialize(ref state)
+            .expect(crate::world::errors::DECODE);
+        let (world, stepped, over) = super::run::<
+            ForceStep<GameClasses>, PinnedSplit,
+        >(world, ref rules, inputs.span(), shot, k);
+        let mut out = array![];
+        super::save(world, ref out);
+        rules.serialize(ref out);
+        out.append(stepped.into());
+        out.append(over.into());
+        out
     }
 }
 

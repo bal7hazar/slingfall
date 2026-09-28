@@ -2,6 +2,7 @@
 //! (`docs/research/07-split-game-step.md`). Not published; built as its own workspace on
 //! rapier2d alpha.7 (the game crates through `shims/`) until lot B5 bumps the root workspace.
 
+pub mod chain;
 pub mod chunk;
 pub mod classes;
 pub mod hashes;

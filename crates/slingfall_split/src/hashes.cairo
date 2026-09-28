@@ -34,9 +34,10 @@ pub const ACTIVE_SET_HASH: felt252 =
     0x4a6e55fafd8273f75152b3509aa40223f5f50e882ab1978a91beeb895201d02;
 pub const FORCE_EVENTS_HASH: felt252 =
     0x322bab3a8c6a846ade7d18d85db51f1ad5cd92c1680dfc79e7049510928fe5a;
-pub const RULES_HASH: felt252 = 0x784b7c95076f548756192808fa7cba543e4de29f9587e46d36b848be51600bd;
-pub const LEAN_RULES_HASH: felt252 = 0x4;
-pub const EDIT_HASH: felt252 = 0x1c660a819b1a89e1b24a7c55198b006a9563a10f1c6e7db4592e7a1e60386b;
+pub const RULES_HASH: felt252 = 0x46bfad6ddeb0b5f2cf6cd5e302e777e937bc58f3b663cf2224bdf2fef8874d;
+pub const LEAN_RULES_HASH: felt252 =
+    0x1e9c89d24887357378ab9c7a12e4ffec8dc50875b1aee739ec95a350261ebd6;
+pub const EDIT_HASH: felt252 = 0x38c35b4f684d8228998d652f48a13d0631be9b9db51bc5e46eb4c86c5cb1dd5;
 pub const STEP_HASH: felt252 = 0x3730c4a319a31a3a9f2c399cce7c1ac8f1535feda549cc6059022ba4763f5;
 
 /// The stage classes of `rapier2d_classes` at their declared hashes.

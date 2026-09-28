@@ -114,6 +114,18 @@ pub impl SlimStep<impl H: ClassHashes> of Stepper {
     }
 }
 
+/// The step with the force events in `ForceEventsClass` (`crate::stages::SlimForceStages`).
+pub impl ForceStep<impl H: ClassHashes> of Stepper {
+    fn step(world: World) -> (World, Array<ContactForceEvent>) {
+        let mut world = world;
+        let (_, events) = world
+            .step_with_force_events_with_stages::<
+                BasicStepConfig, crate::stages::SlimForceStages<H>,
+            >();
+        (world, events)
+    }
+}
+
 /// Layout (b): the world crosses to `crate::classes::StepClass` at every step (basic codec both
 /// ways), which steps it with `SlimSplitStages` and returns it with the force events.
 pub impl CrossingStep<impl G: SplitHashes> of Stepper {

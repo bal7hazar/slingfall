@@ -262,6 +262,19 @@ pub mod EditClass {
         into_basic_state(world)
     }
 
+    /// `init`'s `sleep_all` after the settle step: every dynamic entity of the rules state.
+    #[external(v0)]
+    fn sleep_all(
+        self: @ContractState, world: BasicWorldState, rules: Array<felt252>,
+    ) -> (BasicWorldState, Array<felt252>) {
+        let decoded: crate::rules::Rules = slingfall_game::play::decode(
+            rules.span(), slingfall_game::errors::STATE,
+        );
+        let mut world = from_basic_state(world);
+        apply_ops(ref world, crate::init::settle_sleeps(@decoded).span());
+        (into_basic_state(world), rules)
+    }
+
     /// Layout (e): the tick's edits, then the next tick's pebble (`crate::lean::edit`).
     #[external(v0)]
     fn edit(

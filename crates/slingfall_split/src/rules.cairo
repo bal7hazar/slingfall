@@ -34,6 +34,9 @@ use slingfall_rules::world::{Entity, GameState, errors};
 /// What the rules read of the level (the rest of it is only hashed).
 #[derive(Drop, Serde, PartialEq, Debug)]
 pub struct Params {
+    /// `level.version` and `level.seed`, echoed in the outputs.
+    pub version: u16,
+    pub seed: felt252,
     pub shots: u8,
     pub tick_cap: u16,
     pub bounds: (Fixed, Fixed, Fixed, Fixed),
@@ -157,6 +160,8 @@ pub fn params(level: @Level) -> Params {
     let mut materials = array![];
     materials.append_span(level.materials.span());
     Params {
+        version: *level.version,
+        seed: *level.seed,
         shots: *level.shots,
         tick_cap: *level.tick_cap,
         bounds: *level.bounds,

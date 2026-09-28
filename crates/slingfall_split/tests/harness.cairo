@@ -1,7 +1,8 @@
 //! Fixtures, declarations and chunk calls shared by the tests.
 
-use slingfall_game::chunk::ChunkState;
-use slingfall_game::play::decode;
+use slingfall_game::chunk::{ChunkState, step_state};
+use slingfall_game::play::{NoopObserver, decode};
+use slingfall_level::inputs::Inputs;
 use slingfall_split::rules::from_game;
 use snforge_std::fs::{FileTrait, read_txt};
 use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
@@ -56,10 +57,17 @@ pub fn state(case: @ByteArray, tick: u32) -> (Array<felt252>, Array<felt252>) {
     split_state(load(case, format!("state_{tick}")).span())
 }
 
+/// The world classes whose `step_chunk` takes the world as a length-prefixed span and returns one
+/// array (`crate::lean::LayoutE`: one codec site).
+pub fn raw(layout: @ByteArray) -> bool {
+    layout == @"LayoutE" || layout == @"LayoutF"
+}
+
 /// `step_chunk(world, rules, inputs, shot, k)` on the world class at `address`: its return felts
 /// (`world ++ rules ++ [stepped, over]`).
 pub fn chunk(
     address: ContractAddress,
+    raw: bool,
     world: Span<felt252>,
     rules: Span<felt252>,
     inputs: Span<felt252>,
@@ -67,12 +75,20 @@ pub fn chunk(
     k: u32,
 ) -> Span<felt252> {
     let mut calldata = array![];
+    if raw {
+        calldata.append((world.len() + 1 + rules.len()).into());
+    }
     calldata.append_span(world);
     rules.serialize(ref calldata);
     inputs.serialize(ref calldata);
     shot.serialize(ref calldata);
     k.serialize(ref calldata);
-    call_contract_syscall(address, selector!("step_chunk"), calldata.span()).unwrap_syscall()
+    let mut out = call_contract_syscall(address, selector!("step_chunk"), calldata.span())
+        .unwrap_syscall();
+    if raw {
+        let _ = out.pop_front();
+    }
+    out
 }
 
 /// What `chunk` must return after the window `start..end` of `case`: main's state at `end`.
@@ -89,11 +105,12 @@ pub fn expected(case: @ByteArray, start: u32, end: u32, over: bool) -> Array<fel
 /// main's state at `end` (world and rules, bit for bit).
 pub fn window(layout: ByteArray, case: ByteArray, start: u32, end: u32, over: bool) {
     install();
+    let raw = raw(@layout);
     let address = deploy(layout);
     let (world, rules) = state(@case, start);
     let inputs = load(@case, "inputs");
     let expected = expected(@case, start, end, over);
-    let out = chunk(address, world.span(), rules.span(), inputs.span(), 0, end - start);
+    let out = chunk(address, raw, world.span(), rules.span(), inputs.span(), 0, end - start);
     assert!(out == expected.span(), "{case} {start}-{end}: differs from main");
 }
 
@@ -109,4 +126,24 @@ pub fn window_setup(case: ByteArray, start: u32, end: u32, over: bool) {
     rules.span().serialize(ref out);
     out.append_span(inputs.span());
     assert!(out.span() != expected.span(), "setup");
+}
+
+/// Main's own chunk (`slingfall_game::chunk::step_state`: `GameTrait` in process, the whole
+/// engine, the full `WorldState` codec) on the window, in this test: the in-process baseline.
+pub fn window_main(case: ByteArray, start: u32, end: u32, over: bool) {
+    install();
+    let _address = deploy("LayoutD");
+    let state: ChunkState = decode(load(@case, format!("state_{start}")).span(), 'fixture');
+    let inputs: Inputs = decode(load(@case, "inputs").span(), 'fixture: inputs');
+    let expected = expected(@case, start, end, over);
+    let mut obs: NoopObserver = Default::default();
+    let (next, stepped) = step_state(state, @inputs, 0, end - start, ref obs);
+    let mut felts = array![];
+    next.serialize(ref felts);
+    let (world, rules) = split_state(felts.span());
+    let mut out = world;
+    rules.span().serialize(ref out);
+    out.append(stepped.into());
+    out.append(over.into());
+    assert!(out == expected, "{case} {start}-{end}: main differs from its fixture");
 }

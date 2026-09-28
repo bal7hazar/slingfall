@@ -24,6 +24,11 @@ slingfall_game = { path = "shims/slingfall_game" }
 snforge_std = "0.61.0"
 assert_macros = "2.19.4"
 
+# The library's Sierra program (`.sierra.json`): per-function attribution of the classes'
+# code (`scripts/attribution.py`).
+[lib]
+sierra = true
+
 [[target.starknet-contract]]
 sierra = true
 casm = true

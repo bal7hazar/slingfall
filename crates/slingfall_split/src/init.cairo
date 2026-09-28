@@ -79,14 +79,14 @@ pub fn build(level: @Level) -> (World, Rules) {
 }
 
 /// Main's settle step with `SlimSplitStages<H>`: `dt = 0`, one step without force events, `dt`
-/// restored; then `sleep_all` on the bodies `sleep` lists (every dynamic entity).
-pub fn settle<impl H: ClassHashes>(world: World, sleep: Span<Op>) -> World {
+/// restored. `sleep_all` follows (the sleeps of [`settle_sleeps`], `EditClass::sleep_all`: the
+/// World edits do not fit next to the step).
+pub fn settle<impl H: ClassHashes>(world: World) -> World {
     let mut world = world;
     let dt = world.integration_parameters.dt;
     world.integration_parameters.dt = Fixed { raw: 0 };
     let _ = world.step_with_stages::<BasicStepConfig, SlimSplitStages<H>>();
     world.integration_parameters.dt = dt;
-    crate::world::apply_ops(ref world, sleep);
     world
 }
 
