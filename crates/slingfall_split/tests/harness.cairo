@@ -19,7 +19,7 @@ pub fn classes() -> Array<ByteArray> {
 }
 
 pub fn declared(name: ByteArray) -> ClassHash {
-    *declare(name).unwrap().contract_class().class_hash
+    *declare(name).unwrap_syscall().contract_class().class_hash
 }
 
 /// Declares every class the world classes library-call.
@@ -31,7 +31,11 @@ pub fn install() {
 
 /// Declares and deploys the world class `name` (no constructor).
 pub fn deploy(name: ByteArray) -> ContractAddress {
-    let (address, _) = declare(name).unwrap().contract_class().deploy(@array![]).unwrap_syscall();
+    let (address, _) = declare(name)
+        .unwrap_syscall()
+        .contract_class()
+        .deploy(@array![])
+        .unwrap_syscall();
     address
 }
 

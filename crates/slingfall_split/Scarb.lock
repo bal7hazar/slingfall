@@ -123,6 +123,7 @@ dependencies = [
  "glam",
  "rapier2d",
  "rapier2d_classes",
+ "rapier_dynamics2d",
  "slingfall_game",
  "slingfall_level",
  "slingfall_rules",

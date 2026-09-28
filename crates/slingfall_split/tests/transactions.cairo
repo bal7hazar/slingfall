@@ -6,226 +6,271 @@
 use crate::chain::{tx_chunk, tx_init, tx_outputs, tx_setup};
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_000_000() {
     tx_setup("owner", 0, 0);
 }
 
 #[test]
+#[ignore]
 fn steps_txinitb_owner_000_000() {
     tx_init("LayoutB", "owner");
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_151_151() {
     tx_setup("owner", 151, 151);
 }
 
 #[test]
+#[ignore]
 fn steps_txoutb_owner_151_151() {
     tx_outputs("LayoutB", "owner", 151);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_000_040() {
     tx_setup("owner", 0, 40);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_owner_000_040() {
     tx_chunk("LayoutB", "owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_040_060() {
     tx_setup("owner", 40, 60);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_owner_040_060() {
     tx_chunk("LayoutB", "owner", 40, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_060_080() {
     tx_setup("owner", 60, 80);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_owner_060_080() {
     tx_chunk("LayoutB", "owner", 60, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_080_100() {
     tx_setup("owner", 80, 100);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_owner_080_100() {
     tx_chunk("LayoutB", "owner", 80, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_100_120() {
     tx_setup("owner", 100, 120);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_owner_100_120() {
     tx_chunk("LayoutB", "owner", 100, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_120_140() {
     tx_setup("owner", 120, 140);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_owner_120_140() {
     tx_chunk("LayoutB", "owner", 120, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_140_151() {
     tx_setup("owner", 140, 151);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_owner_140_151() {
     tx_chunk("LayoutB", "owner", 140, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_reference_000_000() {
     tx_setup("reference", 0, 0);
 }
 
 #[test]
+#[ignore]
 fn steps_txinitb_reference_000_000() {
     tx_init("LayoutB", "reference");
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_reference_107_107() {
     tx_setup("reference", 107, 107);
 }
 
 #[test]
+#[ignore]
 fn steps_txoutb_reference_107_107() {
     tx_outputs("LayoutB", "reference", 107);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_reference_000_050() {
     tx_setup("reference", 0, 50);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_reference_000_050() {
     tx_chunk("LayoutB", "reference", 0, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_reference_050_080() {
     tx_setup("reference", 50, 80);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_reference_050_080() {
     tx_chunk("LayoutB", "reference", 50, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_reference_080_090() {
     tx_setup("reference", 80, 90);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_reference_080_090() {
     tx_chunk("LayoutB", "reference", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_reference_090_107() {
     tx_setup("reference", 90, 107);
 }
 
 #[test]
+#[ignore]
 fn steps_txb_reference_090_107() {
     tx_chunk("LayoutB", "reference", 90, 107, true);
 }
 
 #[test]
+#[ignore]
 fn steps_txinite_owner_000_000() {
     tx_init("LayoutE", "owner");
 }
 
 #[test]
+#[ignore]
 fn steps_txoute_owner_151_151() {
     tx_outputs("LayoutE", "owner", 151);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_000_060() {
     tx_setup("owner", 0, 60);
 }
 
 #[test]
+#[ignore]
 fn steps_txe_owner_000_060() {
     tx_chunk("LayoutE", "owner", 0, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txe_owner_060_080() {
     tx_chunk("LayoutE", "owner", 60, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_080_110() {
     tx_setup("owner", 80, 110);
 }
 
 #[test]
+#[ignore]
 fn steps_txe_owner_080_110() {
     tx_chunk("LayoutE", "owner", 80, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_owner_110_140() {
     tx_setup("owner", 110, 140);
 }
 
 #[test]
+#[ignore]
 fn steps_txe_owner_110_140() {
     tx_chunk("LayoutE", "owner", 110, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txe_owner_140_151() {
     tx_chunk("LayoutE", "owner", 140, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_txinite_reference_000_000() {
     tx_init("LayoutE", "reference");
 }
 
 #[test]
+#[ignore]
 fn steps_txoute_reference_107_107() {
     tx_outputs("LayoutE", "reference", 107);
 }
 
 #[test]
+#[ignore]
 fn steps_txsetup_reference_000_090() {
     tx_setup("reference", 0, 90);
 }
 
 #[test]
+#[ignore]
 fn steps_txe_reference_000_090() {
     tx_chunk("LayoutE", "reference", 0, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_txe_reference_090_107() {
     tx_chunk("LayoutE", "reference", 90, 107, true);
 }

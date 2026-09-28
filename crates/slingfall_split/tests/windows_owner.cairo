@@ -6,841 +6,625 @@
 use crate::harness::{window, window_main, window_setup};
 
 #[test]
+#[ignore]
 fn steps_setup_owner_000_040() {
     window_setup("owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_000_040() {
     window_main("owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_000_040() {
     window("LayoutA", "owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_000_040() {
     window("LayoutB", "owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_000_040() {
     window("LayoutC", "owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_000_040() {
     window("LayoutD", "owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_000_040() {
     window("LayoutE", "owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_000_040() {
     window("LayoutF", "owner", 0, 40, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_040_050() {
     window_setup("owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_040_050() {
     window_main("owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_040_050() {
     window("LayoutA", "owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_040_050() {
     window("LayoutB", "owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_040_050() {
     window("LayoutC", "owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_040_050() {
     window("LayoutD", "owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_040_050() {
     window("LayoutE", "owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_040_050() {
     window("LayoutF", "owner", 40, 50, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_050_060() {
     window_setup("owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_050_060() {
     window_main("owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_050_060() {
     window("LayoutA", "owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_050_060() {
     window("LayoutB", "owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_050_060() {
     window("LayoutC", "owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_050_060() {
     window("LayoutD", "owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_050_060() {
     window("LayoutE", "owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_050_060() {
     window("LayoutF", "owner", 50, 60, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_060_070() {
     window_setup("owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_060_070() {
     window_main("owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_060_070() {
     window("LayoutA", "owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_060_070() {
     window("LayoutB", "owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_060_070() {
     window("LayoutC", "owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_060_070() {
     window("LayoutD", "owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_060_070() {
     window("LayoutE", "owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_060_070() {
     window("LayoutF", "owner", 60, 70, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_070_080() {
     window_setup("owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_070_080() {
     window_main("owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_070_080() {
     window("LayoutA", "owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_070_080() {
     window("LayoutB", "owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_070_080() {
     window("LayoutC", "owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_070_080() {
     window("LayoutD", "owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_070_080() {
     window("LayoutE", "owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_070_080() {
     window("LayoutF", "owner", 70, 80, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_080_090() {
     window_setup("owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_080_090() {
     window_main("owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_080_090() {
     window("LayoutA", "owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_080_090() {
     window("LayoutB", "owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_080_090() {
     window("LayoutC", "owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_080_090() {
     window("LayoutD", "owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_080_090() {
     window("LayoutE", "owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_080_090() {
     window("LayoutF", "owner", 80, 90, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_090_100() {
     window_setup("owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_090_100() {
     window_main("owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_090_100() {
     window("LayoutA", "owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_090_100() {
     window("LayoutB", "owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_090_100() {
     window("LayoutC", "owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_090_100() {
     window("LayoutD", "owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_090_100() {
     window("LayoutE", "owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_090_100() {
     window("LayoutF", "owner", 90, 100, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_100_110() {
     window_setup("owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_100_110() {
     window_main("owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_100_110() {
     window("LayoutA", "owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_100_110() {
     window("LayoutB", "owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_100_110() {
     window("LayoutC", "owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_100_110() {
     window("LayoutD", "owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_100_110() {
     window("LayoutE", "owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_100_110() {
     window("LayoutF", "owner", 100, 110, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_110_120() {
     window_setup("owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_110_120() {
     window_main("owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_110_120() {
     window("LayoutA", "owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_110_120() {
     window("LayoutB", "owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_110_120() {
     window("LayoutC", "owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_110_120() {
     window("LayoutD", "owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_110_120() {
     window("LayoutE", "owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_110_120() {
     window("LayoutF", "owner", 110, 120, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_120_130() {
     window_setup("owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_120_130() {
     window_main("owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_120_130() {
     window("LayoutA", "owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_120_130() {
     window("LayoutB", "owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_120_130() {
     window("LayoutC", "owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_120_130() {
     window("LayoutD", "owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_120_130() {
     window("LayoutE", "owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_120_130() {
     window("LayoutF", "owner", 120, 130, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_130_140() {
     window_setup("owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_130_140() {
     window_main("owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_130_140() {
     window("LayoutA", "owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_130_140() {
     window("LayoutB", "owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_130_140() {
     window("LayoutC", "owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_130_140() {
     window("LayoutD", "owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_130_140() {
     window("LayoutE", "owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_130_140() {
     window("LayoutF", "owner", 130, 140, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_140_150() {
     window_setup("owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_140_150() {
     window_main("owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_140_150() {
     window("LayoutA", "owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_140_150() {
     window("LayoutB", "owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_140_150() {
     window("LayoutC", "owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_140_150() {
     window("LayoutD", "owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_140_150() {
     window("LayoutE", "owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_140_150() {
     window("LayoutF", "owner", 140, 150, false);
 }
 
 #[test]
+#[ignore]
 fn steps_setup_owner_150_151() {
     window_setup("owner", 150, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_m_owner_150_151() {
     window_main("owner", 150, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_a_owner_150_151() {
     window("LayoutA", "owner", 150, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_b_owner_150_151() {
     window("LayoutB", "owner", 150, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_c_owner_150_151() {
     window("LayoutC", "owner", 150, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_d_owner_150_151() {
     window("LayoutD", "owner", 150, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_e_owner_150_151() {
     window("LayoutE", "owner", 150, 151, true);
 }
 
 #[test]
+#[ignore]
 fn steps_f_owner_150_151() {
     window("LayoutF", "owner", 150, 151, true);
-}
-
-#[test]
-fn steps_setup_reference_000_040() {
-    window_setup("reference", 0, 40, false);
-}
-
-#[test]
-fn steps_m_reference_000_040() {
-    window_main("reference", 0, 40, false);
-}
-
-#[test]
-fn steps_a_reference_000_040() {
-    window("LayoutA", "reference", 0, 40, false);
-}
-
-#[test]
-fn steps_b_reference_000_040() {
-    window("LayoutB", "reference", 0, 40, false);
-}
-
-#[test]
-fn steps_c_reference_000_040() {
-    window("LayoutC", "reference", 0, 40, false);
-}
-
-#[test]
-fn steps_d_reference_000_040() {
-    window("LayoutD", "reference", 0, 40, false);
-}
-
-#[test]
-fn steps_e_reference_000_040() {
-    window("LayoutE", "reference", 0, 40, false);
-}
-
-#[test]
-fn steps_f_reference_000_040() {
-    window("LayoutF", "reference", 0, 40, false);
-}
-
-#[test]
-fn steps_setup_reference_040_050() {
-    window_setup("reference", 40, 50, false);
-}
-
-#[test]
-fn steps_m_reference_040_050() {
-    window_main("reference", 40, 50, false);
-}
-
-#[test]
-fn steps_a_reference_040_050() {
-    window("LayoutA", "reference", 40, 50, false);
-}
-
-#[test]
-fn steps_b_reference_040_050() {
-    window("LayoutB", "reference", 40, 50, false);
-}
-
-#[test]
-fn steps_c_reference_040_050() {
-    window("LayoutC", "reference", 40, 50, false);
-}
-
-#[test]
-fn steps_d_reference_040_050() {
-    window("LayoutD", "reference", 40, 50, false);
-}
-
-#[test]
-fn steps_e_reference_040_050() {
-    window("LayoutE", "reference", 40, 50, false);
-}
-
-#[test]
-fn steps_f_reference_040_050() {
-    window("LayoutF", "reference", 40, 50, false);
-}
-
-#[test]
-fn steps_setup_reference_050_060() {
-    window_setup("reference", 50, 60, false);
-}
-
-#[test]
-fn steps_m_reference_050_060() {
-    window_main("reference", 50, 60, false);
-}
-
-#[test]
-fn steps_a_reference_050_060() {
-    window("LayoutA", "reference", 50, 60, false);
-}
-
-#[test]
-fn steps_b_reference_050_060() {
-    window("LayoutB", "reference", 50, 60, false);
-}
-
-#[test]
-fn steps_c_reference_050_060() {
-    window("LayoutC", "reference", 50, 60, false);
-}
-
-#[test]
-fn steps_d_reference_050_060() {
-    window("LayoutD", "reference", 50, 60, false);
-}
-
-#[test]
-fn steps_e_reference_050_060() {
-    window("LayoutE", "reference", 50, 60, false);
-}
-
-#[test]
-fn steps_f_reference_050_060() {
-    window("LayoutF", "reference", 50, 60, false);
-}
-
-#[test]
-fn steps_setup_reference_060_070() {
-    window_setup("reference", 60, 70, false);
-}
-
-#[test]
-fn steps_m_reference_060_070() {
-    window_main("reference", 60, 70, false);
-}
-
-#[test]
-fn steps_a_reference_060_070() {
-    window("LayoutA", "reference", 60, 70, false);
-}
-
-#[test]
-fn steps_b_reference_060_070() {
-    window("LayoutB", "reference", 60, 70, false);
-}
-
-#[test]
-fn steps_c_reference_060_070() {
-    window("LayoutC", "reference", 60, 70, false);
-}
-
-#[test]
-fn steps_d_reference_060_070() {
-    window("LayoutD", "reference", 60, 70, false);
-}
-
-#[test]
-fn steps_e_reference_060_070() {
-    window("LayoutE", "reference", 60, 70, false);
-}
-
-#[test]
-fn steps_f_reference_060_070() {
-    window("LayoutF", "reference", 60, 70, false);
-}
-
-#[test]
-fn steps_setup_reference_070_080() {
-    window_setup("reference", 70, 80, false);
-}
-
-#[test]
-fn steps_m_reference_070_080() {
-    window_main("reference", 70, 80, false);
-}
-
-#[test]
-fn steps_a_reference_070_080() {
-    window("LayoutA", "reference", 70, 80, false);
-}
-
-#[test]
-fn steps_b_reference_070_080() {
-    window("LayoutB", "reference", 70, 80, false);
-}
-
-#[test]
-fn steps_c_reference_070_080() {
-    window("LayoutC", "reference", 70, 80, false);
-}
-
-#[test]
-fn steps_d_reference_070_080() {
-    window("LayoutD", "reference", 70, 80, false);
-}
-
-#[test]
-fn steps_e_reference_070_080() {
-    window("LayoutE", "reference", 70, 80, false);
-}
-
-#[test]
-fn steps_f_reference_070_080() {
-    window("LayoutF", "reference", 70, 80, false);
-}
-
-#[test]
-fn steps_setup_reference_080_090() {
-    window_setup("reference", 80, 90, false);
-}
-
-#[test]
-fn steps_m_reference_080_090() {
-    window_main("reference", 80, 90, false);
-}
-
-#[test]
-fn steps_a_reference_080_090() {
-    window("LayoutA", "reference", 80, 90, false);
-}
-
-#[test]
-fn steps_b_reference_080_090() {
-    window("LayoutB", "reference", 80, 90, false);
-}
-
-#[test]
-fn steps_c_reference_080_090() {
-    window("LayoutC", "reference", 80, 90, false);
-}
-
-#[test]
-fn steps_d_reference_080_090() {
-    window("LayoutD", "reference", 80, 90, false);
-}
-
-#[test]
-fn steps_e_reference_080_090() {
-    window("LayoutE", "reference", 80, 90, false);
-}
-
-#[test]
-fn steps_f_reference_080_090() {
-    window("LayoutF", "reference", 80, 90, false);
-}
-
-#[test]
-fn steps_setup_reference_090_100() {
-    window_setup("reference", 90, 100, false);
-}
-
-#[test]
-fn steps_m_reference_090_100() {
-    window_main("reference", 90, 100, false);
-}
-
-#[test]
-fn steps_a_reference_090_100() {
-    window("LayoutA", "reference", 90, 100, false);
-}
-
-#[test]
-fn steps_b_reference_090_100() {
-    window("LayoutB", "reference", 90, 100, false);
-}
-
-#[test]
-fn steps_c_reference_090_100() {
-    window("LayoutC", "reference", 90, 100, false);
-}
-
-#[test]
-fn steps_d_reference_090_100() {
-    window("LayoutD", "reference", 90, 100, false);
-}
-
-#[test]
-fn steps_e_reference_090_100() {
-    window("LayoutE", "reference", 90, 100, false);
-}
-
-#[test]
-fn steps_f_reference_090_100() {
-    window("LayoutF", "reference", 90, 100, false);
-}
-
-#[test]
-fn steps_setup_reference_100_107() {
-    window_setup("reference", 100, 107, true);
-}
-
-#[test]
-fn steps_m_reference_100_107() {
-    window_main("reference", 100, 107, true);
-}
-
-#[test]
-fn steps_a_reference_100_107() {
-    window("LayoutA", "reference", 100, 107, true);
-}
-
-#[test]
-fn steps_b_reference_100_107() {
-    window("LayoutB", "reference", 100, 107, true);
-}
-
-#[test]
-fn steps_c_reference_100_107() {
-    window("LayoutC", "reference", 100, 107, true);
-}
-
-#[test]
-fn steps_d_reference_100_107() {
-    window("LayoutD", "reference", 100, 107, true);
-}
-
-#[test]
-fn steps_e_reference_100_107() {
-    window("LayoutE", "reference", 100, 107, true);
-}
-
-#[test]
-fn steps_f_reference_100_107() {
-    window("LayoutF", "reference", 100, 107, true);
 }

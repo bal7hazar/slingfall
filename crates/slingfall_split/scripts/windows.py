@@ -8,7 +8,8 @@ boundaries, and turns snforge's step counts of those probes into the tables of
         > steps.log            # one layout at a time: `steps_d_`, `steps_setup_`, ...
     python3 crates/slingfall_split/scripts/windows.py table steps.log [more.log ...]
 
-A probe `steps_<layout>_<case>_<start>_<end>` plays ticks `start..end` of `case` in one chunk of
+The probes (`tests/windows_<case>.cairo`, `tests/transactions.cairo`, `#[ignore]`: heavy; `run`
+includes them): a probe `steps_<layout>_<case>_<start>_<end>` plays ticks `start..end` of `case` in one chunk of
 the layout's world class from main's state at `start` and checks main's state at `end`;
 `steps_setup_<case>_<start>_<end>` does the same work without the chunk call. A window's steps are
 the difference. `table` prints, per layout and case, the steps of each window, per tick (flight:
@@ -24,7 +25,7 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1]
 FIXTURES = PACKAGE / "fixtures"
-OUT = PACKAGE / "tests" / "windows.cairo"
+TESTS = PACKAGE / "tests"
 TX_MAX = 10_000_000
 
 # probe prefix: world class (docs/research/07-split-game-step.md, "Layouts").
@@ -81,9 +82,9 @@ def gen_tx() -> None:
                 tag = f"{case}_{start:03}_{end:03}"
                 if (case, start, end) not in setups:
                     setups.add((case, start, end))
-                    out.append(f"\n#[test]\nfn steps_txsetup_{tag}() {{\n"
+                    out.append(f"\n#[test]\n#[ignore]\nfn steps_txsetup_{tag}() {{\n"
                                f"    tx_setup(\"{case}\", {start}, {end});\n}}\n")
-                out.append(f"\n#[test]\nfn steps_{name}_{tag}() {{\n    {call};\n}}\n")
+                out.append(f"\n#[test]\n#[ignore]\nfn steps_{name}_{tag}() {{\n    {call};\n}}\n")
     TX_OUT.write_text("".join(out))
     print(f"wrote {TX_OUT.relative_to(PACKAGE)}", file=sys.stderr)
 
@@ -94,25 +95,27 @@ def bounds(case: str) -> list[int]:
 
 
 def gen() -> None:
-    out = [HEADER]
+    """`tests/windows_<case>.cairo`, one file per case (the 800-line budget of a file)."""
     for case in sorted(p.name for p in FIXTURES.iterdir() if p.is_dir()):
+        out = [HEADER]
         ticks = bounds(case)
         last = ticks[-1]
         for start, end in zip(ticks, ticks[1:]):
             over = "true" if end == last else "false"
             tag = f"{case}_{start:03}_{end:03}"
-            out.append(f"\n#[test]\nfn steps_setup_{tag}() {{\n"
+            out.append(f"\n#[test]\n#[ignore]\nfn steps_setup_{tag}() {{\n"
                        f"    window_setup(\"{case}\", {start}, {end}, {over});\n}}\n")
-            out.append(f"\n#[test]\nfn steps_m_{tag}() {{\n"
+            out.append(f"\n#[test]\n#[ignore]\nfn steps_m_{tag}() {{\n"
                        f"    window_main(\"{case}\", {start}, {end}, {over});\n}}\n")
             for prefix, layout in LAYOUTS.items():
-                out.append(f"\n#[test]\nfn steps_{prefix}_{tag}() {{\n"
+                out.append(f"\n#[test]\n#[ignore]\nfn steps_{prefix}_{tag}() {{\n"
                            f"    window(\"{layout}\", \"{case}\", {start}, {end}, {over});\n}}\n")
-    OUT.write_text("".join(out))
-    print(f"wrote {OUT.relative_to(PACKAGE)}", file=sys.stderr)
+        path = TESTS / f"windows_{case}.cairo"
+        path.write_text("".join(out))
+        print(f"wrote {path.relative_to(PACKAGE)}", file=sys.stderr)
 
 
-PASS = re.compile(r"^\[PASS\] \S*::(?:windows|transactions)::steps_(\w+?)_(\w+)_(\d{3})_(\d{3}) ")
+PASS = re.compile(r"^\[PASS\] \S*::(?:windows_\w+|transactions)::steps_(\w+?)_(\w+)_(\d{3})_(\d{3}) ")
 STEPS = re.compile(r"^\s+steps: (\d+)")
 
 
@@ -203,7 +206,7 @@ def run(prefixes: list[str]) -> None:
         with log.open("w") as out:
             # `tx` selects every transaction probe (`steps_tx*`).
             name = f"steps_{prefix}" if prefix == "tx" else f"steps_{prefix}_"
-            subprocess.run(["snforge", "test", name, "--detailed-resources",
+            subprocess.run(["snforge", "test", name, "--include-ignored", "--detailed-resources",
                             "--max-threads", "1"], cwd=PACKAGE, stdout=out, stderr=subprocess.STDOUT)
         text = log.read_text()
         summary = [l for l in text.splitlines() if l.startswith(("Tests:", "[FAIL]"))]

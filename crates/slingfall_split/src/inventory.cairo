@@ -9,12 +9,13 @@ use slingfall_level::inputs::Shot;
 use crate::rules::{Launch, Op, TickOut, View};
 use crate::world::{EditStage, RulesStage};
 
-/// No rules: the loop steps `k` times.
+/// No rules: the loop steps `k` times. Its answers depend on the state's length, so that the
+/// compiler cannot drop the edit and launch paths of the loop (a constant answer would).
 pub impl NoRules of RulesStage<Array<felt252>> {
     fn begin(
         ref rules: Array<felt252>, inputs: Span<felt252>, shot: u8,
     ) -> (Shot, Option<Launch>, Array<Handle>) {
-        (Shot { pull_x: 0, pull_y: 0, delay: 0, ability_tick: 0 }, None, array![])
+        (Shot { pull_x: 0, pull_y: 0, delay: 0, ability_tick: 0 }, opaque_launch(@rules), array![])
     }
 
     fn tick(
@@ -24,11 +25,41 @@ pub impl NoRules of RulesStage<Array<felt252>> {
         events: Span<ContactForceEvent>,
         views: Span<View>,
     ) -> TickOut {
-        TickOut { ops: array![], calm_pending: false, watch: array![], launch: None, over: false }
+        opaque_out(@rules)
     }
 
     fn calm(ref rules: Array<felt252>, shot: Shot, views: Span<View>) -> TickOut {
-        TickOut { ops: array![], calm_pending: false, watch: array![], launch: None, over: false }
+        opaque_out(@rules)
+    }
+}
+
+fn opaque_handle(rules: @Array<felt252>) -> Handle {
+    Handle { index: rules.len(), generation: 0 }
+}
+
+fn opaque_launch(rules: @Array<felt252>) -> Option<Launch> {
+    if rules.len() == 1 {
+        let zero = rapier2d::prelude::Vec2 {
+            x: rapier2d::prelude::Fixed { raw: 0 }, y: rapier2d::prelude::Fixed { raw: 0 },
+        };
+        Some(Launch { translation: zero, linvel: zero })
+    } else {
+        None
+    }
+}
+
+fn opaque_out(rules: @Array<felt252>) -> TickOut {
+    let ops = if rules.len() == 2 {
+        array![Op::Remove(opaque_handle(rules)), Op::Sleep(opaque_handle(rules))]
+    } else {
+        array![]
+    };
+    TickOut {
+        ops,
+        calm_pending: rules.len() == 3,
+        watch: array![opaque_handle(rules)],
+        launch: opaque_launch(rules),
+        over: rules.len() == 4,
     }
 }
 
@@ -330,6 +361,34 @@ pub mod MinusForceEvents {
             let _ = world
                 .step_with_force_events_with_stages::<
                     BasicStepConfig, SlimForceStages<GameClasses>,
+                >();
+            i += 1;
+        }
+        into_basic_state(world)
+    }
+}
+
+/// `SlimCaller` with the tick-hook emulation (`crate::stages::HookStages`): the plumbing a
+/// `TickHook` stage slot would compile into the caller, without applying the removals.
+#[starknet::contract]
+pub mod PlusHook {
+    use rapier2d::prelude::BasicStepConfig;
+    use rapier2d::world::WorldTrait;
+    use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
+    use crate::hashes::{GameClasses, PinnedSplit};
+    use crate::stages::HookStages;
+
+    #[storage]
+    struct Storage {}
+
+    #[external(v0)]
+    fn step_state(self: @ContractState, state: BasicWorldState, steps: u32) -> BasicWorldState {
+        let mut world = from_basic_state(state);
+        let mut i = 0;
+        while i != steps {
+            let _ = world
+                .step_with_force_events_with_stages::<
+                    BasicStepConfig, HookStages<GameClasses, PinnedSplit>,
                 >();
             i += 1;
         }
