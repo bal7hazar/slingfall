@@ -48,95 +48,95 @@ pub fn ticks(layout: ByteArray, case: ByteArray, start: u32, end: u32) {
 #[test]
 #[ignore]
 fn ticks_e_owner_000_040() {
-    ticks("LayoutE", "owner", 0, 40);
+    ticks("WorldClass", "owner", 0, 40);
 }
 
 #[test]
 #[ignore]
 fn ticks_e_owner_040_070() {
-    ticks("LayoutE", "owner", 40, 70);
+    ticks("WorldClass", "owner", 40, 70);
 }
 
 #[test]
 #[ignore]
 fn ticks_e_owner_070_100() {
-    ticks("LayoutE", "owner", 70, 100);
+    ticks("WorldClass", "owner", 70, 100);
 }
 
 #[test]
 #[ignore]
 fn ticks_e_owner_100_130() {
-    ticks("LayoutE", "owner", 100, 130);
+    ticks("WorldClass", "owner", 100, 130);
 }
 
 #[test]
 #[ignore]
 fn ticks_e_owner_130_151() {
-    ticks("LayoutE", "owner", 130, 151);
+    ticks("WorldClass", "owner", 130, 151);
 }
 
 #[test]
 #[ignore]
 fn ticks_e_reference_000_040() {
-    ticks("LayoutE", "reference", 0, 40);
+    ticks("WorldClass", "reference", 0, 40);
 }
 
 #[test]
 #[ignore]
 fn ticks_e_reference_040_080() {
-    ticks("LayoutE", "reference", 40, 80);
+    ticks("WorldClass", "reference", 40, 80);
 }
 
 #[test]
 #[ignore]
 fn ticks_e_reference_080_107() {
-    ticks("LayoutE", "reference", 80, 107);
+    ticks("WorldClass", "reference", 80, 107);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_owner_000_040() {
-    ticks("LayoutB", "owner", 0, 40);
+    ticks("FallbackGame", "owner", 0, 40);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_owner_040_070() {
-    ticks("LayoutB", "owner", 40, 70);
+    ticks("FallbackGame", "owner", 40, 70);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_owner_070_100() {
-    ticks("LayoutB", "owner", 70, 100);
+    ticks("FallbackGame", "owner", 70, 100);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_owner_100_130() {
-    ticks("LayoutB", "owner", 100, 130);
+    ticks("FallbackGame", "owner", 100, 130);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_owner_130_151() {
-    ticks("LayoutB", "owner", 130, 151);
+    ticks("FallbackGame", "owner", 130, 151);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_reference_000_040() {
-    ticks("LayoutB", "reference", 0, 40);
+    ticks("FallbackGame", "reference", 0, 40);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_reference_040_080() {
-    ticks("LayoutB", "reference", 40, 80);
+    ticks("FallbackGame", "reference", 40, 80);
 }
 
 #[test]
 #[ignore]
 fn ticks_b_reference_080_107() {
-    ticks("LayoutB", "reference", 80, 107);
+    ticks("FallbackGame", "reference", 80, 107);
 }

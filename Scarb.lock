@@ -31,6 +31,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rapier2d_classes"
+version = "0.1.0-alpha.7"
+source = "registry+https://scarbs.xyz/"
+checksum = "sha256:422a15bc42f5a44277b11950cebc76c1c89cca8aeb0a0a2271b9bfaf9e666779"
+dependencies = [
+ "fixed",
+ "glam",
+ "rapier2d",
+ "rapier_core",
+ "rapier_dynamics2d",
+ "rapier_geometry2d",
+]
+
+[[package]]
 name = "rapier_core"
 version = "0.1.0-alpha.7"
 source = "registry+https://scarbs.xyz/"
@@ -126,6 +140,21 @@ dependencies = [
  "fixed",
  "rapier2d",
  "slingfall_contract",
+ "slingfall_game",
+ "slingfall_level",
+ "slingfall_rules",
+ "snforge_std",
+]
+
+[[package]]
+name = "slingfall_split"
+version = "0.1.0"
+dependencies = [
+ "fixed",
+ "glam",
+ "rapier2d",
+ "rapier2d_classes",
+ "rapier_dynamics2d",
  "slingfall_game",
  "slingfall_level",
  "slingfall_rules",

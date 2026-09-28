@@ -9,12 +9,23 @@ use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
 use starknet::syscalls::call_contract_syscall;
 use starknet::{ClassHash, ContractAddress, SyscallResultTrait};
 
-/// The declared classes: rapier2d_classes' stages, then this crate's.
+/// The classes the world classes library-call: rapier2d_classes' stages, then this crate's.
+#[cfg(not(feature: 'probes'))]
 pub fn classes() -> Array<ByteArray> {
     array![
         "ContactBallClass", "ContactPolygonClass", "SolverClass", "SolveAdvanceClass",
         "IslandsClass", "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass",
-        "ForceEventsClass", "RulesClass", "LeanRulesClass", "EditClass", "StepClass",
+        "ForceEventsClass", "RulesClass", "EditClass", "StepClass",
+    ]
+}
+
+/// As without the feature, plus the alternatives' rules class (layouts (c) and (d)).
+#[cfg(feature: 'probes')]
+pub fn classes() -> Array<ByteArray> {
+    array![
+        "ContactBallClass", "ContactPolygonClass", "SolverClass", "SolveAdvanceClass",
+        "IslandsClass", "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass",
+        "ForceEventsClass", "RulesClass", "EditClass", "StepClass", "TypedRulesClass",
     ]
 }
 
@@ -62,9 +73,9 @@ pub fn state(case: @ByteArray, tick: u32) -> (Array<felt252>, Array<felt252>) {
 }
 
 /// The world classes whose `step_chunk` takes the world as a length-prefixed span and returns one
-/// array (`crate::lean::LayoutE`: one codec site).
+/// array (`crate::lean::WorldClass`: one codec site).
 pub fn raw(layout: @ByteArray) -> bool {
-    layout == @"LayoutE" || layout == @"LayoutF"
+    layout == @"WorldClass" || layout == @"LayoutF"
 }
 
 /// `step_chunk(world, rules, inputs, shot, k)` on the world class at `address`: its return felts
@@ -122,7 +133,7 @@ pub fn window(layout: ByteArray, case: ByteArray, start: u32, end: u32, over: bo
 /// [`window`]'s.
 pub fn window_setup(case: ByteArray, start: u32, end: u32, over: bool) {
     install();
-    let _address = deploy("LayoutD");
+    let _address = deploy("WorldClass");
     let (world, rules) = state(@case, start);
     let inputs = load(@case, "inputs");
     let expected = expected(@case, start, end, over);
@@ -136,7 +147,7 @@ pub fn window_setup(case: ByteArray, start: u32, end: u32, over: bool) {
 /// engine, the full `WorldState` codec) on the window, in this test: the in-process baseline.
 pub fn window_main(case: ByteArray, start: u32, end: u32, over: bool) {
     install();
-    let _address = deploy("LayoutD");
+    let _address = deploy("WorldClass");
     let state: ChunkState = decode(load(@case, format!("state_{start}")).span(), 'fixture');
     let inputs: Inputs = decode(load(@case, "inputs").span(), 'fixture: inputs');
     let expected = expected(@case, start, end, over);

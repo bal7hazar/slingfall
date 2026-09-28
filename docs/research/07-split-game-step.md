@@ -69,6 +69,35 @@ Applying removals "inside the step" means compiling removal code into the caller
 Shot steps are sums of 10-tick windows, each a chunk with its own entry and exit. Transactions are the greedy packing of
 those windows. The chain measured through the deployed contract (§4) is slightly cheaper, with fewer chunk boundaries.
 
+## Status after H2 (2026-09-28)
+
+Lot H2 moved `crates/slingfall_split` into the root workspace (alpha.7 since lot B5; the shims, the nested `[workspace]`
+and the crate's `Scarb.lock` are gone) and implemented the programme's decision on this report's escalation 2.
+
+- **The game's layout is (e).** `slingfall_split::lean::WorldClass` (was `LayoutE`, with `lean::RulesClass`, was
+  `LeanRulesClass`, and `classes::EditClass`). **Layout (b) is the fallback that passes 73,728 everywhere:**
+  `classes::FallbackGame` (was `LayoutB`) with `classes::StepClass`.
+- **Gates** (`python3 tools/classsize/classsize.py split`, in the CI `build` job, margins in the job summary): every
+  declared class at most **73,728** Sierra and CASM felts, **except the world class, at most 78,000** (Starknet: 81,920).
+  `WorldClass` is 76,920 CASM (margin 1,080 under 78,000); the tightest class under 73,728 is rapier's `OrchestratorClass`
+  (73,554, margin 174), then `FallbackGame` (72,752, 976), `SettleClass` (1,173), `StepClass` (1,331). rapier is asked to
+  shrink its slim caller so that the world class comes back under 73,728; the gate is then one constant
+  (`WORLD_GATE`).
+- **Layouts (a), (c), (d), (f) and the size fixtures** (`Plus*`, `Minus*`, `Stage*`, the tick-hook emulation) left the
+  default build: they are `slingfall_split::probes`, built with the feature `probes` (`snforge test --features probes`,
+  which `scripts/windows.py run` passes). `EditClass` keeps `apply` and `insert` (layout (d)'s entry points) so that
+  the class is the same in both builds. The old `RulesClass` of (c) and (d) is `TypedRulesClass`.
+- **Same figures.** Reproduced on the workspace build: the window probes of `m`, `e` (all 21), the owner's flight window
+  of `a`, `b`, `c`, `d`, `f`, every transaction probe of the chain, both shots: identical to the tables above, to the
+  step. Every declared class has the size it had (the table above), and `EditClass`, `StepClass` and rapier's stage
+  classes keep their class hashes.
+- **Hashes.** Every declared class's hash is a constant of `slingfall_split::hashes` (`pinned()`);
+  `tests::hashes::test_pinned_class_hashes` fails, printing the stale ones, when a class changes without its constant;
+  `python3 crates/slingfall_split/scripts/pin.py` regenerates them (`--probes` for the alternatives' class).
+- **CI.** The default suite (6 tests: init, the chain of layout (e) on the reference shot, its two revert checks, the
+  hashes) runs in the test matrix; the heavy probes stay `#[ignore]`. Two of them are recorded step probes
+  (`steps/slingfall_split/`).
+
 ## 1. How it was measured
 
 **Build.** `crates/slingfall_split` is its own workspace. The root workspace resolves one `rapier2d` version and is on
@@ -432,7 +461,7 @@ python3 tools/classsize/classsize.py split                     # every class, ma
 python3 crates/slingfall_split/scripts/levers.py               # throwaway lever builds of LayoutE
 python3 crates/slingfall_split/scripts/attribution.py LayoutE SlimCaller
 python3 crates/slingfall_split/scripts/windows.py gen          # the probe files
-python3 crates/slingfall_split/scripts/windows.py run setup m a b c d e f tx   # heavy lock, one thread
+python3 crates/slingfall_split/scripts/windows.py run setup m a b c d e f tx   # heavy lock, one thread   # (a), (c), (d), (f): feature `probes`, passed by the script
 python3 crates/slingfall_split/scripts/windows.py table crates/slingfall_split/target/logs/*.log
 python3 crates/slingfall_split/scripts/heavy.py snforge test ticks_ --include-ignored --max-threads 1
 python3 crates/slingfall_split/scripts/heavy.py snforge test          # the default suite

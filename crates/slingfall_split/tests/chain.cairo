@@ -139,20 +139,20 @@ pub fn play_chain(layout: ByteArray, case: ByteArray, schedule: Span<u32>) {
 #[test]
 #[ignore]
 fn test_chain_b_reference() {
-    play_chain("LayoutB", "reference", array![50, 30, 10, 17].span());
+    play_chain("FallbackGame", "reference", array![50, 30, 10, 17].span());
 }
 
 /// Layout (e) on the reference shot: 0-90, 90-107.
 #[test]
-fn test_chain_e_reference() {
-    play_chain("LayoutE", "reference", array![90, 17].span());
+fn steps_chain_e_reference() {
+    play_chain("WorldClass", "reference", array![90, 17].span());
 }
 
 /// `outputs` of an unfinished state reverts (P1b's verifier check 6, in the transaction).
 #[test]
 #[should_panic]
 fn test_chain_outputs_unfinished() {
-    let address = deploy_chain("LayoutE");
+    let address = deploy_chain("WorldClass");
     let inputs = load(@"owner", "inputs");
     let mut calldata = array![];
     chain_state(@"owner", 80).span().serialize(ref calldata);
@@ -164,7 +164,7 @@ fn test_chain_outputs_unfinished() {
 #[test]
 #[should_panic]
 fn test_chain_wrong_shot() {
-    let address = deploy_chain("LayoutE");
+    let address = deploy_chain("WorldClass");
     let inputs = load(@"owner", "inputs");
     let mut calldata = array![];
     chain_state(@"owner", 40).span().serialize(ref calldata);
@@ -216,7 +216,7 @@ pub fn tx_outputs(layout: ByteArray, case: ByteArray, last: u32) {
 /// The work of [`tx_chunk`] (`start < end`), [`tx_init`] (`start == end == 0`) or [`tx_outputs`]
 /// (`start == end != 0`) without the transaction.
 pub fn tx_setup(case: ByteArray, start: u32, end: u32) {
-    let _address = deploy_chain("LayoutE");
+    let _address = deploy_chain("WorldClass");
     let mut calldata = array![];
     let mut expected = array![];
     if start == end && start == 0 {

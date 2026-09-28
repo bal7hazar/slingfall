@@ -26,7 +26,7 @@ fn steps_a_owner_000_040() {
 #[test]
 #[ignore]
 fn steps_b_owner_000_040() {
-    window("LayoutB", "owner", 0, 40, false);
+    window("FallbackGame", "owner", 0, 40, false);
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn steps_d_owner_000_040() {
 #[test]
 #[ignore]
 fn steps_e_owner_000_040() {
-    window("LayoutE", "owner", 0, 40, false);
+    window("WorldClass", "owner", 0, 40, false);
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn steps_a_owner_040_050() {
 #[test]
 #[ignore]
 fn steps_b_owner_040_050() {
-    window("LayoutB", "owner", 40, 50, false);
+    window("FallbackGame", "owner", 40, 50, false);
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn steps_d_owner_040_050() {
 #[test]
 #[ignore]
 fn steps_e_owner_040_050() {
-    window("LayoutE", "owner", 40, 50, false);
+    window("WorldClass", "owner", 40, 50, false);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn steps_a_owner_050_060() {
 #[test]
 #[ignore]
 fn steps_b_owner_050_060() {
-    window("LayoutB", "owner", 50, 60, false);
+    window("FallbackGame", "owner", 50, 60, false);
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn steps_d_owner_050_060() {
 #[test]
 #[ignore]
 fn steps_e_owner_050_060() {
-    window("LayoutE", "owner", 50, 60, false);
+    window("WorldClass", "owner", 50, 60, false);
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn steps_a_owner_060_070() {
 #[test]
 #[ignore]
 fn steps_b_owner_060_070() {
-    window("LayoutB", "owner", 60, 70, false);
+    window("FallbackGame", "owner", 60, 70, false);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn steps_d_owner_060_070() {
 #[test]
 #[ignore]
 fn steps_e_owner_060_070() {
-    window("LayoutE", "owner", 60, 70, false);
+    window("WorldClass", "owner", 60, 70, false);
 }
 
 #[test]
@@ -218,7 +218,7 @@ fn steps_a_owner_070_080() {
 #[test]
 #[ignore]
 fn steps_b_owner_070_080() {
-    window("LayoutB", "owner", 70, 80, false);
+    window("FallbackGame", "owner", 70, 80, false);
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn steps_d_owner_070_080() {
 #[test]
 #[ignore]
 fn steps_e_owner_070_080() {
-    window("LayoutE", "owner", 70, 80, false);
+    window("WorldClass", "owner", 70, 80, false);
 }
 
 #[test]
@@ -266,7 +266,7 @@ fn steps_a_owner_080_090() {
 #[test]
 #[ignore]
 fn steps_b_owner_080_090() {
-    window("LayoutB", "owner", 80, 90, false);
+    window("FallbackGame", "owner", 80, 90, false);
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn steps_d_owner_080_090() {
 #[test]
 #[ignore]
 fn steps_e_owner_080_090() {
-    window("LayoutE", "owner", 80, 90, false);
+    window("WorldClass", "owner", 80, 90, false);
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn steps_a_owner_090_100() {
 #[test]
 #[ignore]
 fn steps_b_owner_090_100() {
-    window("LayoutB", "owner", 90, 100, false);
+    window("FallbackGame", "owner", 90, 100, false);
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn steps_d_owner_090_100() {
 #[test]
 #[ignore]
 fn steps_e_owner_090_100() {
-    window("LayoutE", "owner", 90, 100, false);
+    window("WorldClass", "owner", 90, 100, false);
 }
 
 #[test]
@@ -362,7 +362,7 @@ fn steps_a_owner_100_110() {
 #[test]
 #[ignore]
 fn steps_b_owner_100_110() {
-    window("LayoutB", "owner", 100, 110, false);
+    window("FallbackGame", "owner", 100, 110, false);
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn steps_d_owner_100_110() {
 #[test]
 #[ignore]
 fn steps_e_owner_100_110() {
-    window("LayoutE", "owner", 100, 110, false);
+    window("WorldClass", "owner", 100, 110, false);
 }
 
 #[test]
@@ -410,7 +410,7 @@ fn steps_a_owner_110_120() {
 #[test]
 #[ignore]
 fn steps_b_owner_110_120() {
-    window("LayoutB", "owner", 110, 120, false);
+    window("FallbackGame", "owner", 110, 120, false);
 }
 
 #[test]
@@ -428,7 +428,7 @@ fn steps_d_owner_110_120() {
 #[test]
 #[ignore]
 fn steps_e_owner_110_120() {
-    window("LayoutE", "owner", 110, 120, false);
+    window("WorldClass", "owner", 110, 120, false);
 }
 
 #[test]
@@ -458,7 +458,7 @@ fn steps_a_owner_120_130() {
 #[test]
 #[ignore]
 fn steps_b_owner_120_130() {
-    window("LayoutB", "owner", 120, 130, false);
+    window("FallbackGame", "owner", 120, 130, false);
 }
 
 #[test]
@@ -476,7 +476,7 @@ fn steps_d_owner_120_130() {
 #[test]
 #[ignore]
 fn steps_e_owner_120_130() {
-    window("LayoutE", "owner", 120, 130, false);
+    window("WorldClass", "owner", 120, 130, false);
 }
 
 #[test]
@@ -506,7 +506,7 @@ fn steps_a_owner_130_140() {
 #[test]
 #[ignore]
 fn steps_b_owner_130_140() {
-    window("LayoutB", "owner", 130, 140, false);
+    window("FallbackGame", "owner", 130, 140, false);
 }
 
 #[test]
@@ -524,7 +524,7 @@ fn steps_d_owner_130_140() {
 #[test]
 #[ignore]
 fn steps_e_owner_130_140() {
-    window("LayoutE", "owner", 130, 140, false);
+    window("WorldClass", "owner", 130, 140, false);
 }
 
 #[test]
@@ -554,7 +554,7 @@ fn steps_a_owner_140_150() {
 #[test]
 #[ignore]
 fn steps_b_owner_140_150() {
-    window("LayoutB", "owner", 140, 150, false);
+    window("FallbackGame", "owner", 140, 150, false);
 }
 
 #[test]
@@ -572,7 +572,7 @@ fn steps_d_owner_140_150() {
 #[test]
 #[ignore]
 fn steps_e_owner_140_150() {
-    window("LayoutE", "owner", 140, 150, false);
+    window("WorldClass", "owner", 140, 150, false);
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn steps_a_owner_150_151() {
 #[test]
 #[ignore]
 fn steps_b_owner_150_151() {
-    window("LayoutB", "owner", 150, 151, true);
+    window("FallbackGame", "owner", 150, 151, true);
 }
 
 #[test]
@@ -620,7 +620,7 @@ fn steps_d_owner_150_151() {
 #[test]
 #[ignore]
 fn steps_e_owner_150_151() {
-    window("LayoutE", "owner", 150, 151, true);
+    window("WorldClass", "owner", 150, 151, true);
 }
 
 #[test]

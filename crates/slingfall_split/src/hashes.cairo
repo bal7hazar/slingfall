@@ -1,16 +1,18 @@
-//! The class hashes the spike's classes compile as constants (`SlimSplitStages`' stage classes,
-//! and this crate's rules, edit and step classes), as a game would after declaring them. They are
-//! the hashes snforge declares (`tests::hashes::test_pinned_class_hashes` prints the stale ones).
+//! The class hashes of every class this crate declares, pinned in one module: the constants are the
+//! hashes snforge declares. The classes that library-call others compile them as constants
+//! (`GameClasses`:
+//! rapier's stage classes; `PinnedSplit`: `RulesClass`, `EditClass`, `StepClass`), as a game would
+//! after declaring them; the others (`WorldClass`, `FallbackGame`, the chain's classes) are pinned
+//! for the deployment that reads them. `tests::hashes::test_pinned_class_hashes` fails, printing
+//! the stale ones, when a class changes without its constant being regenerated (`scripts/pin.py`).
 
 use rapier2d_classes::ClassHashes;
 use starknet::ClassHash;
 
 /// Where the world classes find this crate's declared classes.
 pub trait SplitHashes {
-    /// `crate::classes::RulesClass`.
+    /// `crate::lean::RulesClass` (layout (e)).
     fn rules() -> ClassHash;
-    /// `crate::lean::LeanRulesClass` (layout (e)).
-    fn lean_rules() -> ClassHash;
     /// `crate::classes::EditClass`.
     fn edit() -> ClassHash;
     /// `crate::classes::StepClass` (layout (b)).
@@ -34,11 +36,18 @@ pub const ACTIVE_SET_HASH: felt252 =
     0x4a6e55fafd8273f75152b3509aa40223f5f50e882ab1978a91beeb895201d02;
 pub const FORCE_EVENTS_HASH: felt252 =
     0x322bab3a8c6a846ade7d18d85db51f1ad5cd92c1680dfc79e7049510928fe5a;
-pub const RULES_HASH: felt252 = 0x46bfad6ddeb0b5f2cf6cd5e302e777e937bc58f3b663cf2224bdf2fef8874d;
-pub const LEAN_RULES_HASH: felt252 =
-    0x1e9c89d24887357378ab9c7a12e4ffec8dc50875b1aee739ec95a350261ebd6;
+pub const RULES_HASH: felt252 = 0x1252255e389d7be57c38073f06d273ece226ba8c5158f0631603aeb1591b4ae;
 pub const EDIT_HASH: felt252 = 0x38c35b4f684d8228998d652f48a13d0631be9b9db51bc5e46eb4c86c5cb1dd5;
 pub const STEP_HASH: felt252 = 0x3730c4a319a31a3a9f2c399cce7c1ac8f1535feda549cc6059022ba4763f5;
+
+pub const WORLD_HASH: felt252 = 0x30b53e086f4d809518e166b070d4092cd4a7684aba7e2c81460673ac74f8b38;
+pub const FALLBACK_GAME_HASH: felt252 =
+    0x720225f8d2387c33d7412b20f6e0e311a0afa72aa42d2374b05f2c2e52760e3;
+pub const BUILD_HASH: felt252 = 0x5072b33404b0460aecc752ac5f061f93536bc40de808b2c31b8feebb770b94b;
+pub const SETTLE_HASH: felt252 = 0x7e9a195cd593b728e4ee7b5338d81f564673afbad5b7d11382f1a76e58d457f;
+pub const OUTPUTS_HASH: felt252 = 0x30e684c2fd7005e22c7fe4200681c27d76ab2bbe8abcf3633da59ebc0b0558d;
+pub const SPLIT_CHAIN_HASH: felt252 =
+    0x6faa02c304d1de84c0111cc0d72e12ab02fcb40934b19008384f34bbcf4712a;
 
 /// The stage classes of `rapier2d_classes` at their declared hashes.
 pub impl GameClasses of ClassHashes {
@@ -100,11 +109,6 @@ pub impl PinnedSplit of SplitHashes {
         H
     }
 
-    fn lean_rules() -> ClassHash {
-        const H: ClassHash = LEAN_RULES_HASH.try_into().unwrap();
-        H
-    }
-
     fn edit() -> ClassHash {
         const H: ClassHash = EDIT_HASH.try_into().unwrap();
         H
@@ -114,4 +118,19 @@ pub impl PinnedSplit of SplitHashes {
         const H: ClassHash = STEP_HASH.try_into().unwrap();
         H
     }
+}
+
+/// Every declared class of the default build by contract name, with its pinned hash.
+pub fn pinned() -> Array<(ByteArray, felt252)> {
+    array![
+        ("ContactBallClass", CONTACT_BALL_HASH), ("ContactPolygonClass", CONTACT_POLYGON_HASH),
+        ("SolverClass", SOLVER_HASH), ("SolveAdvanceClass", SOLVE_ADVANCE_HASH),
+        ("IslandsClass", ISLANDS_HASH), ("BroadPhaseClass", BROAD_PHASE_HASH),
+        ("MassClass", MASS_HASH), ("NarrowPhaseClass", NARROW_PHASE_HASH),
+        ("ActiveSetClass", ACTIVE_SET_HASH), ("ForceEventsClass", FORCE_EVENTS_HASH),
+        ("RulesClass", RULES_HASH), ("EditClass", EDIT_HASH), ("StepClass", STEP_HASH),
+        ("WorldClass", WORLD_HASH), ("FallbackGame", FALLBACK_GAME_HASH),
+        ("BuildClass", BUILD_HASH), ("SettleClass", SETTLE_HASH), ("OutputsClass", OUTPUTS_HASH),
+        ("SplitChain", SPLIT_CHAIN_HASH),
+    ]
 }

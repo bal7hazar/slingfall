@@ -28,13 +28,14 @@ FIXTURES = PACKAGE / "fixtures"
 TESTS = PACKAGE / "tests"
 TX_MAX = 10_000_000
 
-# probe prefix: world class (docs/research/07-split-game-step.md, "Layouts").
+# probe prefix: world class (docs/research/07-split-game-step.md, "Layouts"). (a), (c), (d), (f) are
+# `crate::probes` (feature `probes`): run them with `snforge test --features probes`.
 LAYOUTS = {
     "a": "LayoutA",
-    "b": "LayoutB",
+    "b": "FallbackGame",
     "c": "LayoutC",
     "d": "LayoutD",
-    "e": "LayoutE",
+    "e": "WorldClass",
     "f": "LayoutF",
 }
 # The window holding the first contact of each case (the impact figure).
@@ -207,7 +208,7 @@ def run(prefixes: list[str]) -> None:
             # `tx` selects every transaction probe (`steps_tx*`).
             name = f"steps_{prefix}" if prefix == "tx" else f"steps_{prefix}_"
             subprocess.run(["snforge", "test", name, "--include-ignored", "--detailed-resources",
-                            "--max-threads", "1"], cwd=PACKAGE, stdout=out, stderr=subprocess.STDOUT)
+                            "--max-threads", "1", "--features", "probes"], cwd=PACKAGE, stdout=out, stderr=subprocess.STDOUT)
         text = log.read_text()
         summary = [l for l in text.splitlines() if l.startswith(("Tests:", "[FAIL]"))]
         peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 2**20

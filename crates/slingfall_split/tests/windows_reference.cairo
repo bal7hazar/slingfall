@@ -26,7 +26,7 @@ fn steps_a_reference_000_040() {
 #[test]
 #[ignore]
 fn steps_b_reference_000_040() {
-    window("LayoutB", "reference", 0, 40, false);
+    window("FallbackGame", "reference", 0, 40, false);
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn steps_d_reference_000_040() {
 #[test]
 #[ignore]
 fn steps_e_reference_000_040() {
-    window("LayoutE", "reference", 0, 40, false);
+    window("WorldClass", "reference", 0, 40, false);
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn steps_a_reference_040_050() {
 #[test]
 #[ignore]
 fn steps_b_reference_040_050() {
-    window("LayoutB", "reference", 40, 50, false);
+    window("FallbackGame", "reference", 40, 50, false);
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn steps_d_reference_040_050() {
 #[test]
 #[ignore]
 fn steps_e_reference_040_050() {
-    window("LayoutE", "reference", 40, 50, false);
+    window("WorldClass", "reference", 40, 50, false);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn steps_a_reference_050_060() {
 #[test]
 #[ignore]
 fn steps_b_reference_050_060() {
-    window("LayoutB", "reference", 50, 60, false);
+    window("FallbackGame", "reference", 50, 60, false);
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn steps_d_reference_050_060() {
 #[test]
 #[ignore]
 fn steps_e_reference_050_060() {
-    window("LayoutE", "reference", 50, 60, false);
+    window("WorldClass", "reference", 50, 60, false);
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn steps_a_reference_060_070() {
 #[test]
 #[ignore]
 fn steps_b_reference_060_070() {
-    window("LayoutB", "reference", 60, 70, false);
+    window("FallbackGame", "reference", 60, 70, false);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn steps_d_reference_060_070() {
 #[test]
 #[ignore]
 fn steps_e_reference_060_070() {
-    window("LayoutE", "reference", 60, 70, false);
+    window("WorldClass", "reference", 60, 70, false);
 }
 
 #[test]
@@ -218,7 +218,7 @@ fn steps_a_reference_070_080() {
 #[test]
 #[ignore]
 fn steps_b_reference_070_080() {
-    window("LayoutB", "reference", 70, 80, false);
+    window("FallbackGame", "reference", 70, 80, false);
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn steps_d_reference_070_080() {
 #[test]
 #[ignore]
 fn steps_e_reference_070_080() {
-    window("LayoutE", "reference", 70, 80, false);
+    window("WorldClass", "reference", 70, 80, false);
 }
 
 #[test]
@@ -266,7 +266,7 @@ fn steps_a_reference_080_090() {
 #[test]
 #[ignore]
 fn steps_b_reference_080_090() {
-    window("LayoutB", "reference", 80, 90, false);
+    window("FallbackGame", "reference", 80, 90, false);
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn steps_d_reference_080_090() {
 #[test]
 #[ignore]
 fn steps_e_reference_080_090() {
-    window("LayoutE", "reference", 80, 90, false);
+    window("WorldClass", "reference", 80, 90, false);
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn steps_a_reference_090_100() {
 #[test]
 #[ignore]
 fn steps_b_reference_090_100() {
-    window("LayoutB", "reference", 90, 100, false);
+    window("FallbackGame", "reference", 90, 100, false);
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn steps_d_reference_090_100() {
 #[test]
 #[ignore]
 fn steps_e_reference_090_100() {
-    window("LayoutE", "reference", 90, 100, false);
+    window("WorldClass", "reference", 90, 100, false);
 }
 
 #[test]
@@ -362,7 +362,7 @@ fn steps_a_reference_100_107() {
 #[test]
 #[ignore]
 fn steps_b_reference_100_107() {
-    window("LayoutB", "reference", 100, 107, true);
+    window("FallbackGame", "reference", 100, 107, true);
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn steps_d_reference_100_107() {
 #[test]
 #[ignore]
 fn steps_e_reference_100_107() {
-    window("LayoutE", "reference", 100, 107, true);
+    window("WorldClass", "reference", 100, 107, true);
 }
 
 #[test]

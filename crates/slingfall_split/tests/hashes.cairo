@@ -1,28 +1,33 @@
-//! The class hashes the world classes compile (`slingfall_split::hashes`) are the declared ones.
+//! Every declared class is at its pinned hash (`slingfall_split::hashes`).
 
-use slingfall_split::hashes::{
-    ACTIVE_SET_HASH, BROAD_PHASE_HASH, CONTACT_BALL_HASH, CONTACT_POLYGON_HASH, EDIT_HASH,
-    FORCE_EVENTS_HASH, ISLANDS_HASH, LEAN_RULES_HASH, MASS_HASH, NARROW_PHASE_HASH, RULES_HASH,
-    SOLVER_HASH, SOLVE_ADVANCE_HASH, STEP_HASH,
-};
-use crate::harness::{classes, declared};
+use slingfall_split::hashes::pinned;
+use crate::harness::{declared, install};
 
+/// Prints `pin <name> <hash>` for each stale pin (`scripts/pin.py` reads it) and fails.
 #[test]
 fn test_pinned_class_hashes() {
-    let pinned = array![
-        CONTACT_BALL_HASH, CONTACT_POLYGON_HASH, SOLVER_HASH, SOLVE_ADVANCE_HASH, ISLANDS_HASH,
-        BROAD_PHASE_HASH, MASS_HASH, NARROW_PHASE_HASH, ACTIVE_SET_HASH, FORCE_EVENTS_HASH,
-        RULES_HASH, LEAN_RULES_HASH, EDIT_HASH, STEP_HASH,
-    ];
+    install();
     let mut stale = false;
-    let mut i = 0;
-    for name in classes() {
+    for (name, pin) in pinned() {
         let hash: felt252 = declared(name.clone()).into();
-        if hash != *pinned[i] {
+        if hash != pin {
             println!("pin {name} {hash:x}");
             stale = true;
         }
-        i += 1;
     }
-    assert!(!stale, "class hashes: stale pins");
+    assert!(!stale, "class hashes: stale pins (python3 crates/slingfall_split/scripts/pin.py)");
+}
+
+/// The alternatives' rules class (feature `probes`).
+#[test]
+#[cfg(feature: 'probes')]
+fn test_pinned_probe_hashes() {
+    install();
+    let hash: felt252 = declared("TypedRulesClass").into();
+    if hash != slingfall_split::probes::hashes::TYPED_RULES_HASH {
+        println!("pin TypedRulesClass {hash:x}");
+        panic!(
+            "class hashes: stale probe pin (python3 crates/slingfall_split/scripts/pin.py --probes)",
+        );
+    }
 }

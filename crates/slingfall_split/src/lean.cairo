@@ -53,8 +53,7 @@ pub fn run<impl St: Stepper, impl G: SplitHashes>(
             event.total_force_magnitude.serialize(ref calldata);
         }
         write_views(ref world, watch.span(), ref calldata);
-        let mut ret = library_call_syscall(G::lean_rules(), selector, calldata.span())
-            .unwrap_syscall();
+        let mut ret = library_call_syscall(G::rules(), selector, calldata.span()).unwrap_syscall();
         let (
             next, edit, next_watch, status,
         ): (Array<felt252>, Array<felt252>, Array<Handle>, felt252) =
@@ -168,9 +167,10 @@ pub fn edit(world: World, ops: Span<Op>, launch: Option<Launch>) -> (World, Arra
     (world, added)
 }
 
-/// Layout (e)'s world class.
+/// Layout (e), the game's layout: the world class. It keeps the world for the chunk, calls the
+/// rules once per tick and crosses the world to `EditClass` on the ticks that edit it.
 #[starknet::contract]
-pub mod LayoutE {
+pub mod WorldClass {
     use crate::hashes::{GameClasses, PinnedSplit};
     use crate::world::SlimStep;
 
@@ -200,40 +200,9 @@ pub mod LayoutE {
     }
 }
 
-/// Layout (f): layout (e) with the force events collected in `ForceEventsClass`
-/// (`crate::stages::SlimForceStages`, rapier-cairo's lever 3).
-#[starknet::contract]
-pub mod LayoutF {
-    use crate::hashes::{GameClasses, PinnedSplit};
-    use crate::world::ForceStep;
-
-    #[storage]
-    struct Storage {}
-
-    /// As `LayoutE::step_chunk`.
-    #[external(v0)]
-    fn step_chunk(
-        self: @ContractState, state: Span<felt252>, inputs: Array<felt252>, shot: u8, k: u32,
-    ) -> Array<felt252> {
-        let mut state = state;
-        let world = super::load(ref state);
-        let mut rules: Array<felt252> = Serde::deserialize(ref state)
-            .expect(crate::world::errors::DECODE);
-        let (world, stepped, over) = super::run::<
-            ForceStep<GameClasses>, PinnedSplit,
-        >(world, ref rules, inputs.span(), shot, k);
-        let mut out = array![];
-        super::save(world, ref out);
-        rules.serialize(ref out);
-        out.append(stepped.into());
-        out.append(over.into());
-        out
-    }
-}
-
 /// Layout (e)'s rules class: `crate::rules` behind the lean protocol.
 #[starknet::contract]
-pub mod LeanRulesClass {
+pub mod RulesClass {
     use rapier2d::prelude::Handle;
     use slingfall_level::inputs::{Inputs, Shot};
     use crate::rules::{Hit, Rules, View, check_turn};

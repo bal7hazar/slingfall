@@ -20,12 +20,14 @@ usage:
       module path (N segments), its K heaviest functions, and the exclusive statements of the
       engine code the game never runs (`UNREACHABLE`, a cut of the call graph). H: `replay`
       (default, the real hook), `stub`, or a `slingfall_sizes::hooks` impl.
-  tools/classsize/classsize.py split [--no-build] [--profile P]
-      build the nested package `crates/slingfall_split` (spike S36a: the game's chunk on
-      declared classes, rapier2d alpha.7) and print its classes against the programme's
-      declared-class gate (`GATE`, 73,728 Sierra and CASM felts) and the Starknet limits, with the
-      margin of each; exit 1 when a class of a layout marked shippable (`SPLIT_SHIPPABLE`) is over
-      the gate.
+  tools/classsize/classsize.py split [--no-build] [--profile P] [--probes] [--github]
+      build `crates/slingfall_split` (the game's chunk on declared classes, rapier2d alpha.7; layout
+      (e) `WorldClass` and the fallback (b) `FallbackGame`) and print every declared class against
+      its gate, with the margin of each: `GATE` (73,728 Sierra and CASM felts) for every class but
+      the game's world class, `WORLD_GATE` (78,000, programme decision H2) for `WorldClass`;
+      Starknet's own limit is 81,920. Exit 1 when a class is over its gate. `--probes` builds with
+      the feature `probes` (the measured alternatives, `PROBE_CLASSES`: reported, never gated);
+      `--github` also appends the table to `$GITHUB_STEP_SUMMARY`.
   tools/classsize/classsize.py strategies [--strategy S ...] [--cairo 'KEY = VALUE' ...]
       rebuild the `slingfall_sizes` fixtures in a temporary package (its own workspace: scarb
       only applies the `[cairo]` of the workspace root) once per `[cairo]` variant:
@@ -46,6 +48,7 @@ Precedent: glam-cairo `scripts/bytecode_size.py`. Python 3 standard library only
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -78,16 +81,16 @@ REGISTRY_CLASS = "Slingfall"
 SIM_CLASS = "SlingfallSim"
 
 # The programme's gate for a declared class of the SNIP-36 path (rapier-cairo CS6: 73,728 felts in
-# Sierra and in CASM, 8,192 under Starknet's 81,920), and the spike's package.
+# Sierra and in CASM, 8,192 under Starknet's 81,920), and the package that declares them
+# (docs/research/07-split-game-step.md). The game's world class (layout (e)) is over it by
+# 3,192 felts today: the programme accepts it up to WORLD_GATE (decision H2, 2026-09-28) until
+# rapier shrinks its slim caller, and the world class comes back under GATE.
 GATE = 73728
-SPLIT = ROOT / "crates" / "slingfall_split"
-# The classes of the layout that fits today (S36a, docs/research/07-split-game-step.md: layout
-# (b), its chain and rapier's stage classes), checked by `split`; the others are measured only.
-SPLIT_SHIPPABLE = [
-    "LayoutB", "StepClass", "SplitChain", "BuildClass", "SettleClass", "EditClass", "OutputsClass",
-    "NarrowPhaseClass", "ContactBallClass", "ContactPolygonClass", "SolveAdvanceClass",
-    "IslandsClass", "BroadPhaseClass", "MassClass", "ActiveSetClass",
-]
+WORLD_GATE = 78000
+WORLD_CLASSES = {"WorldClass"}
+SPLIT_PACKAGE = "slingfall_split"
+# The measured alternatives (feature `probes`): reported, never gated.
+PROBE_CLASSES = re.compile(r"^(SlimCaller|Layout[ACDF]|TypedRulesClass|Plus\w+|Minus\w+|Stage\w+)$")
 
 HOOKS = {
     "replay": "slingfall_contract::simulate::replay_hook::ReplaySimulateHook",
@@ -204,28 +207,50 @@ def check(build):
     print(f"\nclasssize check ok: `{REGISTRY_CLASS}` is within the Starknet limits")
 
 
-def split(build, profile):
-    """The classes of `crates/slingfall_split` against `GATE`, with their margins."""
-    manifest = str(SPLIT / "Scarb.toml")
+def gate_of(name):
+    """The gate of a declared class of `slingfall_split`, or None when it is only reported."""
+    if PROBE_CLASSES.match(name):
+        return None
+    return WORLD_GATE if name in WORLD_CLASSES else GATE
+
+
+def split(build, profile, probes, github):
+    """The classes of `crates/slingfall_split` against their gates, with their margins."""
     if build:
-        args = ["--manifest-path", manifest] + (["--profile", profile] if profile != "dev" else [])
-        scarb(ROOT, args + ["build"])
+        args = ["build", "-p", SPLIT_PACKAGE] + (["--profile", profile] if profile != "dev" else [])
+        scarb(ROOT, args + (["--features", "probes"] if probes else []))
     # The package's own artifacts (snforge also writes `slingfall_split_tests.test.*`, Sierra only).
-    rows = measure(SPLIT / "target" / profile, "slingfall_split")
-    print(f"\n### Classes of crates/slingfall_split ({profile} profile)\n")
-    print("| class | Sierra felts | margin | CASM felts | margin | class bytes | CASM class bytes |")
-    print("|---|--:|--:|--:|--:|--:|--:|")
+    rows = measure(ROOT / "target" / profile, SPLIT_PACKAGE)
+    out = [f"\n### Classes of crates/slingfall_split ({profile} profile)\n",
+           "| class | gate | Sierra felts | margin | CASM felts | margin | class bytes "
+           "| CASM class bytes |",
+           "|---|--:|--:|--:|--:|--:|--:|--:|"]
     over = []
     for name in sorted(rows):
         r = rows[name]
-        margin = {m: None if r[m] is None else GATE - r[m] for m in ("sierra_felts", "casm_felts")}
-        print(f"| `{name}` | {fmt(r['sierra_felts'])} | {fmt(margin['sierra_felts'])} "
-              f"| {fmt(r['casm_felts'])} | {fmt(margin['casm_felts'])} "
-              f"| {fmt(r['sierra_bytes'])} | {fmt(r['casm_bytes'])} |")
-        if name in SPLIT_SHIPPABLE and any(v is not None and v < 0 for v in margin.values()):
+        gate = gate_of(name)
+        margin = {m: None if gate is None or r[m] is None else gate - r[m]
+                  for m in ("sierra_felts", "casm_felts")}
+        out.append(f"| `{name}` | {fmt(gate) if gate else 'reported'} | {fmt(r['sierra_felts'])} "
+                   f"| {fmt(margin['sierra_felts'])} | {fmt(r['casm_felts'])} "
+                   f"| {fmt(margin['casm_felts'])} | {fmt(r['sierra_bytes'])} "
+                   f"| {fmt(r['casm_bytes'])} |")
+        if any(v is not None and v < 0 for v in margin.values()):
             over.append(name)
-    print(f"\nGate: {GATE:,} Sierra and CASM felts per declared class (Starknet: "
-          f"{LIMITS['casm_felts']:,}); margin = gate - size.")
+        if gate and r["casm_felts"] is None:
+            out.append(f"\nnote: `{name}` CASM not checked (no CASM artifact, "
+                       "`starknet-sierra-compile` not on PATH)")
+    out.append(f"\nGates: {GATE:,} Sierra and CASM felts per declared class; "
+               f"{WORLD_GATE:,} for the world class ({', '.join(sorted(WORLD_CLASSES))}). "
+               f"Starknet's limit: {LIMITS['casm_felts']:,}. margin = gate - size.")
+    out.append("\n" + ("classsize split FAILED, over the gate: " + ", ".join(over) if over
+                        else "classsize split ok: every declared class is within its gate"))
+    text = "\n".join(out)
+    print(text)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if github and summary:
+        with open(summary, "a") as f:
+            f.write(text + "\n")
     if over:
         sys.exit("classsize split FAILED, over the gate: " + ", ".join(over))
 
@@ -411,6 +436,10 @@ def main():
     ap.add_argument("--no-build", action="store_true",
                     help="table, check, split: measure the target directory as it is")
     ap.add_argument("--profile", default="dev", help="split: scarb profile (dev, release)")
+    ap.add_argument("--probes", action="store_true",
+                    help="split: build with the feature `probes` (alternatives, reported)")
+    ap.add_argument("--github", action="store_true",
+                    help="split: also append the table to $GITHUB_STEP_SUMMARY")
     ap.add_argument("--hook", default="replay", help="attribution: replay, stub or a hooks impl")
     ap.add_argument("--depth", type=int, default=2, help="attribution: module path segments")
     ap.add_argument("--top", type=int, default=25, help="attribution: heaviest functions shown")
@@ -426,7 +455,7 @@ def main():
     elif a.cmd == "check":
         check(not a.no_build)
     elif a.cmd == "split":
-        split(not a.no_build, a.profile)
+        split(not a.no_build, a.profile, a.probes, a.github)
     elif a.cmd == "strategies":
         lines = [f"inlining-strategy = {strategy_toml(s)}" for s in a.strategy or []] + a.cairo
         strategies(lines or ['inlining-strategy = "default"', 'inlining-strategy = "avoid"'])

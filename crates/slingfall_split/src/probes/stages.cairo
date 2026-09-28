@@ -9,7 +9,7 @@ use rapier2d_classes::{
 use rapier_dynamics2d::narrow_phase::NarrowPhase;
 use starknet::SyscallResultTrait;
 use starknet::syscalls::{library_call_syscall, storage_write_syscall};
-use crate::hashes::SplitHashes;
+use crate::probes::hashes::ProbeHashes;
 
 /// `SlimSplitStages` with the force events collected in `ForceEventsClass` (CS6's lever 3,
 /// measured by rapier-cairo, not in `SlimSplitStages`).
@@ -34,7 +34,7 @@ const HOOK_SLOT: felt252 = selector!("tick_hook");
 /// force magnitude), its answer (the removals) written to a storage slot. What a `TickHook` slot
 /// of `StageConfig` would compile into the caller, less the application of the removals, which
 /// `inventory::PlusRemove` measures (`World::remove_body`).
-pub impl HookForces<impl G: SplitHashes> of ForceEventStage {
+pub impl HookForces<impl G: ProbeHashes> of ForceEventStage {
     fn collect(
         groups: bool, dt: Fixed, ref narrow: NarrowPhase, ref colliders: ColliderSet,
     ) -> Array<ContactForceEvent> {
@@ -50,7 +50,7 @@ pub impl HookForces<impl G: SplitHashes> of ForceEventStage {
             event.collider2.serialize(ref calldata);
             event.total_force_magnitude.serialize(ref calldata);
         }
-        let ret = library_call_syscall(G::rules(), selector!("hook"), calldata.span())
+        let ret = library_call_syscall(G::typed_rules(), selector!("hook"), calldata.span())
             .unwrap_syscall();
         storage_write_syscall(0, HOOK_SLOT.try_into().unwrap(), ret.len().into()).unwrap_syscall();
         events
@@ -58,7 +58,7 @@ pub impl HookForces<impl G: SplitHashes> of ForceEventStage {
 }
 
 /// `SlimSplitStages` with the tick hook after the force events ([`HookForces`]).
-pub impl HookStages<impl H: ClassHashes, impl G: SplitHashes> of StageConfig {
+pub impl HookStages<impl H: ClassHashes, impl G: ProbeHashes> of StageConfig {
     impl Narrow = LibraryCallNarrowPhase<H>;
     impl Broad = LibraryCallBroadPhase<H>;
     impl Islands = LibraryCallIslands<H>;
