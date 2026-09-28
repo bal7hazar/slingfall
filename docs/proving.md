@@ -738,4 +738,81 @@ with a non-zero hash at 5, `n` at 7, the message hashes in `[8, 8 + n)` only. Th
 wrong.
 
 Costs (snforge, contract execution only): `submit_chunk` 0.84-1.20M L2 gas per link, `finalize` 7.0-7.2M for 5-7
-steps plus 71k per further step (at most 64), on top of 75M L2 gas per proof.
+steps plus 71k per further step (at most 64), on top of 75M L2 gas per proof. Measured on the devnet: "Cost sheet"
+below.
+
+### The prover service's SNIP-36 path (lot W3)
+
+`services/prove/prove_service.py --snip36 fake|snip36` (`snip36.py`) runs the three steps above for an attempt,
+beside Atlantic's path: `POST /prove {level, inputs, "tier": "proven"}` (or `prove --tier proven`), all transactions
+from the service's own account (`STARKNET_ACCOUNT_ADDRESS` / `STARKNET_PRIVATE_KEY` / `STARKNET_RPC_URL`, the relay's):
+the record is `inputs.player`'s.
+
+1. **Plan.** The chain of the contract's `current_chain()` (layout (e), `SplitChain` over `WorldClass`) runs through
+   the node's simulation (`starknet_simulateTransactions` without signature or fee: the devnet, or any RPC 0.10
+   node). Each call's return value is the next call's state; the messages are the node's. `k` is picked per chunk so
+   that each **virtual transaction stays under `--budget` L2 gas** (default 1.0e9: the node reports L2 gas, not
+   steps; the reference shot's chunk 0-90 costs 1,024M L2 gas for 8.76M snforge steps, ~111 L2 gas per step, so
+   1.0e9 is about 9M steps, under the protocol's 1.1e9 cap). First guess from the previous chunk's gas per tick;
+   an overrun shrinks `k` in proportion (a node out of steps, which reports no figure, halves it). Consecutive
+   calls share a transaction while they fit (`init` with the first chunk: one proof, several messages). Each packed
+   transaction is then simulated whole and split at a call boundary when the node refuses it: the devnet's block
+   capacity counts builtins apart (2.0e9 of its weighted "sierra gas"), and `init` + four chunks at 961M L2 gas
+   weighs 2.02e9 there.
+2. **Prove**, in parallel (`--parallel`, default 4), through the prover interface:
+   * `fake` (devnet): the node executes the transaction at the base block (the latest one) and the facts are laid
+     out as the 0.14.4 virtual OS lays them out: `[PROOF2, VIRTUAL_SNOS, 0x53f6…daa1, VIRTUAL_SNOS0, B, hash(B),
+     config, n, message hashes]`. The devnet (`deploy/devnet.sh`, starknet-devnet **0.10.0** with `--proof-mode
+     none`) ignores the proof but checks the facts' header on the real Invoke as the OS does: the program must be one
+     of 0.14.4's two allowed hashes, `B` at least 10 blocks old with its stored hash, the config hash the devnet's
+     (`0x57ed…dc57`, recorded from its own prover). Its own `starknet_proveTransaction` (mode `devnet`) is not used:
+     its facts put a hash at index 7, not the message count (`services/prove/fixtures/devnet-prove-0.10.0.json`),
+     so contract v3 would refuse them. `ripen` closes the 10 blocks (`devnet_createBlock`).
+   * `snip36`: `starknet_proveTransaction({block_number: B}, tx)` of `--prover-url` (SN1 §5, §7), `tx` the account's
+     virtual Invoke of the transaction's calls signed by `deploy/slingfall.ts sign-virtual` (nonce at `B`, every
+     price and the tip zero, `l2_gas.max_amount` 1.1e9, no facts). The answer's facts must be in the protocol layout
+     and name exactly the answer's messages (`check_facts`), else the proof is refused before any transaction.
+     Written and unit-tested on recorded answers (`services/prove/fixtures/`), **not run**: no prover answers PROOF2
+     today (SN1 §5), and the large proof path needs a large machine.
+3. **Submit** each proof once `latest >= B + 10`: one Invoke with `proof` and `proof_facts`, one
+   `submit_chunk(chain, kind, payload)` per message (`slingfall.ts submit-proof`). Then **finalize**
+   (`slingfall.ts finalize`), unless the attempt is proven already.
+
+A job is resumable: its plan (`plan.json`) and each proof (`proof-<i>.json`) are stored; asking again after a failure
+proves only what is missing. `/status/<id>` says `"tier": "proven"`, the job's `state` (`planning`, `proving`,
+`submitting`, `finalizing`, `proven`, `failed`), `plan` (transactions, their L2 gas, ticks), each proof's state in
+`proofs` (`pending`, `proving`, `proved`, `ripening`, `submitted`, with its transaction and gas), `finalize`.
+
+**Program check.** The service's release is a *bundle*: Poseidon of the ordered class hashes of
+`crates/slingfall_split/src/hashes.cairo` (`SplitChain`, its five constructor classes, then `RulesClass` and
+rapier's ten stage classes; `snip36.BUNDLE_CLASSES`, `client/src/chain/slingfall.ts` `SPLIT_BUNDLE_CLASSES`). A
+proven job is refused with 409 unless `chain_bundle(current_chain())` is that bundle and `chain_valid_until(chain) >
+now`; `/health`'s `proven.available` says so before any request, and the client then offers the settled path.
+
+### Cost sheet (lot W3)
+
+The pile10 reference shot (107 ticks, one shot, layout (e)) proven end to end on starknet-devnet 0.10.0 by the fake
+prover (`deploy/e2e.sh`, `deploy/out/e2e/cost.json`), budget 1.0e9 L2 gas per virtual transaction. The devnet charges
+the protocol's flat 75,000,000 L2 gas per proof on any Invoke carrying proof facts (measured: the same call costs
+75,086,080 more with facts than without). Prices: Sepolia block 15,781,794 (2026-09-28 19:00 UTC, Starknet 0.14.4),
+public RPC: L2 gas 21.390 gFri, L1 data gas 530.55 gFri.
+
+| | virtual tx L2 gas | messages | Invoke L2 gas | of which proof | of which `submit_chunk` + account | L1 data gas | STRK |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| proof 0: `init` + chunk 0-60 | 501,227,200 | 2 | 78,209,840 | 75,000,000 | 3,209,840 | 384 | 1.673 |
+| proof 1: chunks 60-74, 74-81, 81-84 | 434,475,520 | 3 | 80,252,640 | 75,000,000 | 5,252,640 | 576 | 1.717 |
+| proof 2: chunk 84-96 | 903,286,080 | 1 | 77,321,760 | 75,000,000 | 2,321,760 | 320 | 1.654 |
+| proof 3: chunk 96-107 + `outputs` | 876,396,480 | 2 | 78,341,040 | 75,000,000 | 3,341,040 | 384 | 1.676 |
+| `finalize` (8 links walked, record and both boards) | | | 5,646,560 | | 5,646,560 | 768 | 0.121 |
+| **shot** | 2,715,385,280 | 8 | **319,771,840** | 300,000,000 | 19,771,840 | 2,432 | **6.84** |
+
+* **4 proofs** per shot at a 1.0e9 budget; the 75M L2 gas per proof is 94 % of the cost (6.42 of 6.84 STRK), so the
+  number of proofs is the lever. The plan fills each transaction (small chunks to top one up cost ~1.3M L2 gas each,
+  a proof 75M), and the devnet's block capacity split `init` + chunks 0-84 in two. Research 07 §4 counted 2 proofs
+  for layout (e) by snforge steps (8.76M + 7.76M); in L2 gas the chunk 0-90 alone is 1.024e9, so 2 proofs need a
+  budget at the cap and a prover whose block accepts ~2.2e9 weighted gas: unmeasured.
+* The virtual transactions pay nothing (zero prices); their proving is the prover's machine time (not measured: no
+  prover). Planning took 41 s on the devnet (the chain simulated call by call, then each transaction whole), the fake
+  prover a few seconds per transaction.
+* Compare: the settled tier's `submit_settled` of the same shot on the devnet costs 6.7M L2 gas (0.14 STRK) plus
+  Atlantic's proof (free on testnet, L-size credits on mainnet, ≈ 1.5 h); the attested `submit` 5.2M (0.11 STRK).
