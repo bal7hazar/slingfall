@@ -52,3 +52,20 @@ Whole-shot test runs are heavy (rapier's peak near 20 GB): run them one at a tim
 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; push `feat/s36a-split-game-step`; `gh pr create`;
 `gh pr checks --watch` in the foreground until green; never merge; `REPORT.md` (summary, tables, verdict,
 escalations). Foreground only. Work autonomously, do not ask questions, do not widen the scope. At most 2 parallel jobs.
+
+## 7. Hints from the rapier orchestrator (estimates, to be measured; added 2026-09-28)
+- The game contract IS the caller class (it holds the world and runs the tick loop). With 645 felts of margin no game
+  rule fits in it as it is: rules live in declared classes; the caller keeps the chunk loop, the application of
+  removals, the pebble insertion (World API it already compiles) and the state hash (Poseidon over the felts the basic
+  codec already writes).
+- Cheapest hook: a per-tick rules class called once per tick after the step. In: the tick's force events in compact
+  form (handle or pair + magnitude), HP / score state if it lives outside the world. Out: handles to remove, score
+  delta. Estimated 2-4k steps per call, about +1-2 % on the shot.
+- Better: fold the damage rule into `ForceEventsClass`, so the caller never materialises force events: the class
+  computes them, applies damage and returns only the removals (removes about 572 CASM from the caller and one
+  crossing). Calm rule, out of bounds and scoring in the same rules class, from poses and velocities or a compact
+  per-entity summary.
+- rapier can add a `StageConfig` slot `TickHook` (in-process no-op by default, zero steps) that the slim stages
+  library-call right after the force-event stage and whose returned removals are applied inside the step. Measure
+  layout (c) both with what alpha.7 offers and, on a vendored copy of `rapier2d_classes` inside the spike crate, with
+  such a hook; report the figures so the request to rapier is precise.
