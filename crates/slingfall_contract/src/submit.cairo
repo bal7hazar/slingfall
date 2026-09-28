@@ -1,153 +1,34 @@
-//! The `Slingfall` contract, v2 (`docs/DESIGN.md` D9, `docs/contract-v2.md`): level registry,
-//! `simulate` (run in the SNIP-36 virtual OS), `submit` (the provisional tier: `player == caller`,
-//! nullifier `poseidon(level_hash, player, inputs_hash)`, the active `Verifier`),
-//! `submit_settled` (the settled tier: the Atlantic fact on the Satellite, recorded for
-//! `claim.player` whoever sends it), a set of accepted programs with a grace period, per-tier
-//! records and leaderboards, `expire`, a two-step admin transfer and `upgrade`.
+//! The `Slingfall` contract, v3 (`docs/DESIGN.md` D9, `docs/contract-v2.md`,
+//! `docs/contract-v3.md`): level registry, `simulate` (run in the SNIP-36 virtual OS), `submit`
+//! (the provisional tier: `player == caller`, nullifier `poseidon(level_hash, player,
+//! inputs_hash)`, the active `Verifier`), `submit_settled` (the settled tier: the Atlantic fact on
+//! the Satellite, recorded for `claim.player` whoever sends it), `submit_chunk` / `finalize` (the
+//! proven tier: a SNIP-36 chain of proofs, idem), sets of accepted programs with a grace period,
+//! per-tier records and leaderboards, `expire`, a two-step admin transfer and `upgrade`.
 //!
-//! Two tiers: an attempt validated by an attestation or SNIP-36 is *provisional*; one validated by
-//! `SatelliteVerifier` is *settled*. A nullifier moves `NONE -> ATTESTED -> SETTLED` or `NONE ->
-//! SETTLED`: the only second submission of an attempt is its settlement. `best` and the
-//! provisional board rank each player's best of either tier; `best_settled` and `leaderboard`
-//! only settled attempts, so a provisional record never hides a settled one.
+//! Three tiers: an attempt validated by an attestation is *provisional*; one validated by
+//! `SatelliteVerifier` is *settled*, one validated by a SNIP-36 chain *proven*; both proofs rank
+//! together (`Best.settled`, the settled board). A nullifier moves `NONE -> ATTESTED -> SETTLED |
+//! PROVEN` or `NONE -> SETTLED | PROVEN`: the only second submission of an attempt is its proof.
+//! `best` and the provisional board rank each player's best of any tier; `best_settled` and
+//! `leaderboard` only proven attempts, so a provisional record never hides one.
 
-use slingfall_level::outputs::Outputs;
-use starknet::{ClassHash, ContractAddress};
-use crate::registry::{Best, LevelMeta};
-use crate::verifier::{SatelliteConfig, VerifierKind};
+pub use interface::*;
 
+pub mod chunks;
 pub mod errors;
+pub mod events;
 #[cfg(test)]
 pub mod fixtures;
+pub mod interface;
 #[cfg(test)]
 mod tests;
 
-/// Default `expire_delay`: a provisional record not settled within 24 h may be demoted.
-pub const DEFAULT_EXPIRE_DELAY: u64 = 86_400;
-/// `program_valid_until` of the current program.
-pub const FOREVER: u64 = 0xffffffffffffffff;
-
-/// Players' entry points and reads.
-#[starknet::interface]
-pub trait ISlingfall<TState> {
-    /// Registers a level given as its `Serde` felts (`docs/DESIGN.md` D2) after
-    /// `LevelTrait::validate`; returns its `level_hash`. The caller is the author; the level is
-    /// active.
-    fn register_level(ref self: TState, level: Array<felt252>) -> felt252;
-    /// Opens or closes a level to submissions; by its author or the admin.
-    fn set_level_active(ref self: TState, level_hash: felt252, active: bool);
-    /// The level's metadata (all zero when unknown).
-    fn level(self: @TState, level_hash: felt252) -> LevelMeta;
-    /// The level's `Serde` felts (empty when unknown).
-    fn level_data(self: @TState, level_hash: felt252) -> Array<felt252>;
-    /// Replays `inputs` (the `Serde` felts of an `Inputs`) on a registered level through a library
-    /// call to the `SlingfallSim` class (`sim_class_hash`) and sends the outputs felts to
-    /// `simulate::MARKER` as an L2 to L1 message from this contract. Meant for the virtual OS.
-    fn simulate(ref self: TState, level_hash: felt252, inputs: Array<felt252>) -> Outputs;
-    /// Records a replay's `outputs` (the 10 felts of D4) as provisional once `evidence` convinces
-    /// the active verifier: `[program_hash, expiry, r, s]` for `Stub` (the attestation of
-    /// `verifier::attestation_message`, its program valid now), nothing for `Snip36`; `Satellite`
-    /// refuses everything. The caller must be `outputs.player`.
-    fn submit(ref self: TState, outputs: Array<felt252>, evidence: Array<felt252>);
-    /// Records `outputs` as settled for `outputs.player`, whoever the caller (a relay): the
-    /// Atlantic fact of the run of `c1main` (program `child_program_hash`, valid now) on `args =
-    /// [len(level), level..., len(inputs), inputs...]` (the `Serde` felts of the level and of the
-    /// `Inputs`, as `tracec.py args` writes them) must be on the Satellite. Also settles a
-    /// provisional record of the same attempt.
-    fn submit_settled(
-        ref self: TState,
-        outputs: Array<felt252>,
-        args: Array<felt252>,
-        child_program_hash: felt252,
-    );
-    /// Demotes `player`'s provisional record on the level, older than `expire_delay` and never
-    /// settled, to their settled best (and their provisional-board row with it). Anyone may call.
-    fn expire(ref self: TState, level_hash: felt252, player: ContractAddress);
-    /// The tier of an attempt: `nullifier::NONE`, `ATTESTED` or `SETTLED`.
-    fn attempt(
-        self: @TState, level_hash: felt252, player: ContractAddress, inputs_hash: felt252,
-    ) -> u8;
-    /// `player`'s best validated attempt on the level, either tier (all zero when none).
-    fn best(self: @TState, player: ContractAddress, level_hash: felt252) -> Best;
-    /// `player`'s best settled attempt on the level (all zero when none).
-    fn best_settled(self: @TState, player: ContractAddress, level_hash: felt252) -> Best;
-    /// Top `registry::LEADERBOARD_SIZE` settled won attempts, by decreasing score.
-    fn leaderboard(self: @TState, level_hash: felt252) -> Array<(ContractAddress, u32)>;
-    /// Top `registry::LEADERBOARD_SIZE` won `best` records of either tier, by decreasing score.
-    fn leaderboard_provisional(self: @TState, level_hash: felt252) -> Array<(ContractAddress, u32)>;
-}
-
-/// Admin configuration: the verifier and its keys (the v1 interface, which `slingfall_sizes`'
-/// fixtures implement; v2 semantics in the comments).
-#[starknet::interface]
-pub trait ISlingfallAdmin<TState> {
-    fn admin(self: @TState) -> ContractAddress;
-    fn virtual_os_hash(self: @TState) -> felt252;
-    fn sim_class_hash(self: @TState) -> ClassHash;
-    fn verifier(self: @TState) -> VerifierKind;
-    fn attestation_key(self: @TState) -> felt252;
-    /// Starts a two-step transfer: `admin` becomes the pending admin until it calls
-    /// `ISlingfallGovernance::accept_admin` (proposing the current admin cancels it).
-    fn set_admin(ref self: TState, admin: ContractAddress);
-    /// The virtual-OS program hash the SNIP-36 proof facts must carry (versioned per Starknet
-    /// release).
-    fn set_virtual_os_hash(ref self: TState, virtual_os_hash: felt252);
-    /// The class hash of `SlingfallSim`, the class `simulate` library-calls (zero: `simulate`
-    /// panics `errors::SIMULATE_CLASS`).
-    fn set_sim_class_hash(ref self: TState, sim_class_hash: ClassHash);
-    fn set_verifier(ref self: TState, verifier: VerifierKind);
-    /// Stark-curve public key of the attestations; bumps `attestation_epoch`, so that every
-    /// earlier attestation (of any key) stops verifying.
-    fn set_attestation_key(ref self: TState, attestation_key: felt252);
-}
-
-/// Admin configuration of the settled tier (apart from `ISlingfallAdmin`, which
-/// `slingfall_sizes`' fixtures implement).
-#[starknet::interface]
-pub trait ISlingfallSatellite<TState> {
-    fn satellite_config(self: @TState) -> SatelliteConfig;
-    /// The constants of `SatelliteVerifier` (the two bootloaders, the Satellite's address); admin
-    /// only.
-    fn set_satellite_config(ref self: TState, config: SatelliteConfig);
-}
-
-/// Contract v2's governance: the program set, the attestation epoch, the expiry delay, the admin
-/// transfer and the upgrade.
-#[starknet::interface]
-pub trait ISlingfallGovernance<TState> {
-    fn pending_admin(self: @TState) -> ContractAddress;
-    /// The pending admin takes over.
-    fn accept_admin(ref self: TState);
-    /// Replaces this contract's class (`replace_class_syscall`); admin only.
-    fn upgrade(ref self: TState, class_hash: ClassHash);
-    /// The last pinned program (zero when none, or revoked).
-    fn current_program(self: @TState) -> felt252;
-    /// Until when `program_hash` is accepted: valid while `block_timestamp < valid_until`
-    /// (`FOREVER` for the current program, `0` never pinned or revoked).
-    fn program_valid_until(self: @TState, program_hash: felt252) -> u64;
-    /// `program_hash` becomes the current program; the previous one stays valid for `grace_s`
-    /// seconds (`0`: invalid at once). Admin only.
-    fn pin_program(ref self: TState, program_hash: felt252, grace_s: u64);
-    /// `program_hash` is invalid at once (and no longer current). Admin only.
-    fn revoke_program(ref self: TState, program_hash: felt252);
-    /// The epoch the attestations must name (the number of `set_attestation_key` calls).
-    fn attestation_epoch(self: @TState) -> u64;
-    /// The age (seconds) after which an unsettled provisional record may be `expire`d.
-    fn expire_delay(self: @TState) -> u64;
-    fn set_expire_delay(ref self: TState, expire_delay: u64);
-}
-
-/// States of a nullifier (the tier of an attempt).
-pub mod nullifier {
-    pub const NONE: u8 = 0;
-    pub const ATTESTED: u8 = 1;
-    pub const SETTLED: u8 = 2;
-}
-
 #[starknet::contract]
 pub mod Slingfall {
-    use core::num::traits::{Bounded, Zero};
+    use core::num::traits::Zero;
     use core::poseidon::poseidon_hash_span;
+    use slingfall_level::inputs::Inputs;
     use slingfall_level::level::{Level, LevelTrait};
     use slingfall_level::outputs::{Outputs, OutputsTrait};
     use starknet::storage::{
@@ -163,15 +44,19 @@ pub mod Slingfall {
     use crate::simulate::MARKER;
     use crate::simulate::class::{ISlingfallSimDispatcherTrait, ISlingfallSimLibraryDispatcher};
     use crate::verifier::{
-        AttestationVerifier, SatelliteConfig, SatelliteVerifier, Snip36Verifier, Verifier,
-        VerifierKind,
+        AttestationVerifier, BLOCK_HASH_BUFFER, SatelliteConfig, SatelliteVerifier, Snip36Verifier,
+        Verifier, VerifierKind, has_message, message_hash, parse_facts,
     };
-    use super::{DEFAULT_EXPIRE_DELAY, FOREVER, errors, nullifier};
+    use super::chunks::{Chunk, Edge, MAX_EDGES};
+    pub use super::events::*;
+    use super::{DEFAULT_EXPIRE_DELAY, FOREVER, chunks, errors, grace_until, nullifier};
 
+    /// v2's storage unchanged (an `upgrade` from v2 keeps every record), then v3's.
     #[storage]
     struct Storage {
         admin: ContractAddress,
         pending_admin: ContractAddress,
+        /// The virtual-OS program of `submit`'s `Snip36` verifier.
         virtual_os_hash: felt252,
         /// The class hash of `SlingfallSim` (`simulate` library-calls it).
         sim_class_hash: ClassHash,
@@ -188,13 +73,31 @@ pub mod Slingfall {
         /// `Vec::push` costs a length read and two writes).
         level_felts: Map<(felt252, u32), felt252>,
         level_len: Map<felt252, u32>,
-        /// `nullifier::{NONE, ATTESTED, SETTLED}`.
+        /// `nullifier::{NONE, ATTESTED, SETTLED, PROVEN}`.
         nullifiers: Map<felt252, u8>,
-        /// Either tier.
+        /// Any tier.
         best: Map<(ContractAddress, felt252), Best>,
+        /// Proofs only (settled or proven).
         best_settled: Map<(ContractAddress, felt252), Best>,
         boards_settled: Map<felt252, Vec<Entry>>,
         boards_provisional: Map<felt252, Vec<Entry>>,
+        // v3: the SNIP-36 tier.
+        /// `to_address` of the chains' messages.
+        chunk_marker: felt252,
+        /// Chain contract (one deployment of a release's class bundle) -> `valid_until`.
+        chains: Map<ContractAddress, u64>,
+        /// Chain -> the bundle hash the admin declared for it.
+        chain_bundles: Map<ContractAddress, felt252>,
+        current_chain: ContractAddress,
+        /// Virtual-OS program hash -> `valid_until`.
+        virtual_os_programs: Map<felt252, u64>,
+        current_virtual_os: felt252,
+        /// `(chain, level_hash)` -> `init`'s state hash.
+        chunk_starts: Map<(ContractAddress, felt252), felt252>,
+        /// `(chain, inputs_hash, state_in_hash)` -> the step from that state.
+        chunk_edges: Map<(ContractAddress, felt252, felt252), Edge>,
+        /// `(chain, inputs_hash, state_in_hash)` -> `poseidon(outputs felts)`.
+        chunk_ends: Map<(ContractAddress, felt252, felt252), felt252>,
     }
 
     #[event]
@@ -210,85 +113,10 @@ pub mod Slingfall {
         AdminTransferStarted: AdminTransferStarted,
         AdminTransferred: AdminTransferred,
         Upgraded: Upgraded,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct LevelRegistered {
-        #[key]
-        pub level_hash: felt252,
-        pub author: ContractAddress,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct LevelActiveSet {
-        #[key]
-        pub level_hash: felt252,
-        pub active: bool,
-    }
-
-    /// A validated attempt (emitted by every accepted submission, record or not).
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct LevelValidated {
-        #[key]
-        pub player: ContractAddress,
-        #[key]
-        pub level_hash: felt252,
-        pub inputs_hash: felt252,
-        pub score: u32,
-        pub won: bool,
-        /// Validated by the Satellite fact (else by an attestation or SNIP-36).
-        pub settled: bool,
-        /// `Best::program_hash`.
-        pub program_hash: felt252,
-    }
-
-    /// `expire` demoted a provisional record (`inputs_hash`) to the settled best.
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct RecordExpired {
-        #[key]
-        pub player: ContractAddress,
-        #[key]
-        pub level_hash: felt252,
-        pub inputs_hash: felt252,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct ProgramPinned {
-        #[key]
-        pub program_hash: felt252,
-        /// The former current program (zero when none or the same), valid until
-        /// `previous_valid_until`.
-        pub previous: felt252,
-        pub previous_valid_until: u64,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct ProgramRevoked {
-        #[key]
-        pub program_hash: felt252,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct AttestationKeySet {
-        pub attestation_key: felt252,
-        pub epoch: u64,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct AdminTransferStarted {
-        pub admin: ContractAddress,
-        pub pending: ContractAddress,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct AdminTransferred {
-        pub previous: ContractAddress,
-        pub admin: ContractAddress,
-    }
-
-    #[derive(Drop, PartialEq, Debug, starknet::Event)]
-    pub struct Upgraded {
-        pub class_hash: ClassHash,
+        ChainPinned: ChainPinned,
+        ChainRevoked: ChainRevoked,
+        VirtualOsPinned: VirtualOsPinned,
+        VirtualOsRevoked: VirtualOsRevoked,
     }
 
     /// The provisional verifier starts as the attestation (`Stub`) with no key, no program is
@@ -368,14 +196,13 @@ pub mod Slingfall {
 
         fn submit(ref self: ContractState, outputs: Array<felt252>, evidence: Array<felt252>) {
             let claim = OutputsTrait::from_felts(outputs.span());
-            let (player, _) = admit(ref self, claim, false);
+            let (player, _) = admit(ref self, claim, nullifier::ATTESTED);
             let (valid, program_hash) = match self.verifier.read() {
                 VerifierKind::Snip36 => {
-                    let facts = get_execution_info().unbox().tx_info.unbox().proof_facts;
                     let mut verifier = Snip36Verifier {
                         virtual_os_hash: self.virtual_os_hash.read(),
                         from: get_contract_address().into(),
-                        facts,
+                        facts: proof_facts(),
                     };
                     (verifier.check(claim, evidence.span()), self.sim_class_hash.read().into())
                 },
@@ -395,7 +222,7 @@ pub mod Slingfall {
                 VerifierKind::Satellite => (false, 0),
             };
             assert(valid, errors::SUBMIT_PROOF);
-            record(ref self, claim, player, false, false, program_hash);
+            record(ref self, claim, player, nullifier::ATTESTED, false, program_hash);
         }
 
         fn submit_settled(
@@ -405,13 +232,13 @@ pub mod Slingfall {
             child_program_hash: felt252,
         ) {
             let claim = OutputsTrait::from_felts(outputs.span());
-            let (player, upgrade) = admit(ref self, claim, true);
+            let (player, upgrade) = admit(ref self, claim, nullifier::SETTLED);
             assert_program(@self, child_program_hash);
             let mut verifier = SatelliteVerifier {
                 config: self.satellite.read(), child_program_hash,
             };
             assert(verifier.check(claim, args.span()), errors::SUBMIT_PROOF);
-            record(ref self, claim, player, true, upgrade, child_program_hash);
+            record(ref self, claim, player, nullifier::SETTLED, upgrade, child_program_hash);
         }
 
         fn expire(ref self: ContractState, level_hash: felt252, player: ContractAddress) {
@@ -569,13 +396,7 @@ pub mod Slingfall {
             if previous == program_hash {
                 previous = 0;
             } else if previous != 0 {
-                let now = get_block_timestamp();
-                previous_valid_until =
-                    if grace_s >= Bounded::<u64>::MAX - now {
-                        FOREVER - 1
-                    } else {
-                        now + grace_s
-                    };
+                previous_valid_until = grace_until(get_block_timestamp(), grace_s);
                 self.programs.write(previous, previous_valid_until);
             }
             self.programs.write(program_hash, FOREVER);
@@ -606,6 +427,223 @@ pub mod Slingfall {
         }
     }
 
+    #[abi(embed_v0)]
+    impl SlingfallProvenImpl of super::ISlingfallProven<ContractState> {
+        fn submit_chunk(
+            ref self: ContractState, chain: ContractAddress, kind: u8, payload: Array<felt252>,
+        ) {
+            let now = get_block_timestamp();
+            let marker = self.chunk_marker.read();
+            assert(marker != 0 && self.chains.read(chain) > now, errors::CHUNK_CHAIN);
+            let Some(facts) = parse_facts(proof_facts()) else {
+                core::panic_with_felt252(errors::CHUNK_FACTS)
+            };
+            let program_valid_until = self.virtual_os_programs.read(facts.program_hash);
+            assert(program_valid_until > now, errors::CHUNK_PROGRAM);
+            let block = get_block_number();
+            assert(
+                block >= BLOCK_HASH_BUFFER && facts.base_block_number <= block
+                    - BLOCK_HASH_BUFFER && facts.base_block_hash != 0,
+                errors::CHUNK_BASE_BLOCK,
+            );
+            let hash = message_hash(chain.into(), marker, payload.span());
+            assert(has_message(facts.messages, hash), errors::CHUNK_MESSAGE);
+            match chunks::parse(kind, payload.span()) {
+                Chunk::Init((
+                    level_hash, state,
+                )) => {
+                    let entry = self.chunk_starts.entry((chain, level_hash));
+                    let stored = entry.read();
+                    if stored == 0 {
+                        entry.write(state);
+                    } else {
+                        assert(stored == state, errors::CHUNK_CONFLICT);
+                    }
+                },
+                Chunk::Step((
+                    inputs_hash, state_in, edge,
+                )) => {
+                    let entry = self.chunk_edges.entry((chain, inputs_hash, state_in));
+                    let stored = entry.read();
+                    if stored.next == 0 {
+                        entry.write(edge);
+                    } else {
+                        assert(stored == edge, errors::CHUNK_CONFLICT);
+                    }
+                },
+                Chunk::Outputs((
+                    inputs_hash, state_in, outputs_hash,
+                )) => {
+                    let entry = self.chunk_ends.entry((chain, inputs_hash, state_in));
+                    let stored = entry.read();
+                    if stored == 0 {
+                        entry.write(outputs_hash);
+                    } else {
+                        assert(stored == outputs_hash, errors::CHUNK_CONFLICT);
+                    }
+                },
+            }
+        }
+
+        fn finalize(
+            ref self: ContractState,
+            chain: ContractAddress,
+            level_hash: felt252,
+            inputs: Array<felt252>,
+            outputs: Array<felt252>,
+        ) {
+            assert(self.chains.read(chain) > get_block_timestamp(), errors::FINALIZE_CHAIN);
+            let claim = OutputsTrait::from_felts(outputs.span());
+            let mut felts = inputs.span();
+            let decoded: Option<Inputs> = Serde::deserialize(ref felts);
+            let Some(decoded) = decoded else {
+                core::panic_with_felt252(errors::FINALIZE_INPUTS)
+            };
+            assert(felts.is_empty(), errors::FINALIZE_INPUTS);
+            let inputs_hash = poseidon_hash_span(inputs.span());
+            assert(
+                claim.level_hash == level_hash
+                    && claim.inputs_hash == inputs_hash
+                    && claim.player == decoded.player,
+                errors::FINALIZE_OUTPUTS,
+            );
+            let shots = decoded.shots.len();
+            let mut state = self.chunk_starts.read((chain, level_hash));
+            assert(state != 0, errors::FINALIZE_LINK);
+            let mut shot: u8 = 0;
+            let mut edges: u32 = 0;
+            loop {
+                let end = self.chunk_ends.read((chain, inputs_hash, state));
+                if end != 0 {
+                    assert(end == poseidon_hash_span(outputs.span()), errors::FINALIZE_OUTPUTS);
+                    break;
+                }
+                let edge = self.chunk_edges.read((chain, inputs_hash, state));
+                assert(edge.next != 0, errors::FINALIZE_LINK);
+                assert(edges < MAX_EDGES, errors::FINALIZE_LENGTH);
+                assert(edge.shot >= shot && edge.shot.into() < shots, errors::FINALIZE_SHOT);
+                shot = edge.shot;
+                edges += 1;
+                state = edge.next;
+            }
+            let (player, upgrade) = admit(ref self, claim, nullifier::PROVEN);
+            let bundle = self.chain_bundles.read(chain);
+            record(ref self, claim, player, nullifier::PROVEN, upgrade, bundle);
+        }
+
+        fn chunk_start(
+            self: @ContractState, chain: ContractAddress, level_hash: felt252,
+        ) -> felt252 {
+            self.chunk_starts.read((chain, level_hash))
+        }
+
+        fn chunk_edge(
+            self: @ContractState,
+            chain: ContractAddress,
+            inputs_hash: felt252,
+            state_in_hash: felt252,
+        ) -> Edge {
+            self.chunk_edges.read((chain, inputs_hash, state_in_hash))
+        }
+
+        fn chunk_end(
+            self: @ContractState,
+            chain: ContractAddress,
+            inputs_hash: felt252,
+            state_in_hash: felt252,
+        ) -> felt252 {
+            self.chunk_ends.read((chain, inputs_hash, state_in_hash))
+        }
+
+        fn chunk_marker(self: @ContractState) -> felt252 {
+            self.chunk_marker.read()
+        }
+
+        fn set_chunk_marker(ref self: ContractState, marker: felt252) {
+            assert_admin(@self);
+            self.chunk_marker.write(marker);
+        }
+
+        fn current_chain(self: @ContractState) -> ContractAddress {
+            self.current_chain.read()
+        }
+
+        fn chain_valid_until(self: @ContractState, chain: ContractAddress) -> u64 {
+            self.chains.read(chain)
+        }
+
+        fn chain_bundle(self: @ContractState, chain: ContractAddress) -> felt252 {
+            self.chain_bundles.read(chain)
+        }
+
+        fn pin_chain(
+            ref self: ContractState, chain: ContractAddress, bundle_hash: felt252, grace_s: u64,
+        ) {
+            assert_admin(@self);
+            assert(chain.is_non_zero() && bundle_hash != 0, errors::CHAIN_ZERO);
+            let mut previous = self.current_chain.read();
+            let mut previous_valid_until = 0;
+            if previous == chain {
+                previous = Zero::zero();
+            } else if previous.is_non_zero() {
+                previous_valid_until = grace_until(get_block_timestamp(), grace_s);
+                self.chains.write(previous, previous_valid_until);
+            }
+            self.chains.write(chain, FOREVER);
+            self.chain_bundles.write(chain, bundle_hash);
+            self.current_chain.write(chain);
+            self.emit(ChainPinned { chain, bundle_hash, previous, previous_valid_until });
+        }
+
+        fn revoke_chain(ref self: ContractState, chain: ContractAddress) {
+            assert_admin(@self);
+            self.chains.write(chain, 0);
+            if self.current_chain.read() == chain {
+                self.current_chain.write(Zero::zero());
+            }
+            self.emit(ChainRevoked { chain });
+        }
+
+        fn current_virtual_os(self: @ContractState) -> felt252 {
+            self.current_virtual_os.read()
+        }
+
+        fn virtual_os_valid_until(self: @ContractState, program_hash: felt252) -> u64 {
+            self.virtual_os_programs.read(program_hash)
+        }
+
+        fn pin_virtual_os(ref self: ContractState, program_hash: felt252, grace_s: u64) {
+            assert_admin(@self);
+            assert(program_hash != 0, errors::PROGRAM_ZERO);
+            let mut previous = self.current_virtual_os.read();
+            let mut previous_valid_until = 0;
+            if previous == program_hash {
+                previous = 0;
+            } else if previous != 0 {
+                previous_valid_until = grace_until(get_block_timestamp(), grace_s);
+                self.virtual_os_programs.write(previous, previous_valid_until);
+            }
+            self.virtual_os_programs.write(program_hash, FOREVER);
+            self.current_virtual_os.write(program_hash);
+            self.emit(VirtualOsPinned { program_hash, previous, previous_valid_until });
+        }
+
+        fn revoke_virtual_os(ref self: ContractState, program_hash: felt252) {
+            assert_admin(@self);
+            self.virtual_os_programs.write(program_hash, 0);
+            if self.current_virtual_os.read() == program_hash {
+                self.current_virtual_os.write(0);
+            }
+            self.emit(VirtualOsRevoked { program_hash });
+        }
+    }
+
+    /// The transaction's SNIP-36 `proof_facts`: the one read of them (`submit` and
+    /// `submit_chunk`).
+    fn proof_facts() -> Span<felt252> {
+        get_execution_info().unbox().tx_info.unbox().proof_facts
+    }
+
     fn assert_admin(self: @ContractState) {
         assert(get_caller_address() == self.admin.read(), errors::ADMIN_CALLER);
     }
@@ -616,11 +654,11 @@ pub mod Slingfall {
     }
 
     /// The checks before any verifier: the level is registered and active, the claim is the
-    /// caller's (provisional only: a settled claim is recorded for its player whoever sends it,
-    /// the fact binds the player), and the nullifier admits this tier (a new attempt, or the
-    /// settlement of an attested one: `true` then). Writes the new nullifier state; returns the
-    /// player and that flag.
-    fn admit(ref self: ContractState, claim: Outputs, settled: bool) -> (ContractAddress, bool) {
+    /// caller's (`ATTESTED` only: a proven claim is recorded for its player whoever sends it, the
+    /// proof binds the player), and the nullifier admits `tier` (a new attempt, or the proof of an
+    /// attested one: `true` then). Writes `tier` as the new nullifier state; returns the player
+    /// and that flag.
+    fn admit(ref self: ContractState, claim: Outputs, tier: u8) -> (ContractAddress, bool) {
         let level_hash = claim.level_hash;
         let meta = self.levels.read(level_hash);
         assert(meta.version != 0, errors::SUBMIT_LEVEL);
@@ -629,31 +667,30 @@ pub mod Slingfall {
         let Some(player) = player else {
             core::panic_with_felt252(errors::SUBMIT_PLAYER)
         };
-        assert(settled || player == get_caller_address(), errors::SUBMIT_PLAYER);
+        let proof = tier != nullifier::ATTESTED;
+        assert(proof || player == get_caller_address(), errors::SUBMIT_PLAYER);
         let key = poseidon_hash_span([level_hash, claim.player, claim.inputs_hash].span());
         let state = self.nullifiers.read(key);
-        let upgrade = settled && state == nullifier::ATTESTED;
+        let upgrade = proof && state == nullifier::ATTESTED;
         assert(state == nullifier::NONE || upgrade, errors::SUBMIT_NULLIFIER);
-        self.nullifiers.write(key, if settled {
-            nullifier::SETTLED
-        } else {
-            nullifier::ATTESTED
-        });
+        self.nullifiers.write(key, tier);
         (player, upgrade)
     }
 
-    /// Updates the player's records and the leaderboards with a validated claim, and emits
-    /// `LevelValidated`: `best` and the provisional board for either tier, `best_settled` and the
-    /// settled board for a settled claim. The settlement of an attested attempt that is the `best`
-    /// record marks it settled (its score is already counted).
+    /// Updates the player's records and the leaderboards with a claim validated at `tier`, and
+    /// emits `LevelValidated`: `best` and the provisional board for any tier, `best_settled` and
+    /// the settled board for a proof (`SETTLED` or `PROVEN`). The proof of an attested attempt
+    /// that is the `best` record marks it settled (its score is already counted).
     fn record(
         ref self: ContractState,
         claim: Outputs,
         player: ContractAddress,
-        settled: bool,
+        tier: u8,
         upgrade: bool,
         program_hash: felt252,
     ) {
+        let settled = tier != nullifier::ATTESTED;
+        let proven = tier == nullifier::PROVEN;
         let Outputs { level_hash, inputs_hash, score, won, .. } = claim;
         let key = (player, level_hash);
         let new = Best {
@@ -683,7 +720,7 @@ pub mod Slingfall {
         self
             .emit(
                 LevelValidated {
-                    player, level_hash, inputs_hash, score, won, settled, program_hash,
+                    player, level_hash, inputs_hash, score, won, settled, program_hash, proven,
                 },
             );
     }

@@ -134,6 +134,7 @@ fn test_settled_accepts_the_e3a_fact() {
         won: true,
         settled: true,
         program_hash: PROGRAM,
+        proven: false,
     };
     spy.assert_emitted(@array![(setup.address, Slingfall::Event::LevelValidated(event))]);
     // The other E3a run (a lost attempt: no record, the nullifier is spent).
@@ -224,6 +225,7 @@ fn test_attested_attempt_upgrades_to_settled() {
         won: true,
         settled: true,
         program_hash: PROGRAM,
+        proven: false,
     };
     spy.assert_emitted(@array![(setup.address, Slingfall::Event::LevelValidated(event))]);
     // Settled: neither tier again.

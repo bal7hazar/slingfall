@@ -42,6 +42,24 @@ pub const GOLDEN_ATTEST_R: felt252 =
 pub const GOLDEN_ATTEST_S: felt252 =
     0x27606a6561345390352e49714bb7ea39fa7141c85987f3200ff07a484e540b2;
 
+/// The virtual-OS program hash of the tests (the prefix of the first allowed hash of 0.14.4).
+pub const VIRTUAL_OS_HASH: felt252 = 0x53f6c9fc;
+/// The base block of `proof_facts`' callers.
+pub const BASE_BLOCK: u64 = 100;
+
+/// Well-formed SNIP-36 proof facts (`verifier::facts`): `PROOF2`, `VIRTUAL_SNOS`, the program,
+/// `VIRTUAL_SNOS0`, the base block, a block hash, a config hash, then the message hashes.
+pub fn proof_facts(
+    program_hash: felt252, base_block: u64, messages: Span<felt252>,
+) -> Array<felt252> {
+    let mut facts: Array<felt252> = array![
+        'PROOF2', 'VIRTUAL_SNOS', program_hash, 'VIRTUAL_SNOS0', base_block.into(), 0xb10c, 0xc0f,
+        messages.len().into(),
+    ];
+    facts.append_span(messages);
+    facts
+}
+
 /// The golden claim:`[1, PILE10_HASH, 0, PLAYER, 0xabc, 1650, 1, 2, 431, 0x33]`.
 pub fn golden_claim() -> Outputs {
     Outputs {

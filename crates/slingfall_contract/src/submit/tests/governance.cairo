@@ -188,6 +188,7 @@ fn test_relayed_settle_by_a_third_party() {
         won: true,
         settled: true,
         program_hash: PROGRAM,
+        proven: false,
     };
     spy.assert_emitted(@array![(setup.address, Slingfall::Event::LevelValidated(event))]);
 }

@@ -15,10 +15,79 @@ use slingfall_level::outputs::{Outputs, OutputsTrait};
 use starknet::ContractAddress;
 use crate::simulate::MARKER;
 
-/// Position of the virtual-OS program hash in `tx_info.proof_facts`. Provisional layout until the
-/// SNIP-36 round trip (lot E2) pins it: `[program_hash, ...]`, the L2 to L1 message hashes among
-/// the facts that follow it.
-pub const PROGRAM_HASH_INDEX: usize = 0;
+/// The layout of `tx_info.proof_facts` (sequencer `main-v0.14.4`: `virtual_os_output.cairo`,
+/// `execution_constraints.cairo`; programme research SN1 §4): the `ProofHeader` `[proof_version,
+/// proof_variant, program_hash]`, the `VirtualOsOutputHeader` `[output_version, base_block_number,
+/// base_block_hash, starknet_os_config_hash, n_l2_to_l1_messages]`, then one hash per message.
+pub mod facts {
+    pub const PROOF_VERSION: usize = 0;
+    pub const PROOF_VARIANT: usize = 1;
+    pub const PROGRAM_HASH: usize = 2;
+    pub const OUTPUT_VERSION: usize = 3;
+    pub const BASE_BLOCK_NUMBER: usize = 4;
+    pub const BASE_BLOCK_HASH: usize = 5;
+    pub const N_MESSAGES: usize = 7;
+    /// The first message hash (the length of the two headers).
+    pub const MESSAGES: usize = 8;
+    /// The proof versions the OS accepts (0.14.4 accepts both while V2 rolls out).
+    pub const PROOF1: felt252 = 'PROOF1';
+    pub const PROOF2: felt252 = 'PROOF2';
+    pub const VIRTUAL_SNOS: felt252 = 'VIRTUAL_SNOS';
+    pub const VIRTUAL_SNOS0: felt252 = 'VIRTUAL_SNOS0';
+}
+
+/// Position of the virtual-OS program hash in `tx_info.proof_facts`.
+pub const PROGRAM_HASH_INDEX: usize = facts::PROGRAM_HASH;
+/// The OS of the real transaction requires `base_block_number <= block_number - 10`
+/// (`STORED_BLOCK_HASH_BUFFER`); the contract checks it again.
+pub const BLOCK_HASH_BUFFER: u64 = 10;
+
+/// What the contract reads of well-formed proof facts.
+#[derive(Copy, Drop, PartialEq, Debug)]
+pub struct ProofFacts {
+    pub program_hash: felt252,
+    pub base_block_number: u64,
+    pub base_block_hash: felt252,
+    /// `facts[8 .. 8 + n)`: the message hashes, and nothing after them.
+    pub messages: Span<felt252>,
+}
+
+/// The facts of a SNIP-36 proof, or `None` unless they are one: a known proof version, the
+/// `VIRTUAL_SNOS` variant and output version, `n_l2_to_l1_messages` messages present (the OS only
+/// checks a minimum length, so felts past them are ignored), a `u64` base block number.
+pub fn parse_facts(facts: Span<felt252>) -> Option<ProofFacts> {
+    if facts.len() < facts::MESSAGES {
+        return None;
+    }
+    let version = *facts[facts::PROOF_VERSION];
+    if (version != facts::PROOF1 && version != facts::PROOF2)
+        || *facts[facts::PROOF_VARIANT] != facts::VIRTUAL_SNOS
+        || *facts[facts::OUTPUT_VERSION] != facts::VIRTUAL_SNOS0 {
+        return None;
+    }
+    let n: u32 = (*facts[facts::N_MESSAGES]).try_into()?;
+    if n > facts.len() - facts::MESSAGES {
+        return None;
+    }
+    Some(
+        ProofFacts {
+            program_hash: *facts[facts::PROGRAM_HASH],
+            base_block_number: (*facts[facts::BASE_BLOCK_NUMBER]).try_into()?,
+            base_block_hash: *facts[facts::BASE_BLOCK_HASH],
+            messages: facts.slice(facts::MESSAGES, n),
+        },
+    )
+}
+
+/// `hash` is one of `messages`.
+pub fn has_message(messages: Span<felt252>, hash: felt252) -> bool {
+    for message in messages {
+        if *message == hash {
+            return true;
+        }
+    }
+    false
+}
 
 /// The verifier `submit` (the provisional tier) runs, switched by the admin; `submit_settled` is
 /// always available beside it.
@@ -161,9 +230,10 @@ pub trait Verifier<T> {
     fn check(ref self: T, claim: Outputs, evidence: Span<felt252>) -> bool;
 }
 
-/// SNIP-36: the transaction's `proof_facts` must name the expected virtual-OS program and hold the
-/// hash of the message `simulate` sent (`from` = this contract, `to` = `MARKER`, payload = the
-/// claimed outputs). `evidence` is not read: the facts come from the protocol.
+/// SNIP-36: the transaction's `proof_facts` must be well formed (`parse_facts`), name the expected
+/// virtual-OS program and hold, among their messages, the hash of the message `simulate` sent
+/// (`from` = this contract, `to` = `MARKER`, payload = the claimed outputs). `evidence` is not
+/// read: the facts come from the protocol.
 #[derive(Drop)]
 pub struct Snip36Verifier {
     /// Expected virtual-OS program hash; `0` (unset) rejects everything.
@@ -176,22 +246,13 @@ pub struct Snip36Verifier {
 
 impl Snip36VerifierImpl of Verifier<Snip36Verifier> {
     fn check(ref self: Snip36Verifier, claim: Outputs, evidence: Span<felt252>) -> bool {
-        let facts = self.facts;
-        if self.virtual_os_hash == 0 || facts.len() <= PROGRAM_HASH_INDEX {
+        let Some(facts) = parse_facts(self.facts) else {
+            return false;
+        };
+        if self.virtual_os_hash == 0 || facts.program_hash != self.virtual_os_hash {
             return false;
         }
-        if *facts[PROGRAM_HASH_INDEX] != self.virtual_os_hash {
-            return false;
-        }
-        let expected = message_hash(self.from, MARKER, claim.to_felts().span());
-        let mut messages = facts
-            .slice(PROGRAM_HASH_INDEX + 1, facts.len() - PROGRAM_HASH_INDEX - 1);
-        for fact in messages {
-            if *fact == expected {
-                return true;
-            }
-        }
-        false
+        has_message(facts.messages, message_hash(self.from, MARKER, claim.to_felts().span()))
     }
 }
 
@@ -272,9 +333,9 @@ pub fn attestation_message(
     poseidon_hash_span(felts.span())
 }
 
-/// Hash of an L2 to L1 message as `submit` looks for it among the proof facts:
-/// `poseidon_hash_span([from, to, payload.len(), ...payload])`. The one place of this rule
-/// (provisional until lot E2 checks it against the virtual OS).
+/// Hash of an L2 to L1 message as the virtual OS writes it among the proof facts:
+/// `poseidon_hash_span([from, to, payload.len(), ...payload])` (`MessageToL1Header` then the
+/// payload, `os_utils__virtual.cairo`; SN1 §4). The one place of this rule.
 pub fn message_hash(from: felt252, to: felt252, payload: Span<felt252>) -> felt252 {
     let mut felts: Array<felt252> = array![from, to, payload.len().into()];
     felts.append_span(payload);
@@ -294,15 +355,17 @@ mod tests {
     use crate::simulate::MARKER;
     use crate::submit::fixtures::{
         ATLANTIC_BOOTLOADER_HASH, ATTESTATION_KEY, ATTEST_CHAIN_ID, ATTEST_EPOCH, ATTEST_EXPIRY,
-        E3A_CHILD_PROGRAM_HASH, GOLDEN_ATTESTATION_HASH, GOLDEN_ATTEST_MESSAGE, GOLDEN_ATTEST_R,
-        GOLDEN_ATTEST_S, GOLDEN_MESSAGE_HASH, GOLDEN_R, GOLDEN_S, MESSAGE_FROM as FROM,
-        ONE_BLOCK_INTEGRITY_FACT, ONE_BLOCK_SHARP_FACT, PILE10_INTEGRITY_FACT, PILE10_OUTPUT_LEN,
-        PILE10_SHARP_FACT, SHARP_BOOTLOADER_HASH, golden_claim, one_block_miss_inputs,
-        one_block_miss_outputs, reference_inputs, reference_outputs,
+        BASE_BLOCK, E3A_CHILD_PROGRAM_HASH, GOLDEN_ATTESTATION_HASH, GOLDEN_ATTEST_MESSAGE,
+        GOLDEN_ATTEST_R, GOLDEN_ATTEST_S, GOLDEN_MESSAGE_HASH, GOLDEN_R, GOLDEN_S,
+        MESSAGE_FROM as FROM, ONE_BLOCK_INTEGRITY_FACT, ONE_BLOCK_SHARP_FACT, PILE10_INTEGRITY_FACT,
+        PILE10_OUTPUT_LEN, PILE10_SHARP_FACT, SHARP_BOOTLOADER_HASH, VIRTUAL_OS_HASH, golden_claim,
+        one_block_miss_inputs, one_block_miss_outputs, proof_facts, reference_inputs,
+        reference_outputs,
     };
     use super::{
         AttestationVerifier, Snip36Verifier, StubVerifier, Verifier, atlantic_output,
-        attestation_hash, attestation_message, integrity_fact, message_hash, run_args, sharp_fact,
+        attestation_hash, attestation_message, facts, integrity_fact, message_hash, parse_facts,
+        run_args, sharp_fact,
     };
 
     /// The verifier of the v2 golden vector at time `now`.
@@ -327,10 +390,68 @@ mod tests {
         atlantic_output(child, claim, run_args(level, inputs).span())
     }
 
-    const VIRTUAL_OS_HASH: felt252 = 0x53f6c9fc;
-
     fn snip36(facts: Span<felt252>) -> Snip36Verifier {
         Snip36Verifier { virtual_os_hash: VIRTUAL_OS_HASH, from: FROM, facts }
+    }
+
+    /// Well-formed facts of `VIRTUAL_OS_HASH` with these messages.
+    fn facts_of(messages: Array<felt252>) -> Array<felt252> {
+        proof_facts(VIRTUAL_OS_HASH, BASE_BLOCK, messages.span())
+    }
+
+    /// `facts` with felt `index` replaced by `value`.
+    fn with(facts: Array<felt252>, index: usize, value: felt252) -> Array<felt252> {
+        let mut result = array![];
+        let mut i = 0;
+        for fact in facts {
+            result.append(if i == index {
+                value
+            } else {
+                fact
+            });
+            i += 1;
+        }
+        result
+    }
+
+    /// `facts_of([GOLDEN_MESSAGE_HASH])` with felt `index` replaced by `value`.
+    fn golden_facts_with(index: usize, value: felt252) -> Array<felt252> {
+        with(facts_of(array![GOLDEN_MESSAGE_HASH]), index, value)
+    }
+
+    #[test]
+    fn test_parse_facts_reads_the_protocol_layout() {
+        let facts = facts_of(array![0x1, GOLDEN_MESSAGE_HASH]);
+        let parsed = parse_facts(facts.span()).unwrap();
+        assert_eq!(parsed.program_hash, VIRTUAL_OS_HASH);
+        assert_eq!(parsed.base_block_number, BASE_BLOCK);
+        assert_eq!(parsed.base_block_hash, 0xb10c);
+        assert_eq!(parsed.messages, array![0x1, GOLDEN_MESSAGE_HASH].span());
+        // PROOF1 is accepted too; felts past the `n` messages are not messages.
+        let proof1 = golden_facts_with(facts::PROOF_VERSION, 'PROOF1');
+        assert!(parse_facts(proof1.span()).is_some());
+        let mut trailing = facts_of(array![0x1]);
+        trailing.append(GOLDEN_MESSAGE_HASH);
+        assert_eq!(parse_facts(trailing.span()).unwrap().messages, array![0x1].span());
+        assert!(parse_facts(facts_of(array![]).span()).unwrap().messages.is_empty());
+    }
+
+    #[test]
+    fn test_parse_facts_rejects() {
+        // (index, value): version, variant, output version, more messages than felts, a count
+        // that is not a `u32`, a base block that is not a `u64`.
+        let cases: Array<(usize, felt252)> = array![
+            (facts::PROOF_VERSION, 'PROOF3'), (facts::PROOF_VARIANT, 'SNOS'),
+            (facts::OUTPUT_VERSION, 'VIRTUAL_SNOS1'), (facts::N_MESSAGES, 2),
+            (facts::N_MESSAGES, 0x100000000), (facts::BASE_BLOCK_NUMBER, 0x10000000000000000),
+        ];
+        for (index, value) in cases {
+            assert!(parse_facts(golden_facts_with(index, value).span()).is_none());
+        }
+        // Shorter than the headers.
+        let facts = facts_of(array![]);
+        assert!(parse_facts(facts.span().slice(0, facts::MESSAGES - 1)).is_none());
+        assert!(parse_facts(array![].span()).is_none());
     }
 
     #[test]
@@ -346,8 +467,8 @@ mod tests {
     #[test]
     fn test_snip36_accepts_the_message_among_the_facts() {
         let cases: Array<Array<felt252>> = array![
-            array![VIRTUAL_OS_HASH, GOLDEN_MESSAGE_HASH],
-            array![VIRTUAL_OS_HASH, 0x1, 0x2, GOLDEN_MESSAGE_HASH, 0x3],
+            facts_of(array![GOLDEN_MESSAGE_HASH]),
+            facts_of(array![0x1, 0x2, GOLDEN_MESSAGE_HASH, 0x3]),
         ];
         for facts in cases {
             let mut verifier = snip36(facts.span());
@@ -359,21 +480,30 @@ mod tests {
     fn test_snip36_rejects() {
         let mut other = golden_claim();
         other.score += 1;
-        // (facts, claim): no facts, wrong program, message missing, program hash only counted at
-        // its index, another claim.
+        let mut after_n = facts_of(array![0x1]);
+        after_n.append(GOLDEN_MESSAGE_HASH);
+        // (facts, claim): no facts, the v2 layout (program at 0), wrong program, message missing,
+        // the message past the `n` messages, the message only in a header field, another claim.
         let cases: Array<(Array<felt252>, Outputs)> = array![
             (array![], golden_claim()),
-            (array![VIRTUAL_OS_HASH + 1, GOLDEN_MESSAGE_HASH], golden_claim()),
-            (array![VIRTUAL_OS_HASH, 0x1], golden_claim()),
-            (array![GOLDEN_MESSAGE_HASH, VIRTUAL_OS_HASH], golden_claim()),
-            (array![VIRTUAL_OS_HASH, GOLDEN_MESSAGE_HASH], other),
+            (array![VIRTUAL_OS_HASH, GOLDEN_MESSAGE_HASH], golden_claim()),
+            (
+                proof_facts(VIRTUAL_OS_HASH + 1, BASE_BLOCK, array![GOLDEN_MESSAGE_HASH].span()),
+                golden_claim(),
+            ),
+            (facts_of(array![0x1]), golden_claim()), (after_n, golden_claim()),
+            (
+                with(facts_of(array![0x1]), facts::BASE_BLOCK_HASH, GOLDEN_MESSAGE_HASH),
+                golden_claim(),
+            ),
+            (facts_of(array![GOLDEN_MESSAGE_HASH]), other),
         ];
         for (facts, claim) in cases {
             let mut verifier = snip36(facts.span());
             assert!(!verifier.check(claim, array![].span()));
         }
         // An unset program hash rejects even matching facts.
-        let facts = array![0, GOLDEN_MESSAGE_HASH];
+        let facts = proof_facts(0, BASE_BLOCK, array![GOLDEN_MESSAGE_HASH].span());
         let mut unset = Snip36Verifier { virtual_os_hash: 0, from: FROM, facts: facts.span() };
         assert!(!unset.check(golden_claim(), array![].span()));
     }
@@ -643,8 +773,8 @@ mod tests {
     }
 
     #[test]
-    fn steps_verifier_snip36_check__4_facts() {
-        let facts = opaque(array![VIRTUAL_OS_HASH, 0x1, 0x2, GOLDEN_MESSAGE_HASH]);
+    fn steps_verifier_snip36_check__3_messages() {
+        let facts = opaque(facts_of(array![0x1, 0x2, GOLDEN_MESSAGE_HASH]));
         let mut verifier = snip36(facts.span());
         assert!(verifier.check(opaque(golden_claim()), array![].span()));
     }
