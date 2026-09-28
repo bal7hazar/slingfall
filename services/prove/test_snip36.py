@@ -8,6 +8,7 @@ pipeline (resumable) and `POST /prove`'s `tier`. Python 3 standard library.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,15 @@ class MessagesAndFacts(unittest.TestCase):
         self.assertEqual(bundle, ps.encoding.poseidon_many([pins[n] for n in snip36.BUNDLE_CLASSES]))
         swapped = dict(pins, BuildClass=pins["SettleClass"], SettleClass=pins["BuildClass"])
         self.assertNotEqual(snip36.bundle_hash(swapped), bundle)  # the order is part of the bundle
+
+    def test_one_list_of_classes(self):
+        # Lot H3: `classes.json` is the one list; the build, the harness, the pins and the client's
+        # copy are derived from it (`classes.py`). Fails when one is out of date.
+        script = snip36.ROOT / "crates" / "slingfall_split" / "scripts" / "classes.py"
+        run = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(len(snip36.BUNDLE_CLASSES), len(set(snip36.BUNDLE_CLASSES)))
+        self.assertNotIn("SolverClass", snip36.BUNDLE_CLASSES)
 
     def test_protocol_layout_accepted(self):
         result = recorded("prove-0.14.4-layout.json")["result"]

@@ -785,7 +785,7 @@ proves only what is missing. `/status/<id>` says `"tier": "proven"`, the job's `
 
 **Program check.** The service's release is a *bundle*: Poseidon of the ordered class hashes of
 `crates/slingfall_split/src/hashes.cairo` (`SplitChain`, its five constructor classes, then `RulesClass` and
-rapier's ten stage classes; `snip36.BUNDLE_CLASSES`, `client/src/chain/slingfall.ts` `SPLIT_BUNDLE_CLASSES`). A
+the eight rapier stage classes the game calls, one list in `crates/slingfall_split/classes.json`; `snip36.BUNDLE_CLASSES`, `client/src/chain/slingfall.ts` `SPLIT_BUNDLE_CLASSES`). A
 proven job is refused with 409 unless `chain_bundle(current_chain())` is that bundle and `chain_valid_until(chain) >
 now`; `/health`'s `proven.available` says so before any request, and the client then offers the settled path.
 

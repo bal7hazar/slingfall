@@ -98,6 +98,33 @@ and the crate's `Scarb.lock` are gone) and implemented the programme's decision 
   hashes) runs in the test matrix; the heavy probes stay `#[ignore]`. Two of them are recorded step probes
   (`steps/slingfall_split/`).
 
+## Status after H3 (2026-09-28)
+
+Lot H3 builds, gates, pins and declares only the classes the game's layout calls.
+
+- **Measured** (`tests/called.cairo`, `python3 crates/slingfall_split/scripts/classes.py --measure`): the reference shot's
+  whole chain, once per rapier class with that class left undeclared. Layout (e) (`WorldClass`) and the fallback (b)
+  (`FallbackGame`) both fail on the same eight classes (`Class with hash ... is not declared`): `NarrowPhaseClass`,
+  `ContactBallClass`, `ContactPolygonClass` (still called on alpha.7), `SolveAdvanceClass`, `IslandsClass`,
+  `BroadPhaseClass`, `MassClass`, `ActiveSetClass`. They complete without `SolverClass` and without `ForceEventsClass`
+  (`SlimSplitStages` solves in `SolveAdvanceClass` and collects the force events in process). That is the rapier
+  orchestrator's list, without `ForceEventsClass`. `OrchestratorClass` (73,554 CASM) was built by the `::*` glob only.
+- **One list**: `crates/slingfall_split/classes.json`. `scripts/classes.py` derives from it `Scarb.toml`'s
+  `build-external-contracts` (module paths, not `rapier2d_classes::*`), the test harness's declarations,
+  `hashes::pinned()` and the client's `SPLIT_BUNDLE_CLASSES`; `snip36.BUNDLE_CLASSES` reads it; `deploy-split` declares
+  the bundle in `SPLIT_BUNDLE_CLASSES` order; `classsize split` fails on a built class that is not in the list. The
+  service's unit test runs `classes.py --check`, the client's test compares the two orders.
+- **Classes** 20 -> 17 built by the crate, 17 -> 15 declared by `deploy-split` (`OrchestratorClass`, `SolverClass`,
+  `ForceEventsClass` gone). Every remaining class has the same size and the same class hash as after H2 (the two unused
+  `ClassHashes` methods return an undeclared class hash and the compiler drops them), so the margins are H2's: the
+  tightest are `FallbackGame` 976, `SettleClass` 1,173, `StepClass` 1,331 (gate 73,728) and `WorldClass` 1,080 (gate 78,000).
+  Rapier's `OrchestratorClass` (margin 174) is out of the table.
+- **Bundle hash**: `0x31e8cf85968b72f60645e8687591a8c7dacb476f60cbfe07fb9ef3341351fbd` (was `0x5bb15de9...c06f`).
+- **Build** of `slingfall_split` (`scarb clean` then `scarb build -p slingfall_split`): 44.2 s before,
+  45.9 s after, within noise: the crate's compile is dominated by the classes that stay.
+- **Layout (f)** (`ForceEventsClass`, probes) is no longer built: re-running its probes needs
+  `rapier2d_classes::forces::ForceEventsClass` added to `classes.json`'s `rapier` (and `classes.py`, `pin.py`).
+
 ## 1. How it was measured
 
 **Build.** `crates/slingfall_split` is its own workspace. The root workspace resolves one `rapier2d` version and is on

@@ -12,11 +12,16 @@ use snforge_std::{
 };
 use starknet::syscalls::call_contract_syscall;
 use starknet::{ContractAddress, SyscallResultTrait};
-use crate::harness::{declared, install, load, raw, state};
+use crate::harness::{declared, install_except, load, raw, state};
 
 /// Deploys the chain contract over the world class `layout`.
 pub fn deploy_chain(layout: ByteArray) -> ContractAddress {
-    install();
+    deploy_chain_except(layout, @"")
+}
+
+/// [`deploy_chain`] with the library-called class `skip` left undeclared.
+pub fn deploy_chain_except(layout: ByteArray, skip: @ByteArray) -> ContractAddress {
+    install_except(skip);
     let raw = raw(@layout);
     let calldata: Array<felt252> = array![
         declared("BuildClass").into(), declared("SettleClass").into(), declared("EditClass").into(),
@@ -56,7 +61,15 @@ pub fn chain_state(case: @ByteArray, tick: u32) -> Array<felt252> {
 /// `init` then `step_chunk` with the tick budgets of `schedule` (the last one repeated) until the
 /// shot is over, then `outputs`; checks every link, main's first state, main's outputs.
 pub fn play_chain(layout: ByteArray, case: ByteArray, schedule: Span<u32>) {
-    let address = deploy_chain(layout);
+    play_chain_except(layout, case, schedule, @"");
+}
+
+/// [`play_chain`] with the library-called class `skip` left undeclared: panics when the shot
+/// calls it.
+pub fn play_chain_except(
+    layout: ByteArray, case: ByteArray, schedule: Span<u32>, skip: @ByteArray,
+) {
+    let address = deploy_chain_except(layout, skip);
     let inputs = load(@case, "inputs");
     let mut spy = spy_messages_to_l1();
     // init

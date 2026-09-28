@@ -38,7 +38,16 @@ sierra = true
 [[target.starknet-contract]]
 sierra = true
 casm = true
-build-external-contracts = ["rapier2d_classes::*"]
+build-external-contracts = [
+    "rapier2d_classes::contact::ContactBallClass",
+    "rapier2d_classes::contact::ContactPolygonClass",
+    "rapier2d_classes::advance::SolveAdvanceClass",
+    "rapier2d_classes::islands::IslandsClass",
+    "rapier2d_classes::broad_phase::BroadPhaseClass",
+    "rapier2d_classes::mass::MassClass",
+    "rapier2d_classes::narrow::NarrowPhaseClass",
+    "rapier2d_classes::active_set::ActiveSetClass",
+]
 
 [tool]
 fmt.workspace = true

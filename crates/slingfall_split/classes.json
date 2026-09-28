@@ -1,0 +1,14 @@
+{
+  "_": "The one list of the rapier2d_classes classes the game's layouts (e) and (b) library-call, measured by tests/called.cairo (lot H3). `python3 crates/slingfall_split/scripts/classes.py` derives Scarb.toml's build-external-contracts, the test harness's declarations, hashes.cairo's pinned() and client SPLIT_BUNDLE_CLASSES from it; the bundle order is `chain` then `rapier`. Class -> its module in rapier2d_classes.",
+  "chain": ["SplitChain", "BuildClass", "SettleClass", "EditClass", "WorldClass", "OutputsClass", "RulesClass"],
+  "rapier": {
+    "ContactBallClass": "contact",
+    "ContactPolygonClass": "contact",
+    "SolveAdvanceClass": "advance",
+    "IslandsClass": "islands",
+    "BroadPhaseClass": "broad_phase",
+    "MassClass": "mass",
+    "NarrowPhaseClass": "narrow",
+    "ActiveSetClass": "active_set"
+  }
+}

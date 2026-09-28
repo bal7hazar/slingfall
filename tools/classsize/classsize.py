@@ -88,6 +88,8 @@ SIM_CLASS = "SlingfallSim"
 GATE = 73728
 WORLD_GATE = 78000
 WORLD_CLASSES = {"WorldClass"}
+# The crate's classes outside the bundle (the fallback (b): `FallbackGame` with `StepClass`).
+SPLIT_ONLY = {"FallbackGame", "StepClass"}
 SPLIT_PACKAGE = "slingfall_split"
 # The measured alternatives (feature `probes`): reported, never gated.
 PROBE_CLASSES = re.compile(r"^(SlimCaller|Layout[ACDF]|TypedRulesClass|Plus\w+|Minus\w+|Stage\w+)$")
@@ -226,6 +228,13 @@ def split(build, profile, probes, github):
            "| CASM class bytes |",
            "|---|--:|--:|--:|--:|--:|--:|--:|"]
     over = []
+    # Lot H3: the build carries exactly the classes of `classes.json` (the rapier classes the
+    # game calls, one list for the build, the pins, the deploy and the bundle) and the crate's own.
+    listed = json.loads((ROOT / "crates" / SPLIT_PACKAGE / "classes.json").read_text())
+    expected = set(listed["chain"]) | set(listed["rapier"]) | SPLIT_ONLY
+    unlisted = sorted(n for n in rows if n not in expected and not PROBE_CLASSES.match(n))
+    if unlisted:
+        over.append(f"not in classes.json: {', '.join(unlisted)}")
     for name in sorted(rows):
         r = rows[name]
         gate = gate_of(name)
