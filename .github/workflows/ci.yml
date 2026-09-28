@@ -39,6 +39,8 @@ jobs:
       - run: scarb build --workspace
       - name: Registry class within the Starknet class limits
         run: python3 tools/classsize/classsize.py check --no-build
+      - name: Split game classes within the class-size gates (margins in the job summary)
+        run: python3 tools/classsize/classsize.py split --no-build --github
       - run: scarb --manifest-path "$REPLAY" build
       - name: Execute the replay (one_block, one shot)
         run: |
@@ -52,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_game, slingfall_contract, slingfall_replay]
+        crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_game, slingfall_contract, slingfall_split, slingfall_replay]
     steps:
       - uses: actions/checkout@v7
       - uses: software-mansion/setup-scarb@v1
