@@ -81,8 +81,13 @@ SIM_CLASS = "SlingfallSim"
 # Sierra and in CASM, 8,192 under Starknet's 81,920), and the spike's package.
 GATE = 73728
 SPLIT = ROOT / "crates" / "slingfall_split"
-# The classes a shippable layout declares (checked by `split`); the others are measured only.
-SPLIT_SHIPPABLE = []
+# The classes of the layout that fits today (S36a, docs/research/07-split-game-step.md: layout
+# (b), its chain and rapier's stage classes), checked by `split`; the others are measured only.
+SPLIT_SHIPPABLE = [
+    "LayoutB", "StepClass", "SplitChain", "BuildClass", "SettleClass", "EditClass", "OutputsClass",
+    "NarrowPhaseClass", "ContactBallClass", "ContactPolygonClass", "SolveAdvanceClass",
+    "IslandsClass", "BroadPhaseClass", "MassClass", "ActiveSetClass",
+]
 
 HOOKS = {
     "replay": "slingfall_contract::simulate::replay_hook::ReplaySimulateHook",

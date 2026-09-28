@@ -30,20 +30,19 @@ EVENTS = """        calldata.append(events.len().into());
 
 EDIT_BLOCK = """        if !edit.is_empty() {
             let mut calldata = array![];
-            into_basic_state(world).serialize(ref calldata);
+            save(world, ref calldata);
             calldata.append_span(edit.span());
             let mut ret = library_call_syscall(G::edit(), selector!("edit"), calldata.span())
                 .unwrap_syscall();
-            let (state, added): (BasicWorldState, Array<Handle>) = Serde::deserialize(ref ret)
-                .expect(errors::DECODE);
-            world = from_basic_state(state);
-            inserted = added;
+            world = load(ref ret);
+            inserted = Serde::deserialize(ref ret).expect(errors::DECODE);
         }
 """
-RULES_CALL = """        let mut ret = library_call_syscall(G::lean_rules(), selector, calldata.span()).unwrap_syscall();
-        let (next, edit, next_watch, status): (
-            Array<felt252>, Array<felt252>, Array<Handle>, felt252,
-        ) =
+RULES_CALL = """        let mut ret = library_call_syscall(G::lean_rules(), selector, calldata.span())
+            .unwrap_syscall();
+        let (
+            next, edit, next_watch, status,
+        ): (Array<felt252>, Array<felt252>, Array<Handle>, felt252) =
             Serde::deserialize(
             ref ret,
         )
@@ -59,8 +58,6 @@ RULES_STUB = """        let (next, edit, next_watch, status): (
 LEVERS = {
     "e": (["LayoutE"], []),
     "e-no-views": (["LayoutE"], [(LEAN, VIEWS, "        calldata.append(0);\n")]),
-    "e-no-edit": (["LayoutE"], [(LEAN, EDIT, "        if edit.len() == 0xffffffff {\n"
-                                            "            let mut calldata")]),
     "e-no-events": (["LayoutE"], [(LEAN, EVENTS, "        calldata.append(0);\n")]),
     "e-no-edit-block": (["LayoutE"], [(LEAN, EDIT_BLOCK, "")]),
     "e-no-rules-call": (["LayoutE"], [(LEAN, RULES_CALL, RULES_STUB)]),
