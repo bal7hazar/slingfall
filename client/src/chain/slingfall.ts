@@ -1,8 +1,9 @@
-// The `Slingfall` contract (v2, docs/contract-v2.md) as the client and `deploy/slingfall.ts` use it:
-// calldata of `submit` / `submit_settled` / `expire` and of the admin entry points, reads of the two
-// tiers (`best` / `best_settled`, `leaderboard` / `leaderboard_provisional`) and of the program set,
-// the `LevelValidated` event and the gas of a receipt. Felts by hand (the ABI is small and its
-// layout is API): no ABI file to keep in sync.
+// The `Slingfall` contract (v3, docs/contract-v3.md; v2 reads the same) as the client and
+// `deploy/slingfall.ts` use it: calldata of `submit` / `submit_settled` / `expire`, of the proven
+// tier (`submit_chunk`, `finalize`) and of the admin entry points, reads of the tiers (`best` /
+// `best_settled`, `leaderboard` / `leaderboard_provisional`, `attempt`), of the program, chain and
+// virtual-OS sets, the `LevelValidated` event and the gas of a receipt. Felts by hand (the ABI is
+// small and its layout is API): no ABI file to keep in sync.
 // No DOM; Node runs this file as is (type stripping), so imports carry their `.ts` extension.
 import { hash, num, type Call } from 'starknet';
 
@@ -12,8 +13,13 @@ export const N_OUTPUTS = 10;
 export const OUTPUT_PLAYER = 3;
 /** `VerifierKind` variants (their `Serde` index). */
 export const VERIFIER = { snip36: 0, stub: 1, satellite: 2 } as const;
-/** `nullifier::*`: the tier of an attempt (`attempt`). */
-export const ATTEMPT = { none: 0, attested: 1, settled: 2 } as const;
+/** `nullifier::*`: the tier of an attempt (`attempt`): `settled` by the Satellite's fact (SHARP),
+ * `proven` by SNIP-36 (contract v3's `finalize`). */
+export const ATTEMPT = { none: 0, attested: 1, settled: 2, proven: 3 } as const;
+/** `submit::chunks::kind`: the chain transaction a `submit_chunk` payload comes from. */
+export const CHUNK_KIND = { init: 0, step: 1, outputs: 2 } as const;
+/** `simulate::MARKER` ('SLINGFALL'): `to_address` of the chain's messages, `set_chunk_marker`'s value. */
+export const CHUNK_MARKER = '0x534c494e4746414c4c';
 /** `programs[hash]` of the current program (`u64::MAX`). */
 export const FOREVER = 2n ** 64n - 1n;
 
@@ -36,9 +42,10 @@ export interface BestRecord {
   block: number;
   /** Block timestamp of the submission (`expire` counts from it). */
   timestamp: number;
-  /** Validated by the Satellite fact (else provisional: an attestation). */
+  /** Validated by a proof, the Satellite's fact or SNIP-36 (else provisional: an attestation). */
   settled: boolean;
-  /** The engine release the attempt was validated with (`c1main`'s program hash). */
+  /** The release the attempt was validated with: `c1main`'s program hash, or the bundle hash of the
+   * SNIP-36 chain that proved it. */
   programHash: string;
 }
 
@@ -56,6 +63,8 @@ export interface LevelValidated {
   won: boolean;
   settled: boolean;
   programHash: string;
+  /** Proven by SNIP-36 (`finalize`, contract v3; `settled` too). `false` on v2's events. */
+  proven: boolean;
 }
 
 /** `SatelliteConfig` (v2: three fields). */
@@ -124,7 +133,73 @@ export const adminCalls = {
   acceptAdmin: (contract: string): Call => ({ contractAddress: contract, entrypoint: 'accept_admin', calldata: [] }),
   upgrade: (contract: string, classHash: string): Call => ({ contractAddress: contract, entrypoint: 'upgrade', calldata: [feltHex(classHash)] }),
   setExpireDelay: (contract: string, seconds: number): Call => ({ contractAddress: contract, entrypoint: 'set_expire_delay', calldata: [hex(seconds)] }),
+  // v3 (`ISlingfallProven`): the SNIP-36 tier's marker, chain set and virtual-OS set.
+  setChunkMarker: (contract: string, marker: string): Call => ({ contractAddress: contract, entrypoint: 'set_chunk_marker', calldata: [feltHex(marker)] }),
+  pinChain: (contract: string, chain: string, bundle: string, graceS: number | bigint): Call => ({
+    contractAddress: contract,
+    entrypoint: 'pin_chain',
+    calldata: [feltHex(chain), feltHex(bundle), hex(BigInt(graceS))],
+  }),
+  revokeChain: (contract: string, chain: string): Call => ({ contractAddress: contract, entrypoint: 'revoke_chain', calldata: [feltHex(chain)] }),
+  pinVirtualOs: (contract: string, programHash: string, graceS: number | bigint): Call => ({
+    contractAddress: contract,
+    entrypoint: 'pin_virtual_os',
+    calldata: [feltHex(programHash), hex(BigInt(graceS))],
+  }),
+  revokeVirtualOs: (contract: string, programHash: string): Call => ({ contractAddress: contract, entrypoint: 'revoke_virtual_os', calldata: [feltHex(programHash)] }),
 };
+
+/** `submit_chunk(chain, kind, payload)`: one link of a SNIP-36 chain, checked by the contract against
+ * the transaction's `proof_facts` (`payload` is the chain's message payload, docs/contract-v3.md). */
+export function submitChunkCall(contract: string, chain: string, kind: number, payload: readonly string[]): Call {
+  return { contractAddress: contract, entrypoint: 'submit_chunk', calldata: [feltHex(chain), hex(kind), hex(payload.length), ...payload.map(feltHex)] };
+}
+
+/** `finalize(chain, level_hash, inputs, outputs)`: walks the stored links and records the attempt for
+ * `inputs.player`, whoever sends it. */
+export function finalizeCall(contract: string, chain: string, levelHash: string, inputs: readonly string[], outputs: readonly string[]): Call {
+  if (outputs.length !== N_OUTPUTS) throw new Error(`outputs: ${outputs.length} felts, expected ${N_OUTPUTS}`);
+  return {
+    contractAddress: contract,
+    entrypoint: 'finalize',
+    calldata: [feltHex(chain), feltHex(levelHash), hex(inputs.length), ...inputs.map(feltHex), hex(outputs.length), ...outputs.map(feltHex)],
+  };
+}
+
+/**
+ * The classes of a layout (e) chain in bundle order (docs/contract-v3.md "Wiring"): the deployed
+ * `SplitChain`'s class, its five constructor classes in constructor order, then the classes the
+ * world class compiles in as constants (`slingfall_split::hashes`: `RulesClass`, then rapier's
+ * stage classes in `GameClasses` order).
+ */
+export const SPLIT_BUNDLE_CLASSES = [
+  'SplitChain',
+  'BuildClass',
+  'SettleClass',
+  'EditClass',
+  'WorldClass',
+  'OutputsClass',
+  'RulesClass',
+  'ContactBallClass',
+  'ContactPolygonClass',
+  'SolverClass',
+  'SolveAdvanceClass',
+  'IslandsClass',
+  'BroadPhaseClass',
+  'MassClass',
+  'NarrowPhaseClass',
+  'ActiveSetClass',
+  'ForceEventsClass',
+] as const;
+
+/** The bundle hash of a chain (`pin_chain`'s, the `program_hash` of the records it proves): Poseidon
+ * of its class hashes in `SPLIT_BUNDLE_CLASSES` order. */
+export function bundleHash(classHashes: readonly string[]): string {
+  if (classHashes.length !== SPLIT_BUNDLE_CLASSES.length) {
+    throw new Error(`bundle: ${classHashes.length} class hashes, expected ${SPLIT_BUNDLE_CLASSES.length}`);
+  }
+  return hex(hash.computePoseidonHashOnElements(classHashes.map((h) => BigInt(feltHex(h)))));
+}
 
 /** A shot as the replay takes it (D3). */
 export interface ShotFelts {
@@ -180,7 +255,7 @@ interface RawEvent {
 }
 
 /** The `LevelValidated` events of `contract` in a receipt (keys: selector, player, level_hash; data:
- * inputs_hash, score, won, settled, program_hash). */
+ * inputs_hash, score, won, settled, program_hash, then v3's proven). */
 export function levelValidatedEvents(receipt: { events?: readonly RawEvent[] }, contract: string): LevelValidated[] {
   const from = BigInt(contract);
   return (receipt.events ?? [])
@@ -193,6 +268,7 @@ export function levelValidatedEvents(receipt: { events?: readonly RawEvent[] }, 
       won: BigInt(e.data[2]) === 1n,
       settled: BigInt(e.data[3] ?? 0) === 1n,
       programHash: hex(e.data[4] ?? 0),
+      proven: BigInt(e.data[5] ?? 0) === 1n,
     }));
 }
 
@@ -225,6 +301,8 @@ const PANIC_SENTENCES: readonly [string, string][] = [
   ['submit: nullifier', 'this exact attempt was already submitted at this tier (perhaps by the relay)'],
   ['submit: player', 'the outputs are not for the connected account'],
   ['submit: level', 'this level is not registered on this deployment'],
+  ['finalize: chain', 'the contract no longer accepts the SNIP-36 chain (release bundle) this attempt was proven with'],
+  ['chunk: chain', 'the contract no longer accepts the SNIP-36 chain (release bundle) this attempt was proven with'],
   ['submit: inactive', 'this level was deactivated on this deployment'],
   ['expire: early', 'this provisional record is not old enough to expire yet'],
   ['expire: none', 'there is no unsettled provisional record to expire'],
@@ -330,6 +408,46 @@ export class SlingfallContract {
     return { atlantic_bootloader_hash: hex(a), sharp_bootloader_hash: hex(s), satellite_address: hex(satellite) };
   }
 
+  async attestationKey(): Promise<string> {
+    return hex(await this.one('attestation_key'));
+  }
+
+  /** `level(level_hash)`: `LevelMeta { author, version, active, registered_at }`. */
+  async level(levelHash: string): Promise<{ author: string; version: number; active: boolean; registeredAt: number }> {
+    const [author, version, active, registeredAt] = await this.call('level', [feltHex(levelHash)]);
+    return { author: hex(author), version: Number(BigInt(version)), active: BigInt(active) === 1n, registeredAt: Number(BigInt(registeredAt)) };
+  }
+
+  // v3: the proven tier (a v2 deployment has none of these entry points).
+
+  /** `set_chunk_marker`'s value (`0x0`: the proven tier is closed). */
+  async chunkMarker(): Promise<string> {
+    return hex(await this.one('chunk_marker'));
+  }
+
+  /** The last pinned chain (`0x0` when none or revoked). */
+  async currentChain(): Promise<string> {
+    return hex(await this.one('current_chain'));
+  }
+
+  /** Until when `chain` is accepted (exclusive block timestamp; `FOREVER`, `0` never / revoked). */
+  async chainValidUntil(chain: string): Promise<bigint> {
+    return this.one('chain_valid_until', [feltHex(chain)]);
+  }
+
+  /** The bundle hash `pin_chain` declared for `chain`: the `program_hash` of the records it proves. */
+  async chainBundle(chain: string): Promise<string> {
+    return hex(await this.one('chain_bundle', [feltHex(chain)]));
+  }
+
+  async currentVirtualOs(): Promise<string> {
+    return hex(await this.one('current_virtual_os'));
+  }
+
+  async virtualOsValidUntil(programHash: string): Promise<bigint> {
+    return this.one('virtual_os_valid_until', [feltHex(programHash)]);
+  }
+
   /** Sends the attested `submit(outputs, evidence)` from `account` (the outputs' `player` must be it). */
   async submit(account: ChainWriter, outputs: readonly string[], evidence: readonly string[]): Promise<string> {
     if (BigInt(outputs[OUTPUT_PLAYER]) !== BigInt(account.address)) {
@@ -353,11 +471,29 @@ export class SlingfallContract {
   }
 }
 
-/** A row of a tier's board with the record behind it: the engine release (`programHash`) and, on the
- * live board, whether the row is settled. */
+/** Which proof validated a record (`attempt` of its inputs hash): the Satellite's fact of a SHARP
+ * proof, or a SNIP-36 chain; `null` for a provisional (attested) record. */
+export type ProofKind = 'sharp' | 'snip36' | null;
+
+/** A row of a tier's board with the record behind it: its release (`programHash`: `c1main`'s program
+ * hash, or the chain's bundle hash when proven by SNIP-36), whether it is settled and by which proof. */
 export interface TierRow extends LeaderboardRow {
   programHash: string;
   settled: boolean;
+  proof: ProofKind;
+}
+
+/** The proof of a record from its attempt's tier (`ATTEMPT`). */
+export function proofKind(settled: boolean, attempt: number): ProofKind {
+  if (!settled) return null;
+  return attempt === ATTEMPT.proven ? 'snip36' : 'sharp';
+}
+
+/** How a board row says which proof and which release validated it. */
+export function describeProof(row: Pick<TierRow, 'proof' | 'programHash'>): string {
+  if (row.proof === 'snip36') return `proven by SNIP-36 · bundle ${shortFelt(row.programHash)}`;
+  if (row.proof === 'sharp') return `settled by SHARP · program ${shortFelt(row.programHash)}`;
+  return `provisional · program ${shortFelt(row.programHash)}`;
 }
 
 export interface Boards {
@@ -369,8 +505,9 @@ export interface Boards {
   currentProgram: string;
 }
 
-/** Both boards of a level, each row with the program of its record (`best_settled` for the settled
- * board, `best` for the live one). */
+/** Both boards of a level, each row with the release of its record (`best_settled` for the settled
+ * board, `best` for the live one) and, when settled, which proof (`attempt` of the record's inputs
+ * hash; a v2 deployment answers `settled` at most). */
 export async function readBoards(contract: SlingfallContract, levelHash: string): Promise<Boards> {
   const [settledRows, provisionalRows, currentProgram] = await Promise.all([
     contract.leaderboard(levelHash),
@@ -381,7 +518,8 @@ export async function readBoards(contract: SlingfallContract, levelHash: string)
     Promise.all(
       rows.map(async (row) => {
         const record = await read(row.player);
-        return { ...row, programHash: record.programHash, settled: record.settled };
+        const attempt = record.settled ? await contract.attempt(levelHash, row.player, record.inputsHash) : ATTEMPT.attested;
+        return { ...row, programHash: record.programHash, settled: record.settled, proof: proofKind(record.settled, attempt) };
       }),
     );
   const [settled, provisional] = await Promise.all([

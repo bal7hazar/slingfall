@@ -1,17 +1,21 @@
-// The Submit section of the end-of-level panel (contract v2, docs/contract-v2.md): wallet choice and
-// connection, then the two tiers. "Submit" asks the attestation service (it re-executes the replay)
-// and sends the attested `submit`: a *provisional* record in seconds. With a prover service
-// (`VITE_PROVE_URL`) the panel then requests the Atlantic proof in the background; when its fact
-// lands, the service's relay settles the attempt for the player (`submit_settled` is recorded for
-// `claim.player`, whoever sends it), or the player does with "Settle". The page need not stay open
-// while the proof runs. Both boards are shown: settled (`leaderboard`) and live
-// (`leaderboard_provisional`), each row with the engine release (`program_hash`) of its record. On a
+// The Submit section of the end-of-level panel (contract v3, docs/contract-v3.md; v2 alike): wallet
+// choice and connection, then the tiers. "Submit" asks the attestation service (it re-executes the
+// replay) and sends the attested `submit`: a *provisional* record in seconds. With a prover service
+// (`VITE_PROVE_URL`) the panel then requests a proof in the background: the *proven* path (SNIP-36)
+// when the service's `/health` says it is available (its bundle is the contract's current chain):
+// the service proves the chain, sends the proofs and `finalize` for the player, nothing to sign;
+// else the *settled* path (Atlantic): when its fact lands, the service's relay settles the attempt
+// for the player (`submit_settled` is recorded for `claim.player`, whoever sends it), or the player
+// does with "Settle". The page need not stay open while the proof runs. Both boards are shown:
+// settled (`leaderboard`: SHARP or SNIP-36) and live (`leaderboard_provisional`), each row with the
+// proof and the release of its record (a program hash, or a SNIP-36 bundle hash). On a
 // Satellite-only deployment (`verifier = Satellite`, the attested tier closed) "Submit" becomes
 // "Prove (settled)".
 import type { RpcProvider } from 'starknet';
 import { requestAttestation } from './attest.ts';
 import { explorerLink, type ChainConfig } from './config.ts';
 import {
+  ChainMismatchError,
   ProgramMismatchError,
   describeJob,
   fetchHealth,
@@ -21,10 +25,12 @@ import {
   waitRelayed,
   waitSettleable,
   type ProofJob,
+  type Tier,
 } from './prove.ts';
 import {
   SlingfallContract,
   VERIFIER,
+  describeProof,
   explainWalletError,
   levelValidatedEvents,
   playerValidations,
@@ -103,6 +109,8 @@ export class SubmitPanel {
   private proveBlocked = false;
   /** The prover service's relay account (it settles for the player), once its `/health` is read. */
   private relay: string | null = null;
+  /** The prover service offers the proven path (SNIP-36) for this contract, once its `/health` is read. */
+  private provenPath = false;
   /** m11: called with the connected account, so the page redraws its outputs table for it. */
   onAccount: ((player: string) => void) | null = null;
 
@@ -161,6 +169,7 @@ export class SubmitPanel {
     try {
       const health = await fetchHealth(url, this.deps.fetchFn);
       this.relay = health.relay;
+      this.provenPath = health.proven?.available === true;
       if (health.programMatch === false) {
         this.proveBlocked = true;
         this.tier.textContent =
@@ -284,17 +293,16 @@ export class SubmitPanel {
       const ol = make('ol', { className: live ? 'submit-board provisional' : 'submit-board settled' });
       if (list.length === 0) ol.append(make('li', { className: 'empty', textContent: 'no record yet' }));
       for (const row of list) {
-        const release = BigInt(row.programHash) === BigInt(boards.currentProgram) ? '' : ' (older release)';
-        const li = make('li', {
-          textContent: `${short(row.player)} ${row.score}${live && !row.settled ? ' · provisional' : ''} · engine ${short(row.programHash)}${release}`,
-        });
+        // A SNIP-36 row's release is its chain's bundle hash, never `current_program()`.
+        const older = row.proof !== 'snip36' && BigInt(row.programHash) !== BigInt(boards.currentProgram) ? ' (older release)' : '';
+        const li = make('li', { textContent: `${short(row.player)} ${row.score} · ${describeProof(row)}${older}` });
         if (player !== undefined && BigInt(row.player) === BigInt(player)) li.className = 'mine';
         ol.append(li);
       }
       return ol;
     };
     this.boards.replaceChildren(
-      make('h4', { textContent: 'Settled (proven)' }),
+      make('h4', { textContent: 'Settled (proven: SHARP or SNIP-36)' }),
       rows(boards.settled, false),
       make('h4', { textContent: 'Live (provisional and settled)' }),
       rows(boards.provisional, true),
@@ -387,15 +395,32 @@ export class SubmitPanel {
     this.refresh();
   }
 
-  /** What the player may do while the proof runs: nothing with a relay, come back without one. */
-  private waitNote(): string {
+  /** What the player may do while the proof runs: nothing with a relay (or on the proven path, where
+   * the service records the attempt itself), come back without one. */
+  private waitNote(tier: Tier = 'settled'): string {
+    if (tier === 'proven') return 'you may close this page: the prover service proves the chain and records it for you (SNIP-36)';
     return this.relay
       ? 'you may close this page: the prover service settles it for you when the proof lands (about 1.5 h)'
       : 'the proof takes about 1.5 h; come back to this level to settle it';
   }
 
-  /** Requests the attempt's proof and follows it until it is settled: by the relay (nothing to do),
-   * or by the player ("Settle", offered as soon as the fact is on the Satellite). */
+  /** `POST /prove` at the proven tier when the service offers it, else (or when the contract's chain
+   * turns out not to be the service's) at the settled one. */
+  private async request(url: string, levelHash: string, inputs: string[]): Promise<ProofJob> {
+    if (this.provenPath) {
+      try {
+        return await requestProof(url, levelHash, inputs, this.deps.fetchFn, 'proven');
+      } catch (e) {
+        if (!(e instanceof ChainMismatchError)) throw e;
+        this.provenPath = false;
+      }
+    }
+    return requestProof(url, levelHash, inputs, this.deps.fetchFn);
+  }
+
+  /** Requests the attempt's proof and follows it until it is proven (SNIP-36: the service records it)
+   * or settled: by the relay (nothing to do), or by the player ("Settle", offered as soon as the fact
+   * is on the Satellite). */
   private async settleInBackground(levelHash: string, outputs: string[], inputs: string[]): Promise<void> {
     const url = this.config.proveUrl;
     if (!url) return;
@@ -407,11 +432,12 @@ export class SubmitPanel {
     };
     const opts = { fetchFn: this.deps.fetchFn, sleep: this.deps.sleep, stop: stale };
     try {
-      const job = await requestProof(url, levelHash, inputs, this.deps.fetchFn);
-      show(`${describeJob(job)}; ${this.waitNote()}`);
-      const ready = await waitSettleable(url, job.id, (j) => show(`${describeJob(j)}; ${this.waitNote()}`), opts);
+      const job = await this.request(url, levelHash, inputs);
+      const note = this.waitNote(job.tier);
+      show(`${describeJob(job)}; ${note}`);
+      const ready = await waitSettleable(url, job.id, (j) => show(`${describeJob(j)}; ${note}`), opts);
       if (ready === null || stale()) return;
-      if (ready.relayed || ready.relayState === 'settled') return this.markSettled(levelHash, ready);
+      if (ready.proven || ready.relayed || ready.relayState === 'settled') return this.markSettled(levelHash, ready);
       this.pending = { outputs, inputs, programHash: ready.programHash };
       this.settle.textContent = settleLabel(ready);
       this.settle.hidden = false;
@@ -438,17 +464,27 @@ export class SubmitPanel {
     }
   }
 
-  /** The attempt is settled (by the relay, someone else, or the player): the settled record and boards. */
+  /** The attempt is settled or proven (by the relay, the prover service, someone else, or the
+   * player): the settled record and boards. */
   private async markSettled(levelHash: string, job: ProofJob | null, transactionHash?: string): Promise<void> {
     this.pending = null;
     this.settle.hidden = true;
     const player = this.account?.address;
-    const by = job?.relayed ? `by the relay in ${job.relayTransactionHash}` : transactionHash ? `in ${transactionHash}` : 'on Starknet';
-    this.tier.textContent = `Settled ${by}`;
+    const proven = job?.proven === true;
+    const by = proven
+      ? `by SNIP-36${job?.finalizeTransactionHash ? ` (the prover service finalized it in ${job.finalizeTransactionHash})` : ''}`
+      : job?.relayed
+        ? `by the relay in ${job.relayTransactionHash}`
+        : transactionHash
+          ? `in ${transactionHash}`
+          : 'on Starknet';
+    const verb = proven ? 'Proven' : 'Settled';
+    this.tier.textContent = `${verb} ${by}`;
     if (player) {
       try {
         const best = await this.contract.bestSettled(player, levelHash);
-        this.tier.textContent = `Settled ${by}: your settled best ${best.score} (${best.won ? 'won' : 'lost'}, engine ${short(best.programHash)})`;
+        const release = proven ? `bundle ${short(best.programHash)}` : `engine ${short(best.programHash)}`;
+        this.tier.textContent = `${verb} ${by}: your settled best ${best.score} (${best.won ? 'won' : 'lost'}, ${release})`;
       } catch {
         // the line above already says settled
       }

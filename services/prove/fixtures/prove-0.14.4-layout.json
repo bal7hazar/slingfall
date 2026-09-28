@@ -1,0 +1,39 @@
+{
+  "comment": "Synthesized 2026-09-28 (lot W3), not recorded: no PROOF2 prover answers today. The answer a 0.14.4 prover gives for the transaction of devnet-prove-0.10.0.json, in the protocol layout of SN1 \u00a74 (index 7 = the message count, then one Poseidon hash per message): header and message are the devnet's, the proof its placeholder.",
+  "request": {
+    "method": "starknet_proveTransaction",
+    "block_id": {
+      "block_number": 20
+    },
+    "call": "init(pile10)"
+  },
+  "answer": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "proof": "Beibe+ppU2NTT0O1BFTghbMQbXr1kj7rtPobDBY5+2A=",
+      "proof_facts": [
+        "0x50524f4f4632",
+        "0x5649525455414c5f534e4f53",
+        "0x53f6c9fcfd31d27279ff7d7e422b44623550a732b59fe193354a7316a96daa1",
+        "0x5649525455414c5f534e4f5330",
+        "0x14",
+        "0x715e9078e6b38d1170684accfdc9a2544a858cb6e640c96c2443640e053281a",
+        "0x57ed4d5e20d617d8cc087a5882eae4f71d005172326be6439b2e1fd8b4dc57",
+        "0x1",
+        "0x4a468f768c1d806cf01571f757176d54cacd3feac7f6fb353efa7e883064e17"
+      ],
+      "l2_to_l1_messages": [
+        {
+          "order": 0,
+          "from_address": "0x391d9bb02639a4ae45cf669f390fc03e38260e0338fb74cadad99bfd6c39c88",
+          "to_address": "0x0000000000000000000000534c494e4746414c4c",
+          "payload": [
+            "0x17876831f245e0ec3d63220f2cb73c429ec93e7c888c2aa916d237cd9c114a3",
+            "0x592b2ed5db326f3999bc6bee5b34e6fadcde5633b11c68d42ce19bb5898ec27"
+          ]
+        }
+      ]
+    }
+  }
+}

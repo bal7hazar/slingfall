@@ -3,5 +3,6 @@
 contract/target/
 out/
 devnet.json
+devnet-split.json
 devnet.env
 .devnet/

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// DOM tests of the chain panel (lot W1): the two tiers, the background proof, the relay, the
-// player's own settle, and the refusals, over a fake contract, a fake wallet and fake services.
+// DOM tests of the chain panel (lots W1, W3): the tiers, the background proof (settled or proven),
+// the relay, the player's own settle, and the refusals, over a fake contract, a fake wallet and
+// fake services.
 import { describe, expect, it, vi } from 'vitest';
 import type { Call } from 'starknet';
 import { attestationMessage } from './attest';
@@ -27,6 +28,9 @@ const CONFIG: ChainConfig = {
   deployBlock: 0,
 };
 const JOB = { id: 'bcbdf222b4585dc0821f5b88135a3026', state: 'submitted', level_hash: LEVEL, inputs: INPUTS(PLAYER), program_hash: PROGRAM };
+/** The SNIP-36 chain's bundle hash: the release of a proven record. */
+const BUNDLE = '0xbd';
+const PROVEN_JOB = { id: 'f55f0fdd2eeb24d7d4ab25e6aeaaf0f2', tier: 'proven', state: 'queued', level_hash: LEVEL, inputs: INPUTS(PLAYER), proofs: [] };
 
 /** Lets every pending promise and timer-free continuation run. */
 const flush = async () => {
@@ -51,9 +55,12 @@ function setup({
   programMatch = true,
   verifier = 1,
   refuseSettle = null as string | null,
+  proven = false,
+  chainMismatch = false,
 } = {}): Harness {
-  const chain = { provisional: false, settled: false };
-  const best = (settled: boolean, score: number) => [feltHex(score), score ? '0x1' : '0x0', '0xabc', '0x3', '0x64', settled ? '0x1' : '0x0', score ? PROGRAM : '0x0'];
+  const chain = { provisional: false, settled: false, proven: false };
+  const release = () => (chain.proven ? BUNDLE : PROGRAM);
+  const best = (settled: boolean, score: number) => [feltHex(score), score ? '0x1' : '0x0', '0xabc', '0x3', '0x64', settled ? '0x1' : '0x0', score ? release() : '0x0'];
   const reader = {
     callContract: async (call: Call): Promise<string[]> => {
       switch (call.entrypoint) {
@@ -71,6 +78,8 @@ function setup({
           return [PROGRAM];
         case 'level_data':
           return [feltHex(LEVEL_FELTS.length), ...LEVEL_FELTS];
+        case 'attempt':
+          return [chain.proven ? '0x3' : chain.settled ? '0x2' : '0x1'];
         default:
           throw new Error(`unexpected read ${call.entrypoint}`);
       }
@@ -99,7 +108,10 @@ function setup({
     const url = String(input);
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     requests.push({ url, body });
-    if (url.endsWith('/health')) return json({ result: 'x', submit: true, queued: 0, program_hash: PROGRAM, contract_program_hash: PROGRAM, program_match: programMatch, relay });
+    if (url.endsWith('/health')) {
+      const path = proven ? { available: true, prover: 'fake', chain: '0xc4a1', own_bundle_hash: BUNDLE, chain_match: true } : null;
+      return json({ result: 'x', submit: true, queued: 0, program_hash: PROGRAM, contract_program_hash: PROGRAM, program_match: programMatch, relay, proven: path });
+    }
     if (url.endsWith('/attest')) {
       const ctx = { chainId: '0x534e5f5345504f4c4941', contract: CONTRACT, programHash: PROGRAM, epoch: 1, expiry: 2_000 };
       return json({
@@ -114,11 +126,16 @@ function setup({
         mode: 'execute',
       });
     }
-    if (url.endsWith('/prove')) return json(JOB, 202);
+    if (url.endsWith('/prove')) {
+      if (body.tier !== 'proven') return json(JOB, 202);
+      if (chainMismatch) return json({ error: 'prove: chain mismatch', chain: '0xc4a1', own_bundle_hash: BUNDLE, bundle_hash: '0xbe', chain_match: false }, 409);
+      return json(PROVEN_JOB, 202);
+    }
     if (url.includes('/status/')) {
       const answer = statuses[Math.min(status++, statuses.length - 1)];
       if (answer.relayed) chain.settled = true;
-      return json({ ...JOB, ...answer });
+      if (answer.proven) Object.assign(chain, { settled: true, proven: true });
+      return json({ ...(answer.tier === 'proven' ? PROVEN_JOB : JOB), ...answer });
     }
     return json({ error: 'not found' }, 404);
   });
@@ -167,7 +184,7 @@ describe('SubmitPanel', () => {
     expect(h.root.hidden).toBe(false);
     expect(accounts).toEqual([PLAYER]);
     expect(h.text('.submit-outputs')).toBe(`Outputs for ${shortFelt(PLAYER)}: inputs_hash 0xabc, final_state_hash 0x33`);
-    expect([...h.root.querySelectorAll('h4')].map((e) => e.textContent)).toEqual(['Settled (proven)', 'Live (provisional and settled)']);
+    expect([...h.root.querySelectorAll('h4')].map((e) => e.textContent)).toEqual(['Settled (proven: SHARP or SNIP-36)', 'Live (provisional and settled)']);
     expect(h.text('.submit-board.settled')).toBe('no record yet');
     expect(h.button(/^Submit$/).disabled).toBe(false);
   });
@@ -183,7 +200,7 @@ describe('SubmitPanel', () => {
     expect(h.execute).toHaveBeenCalledWith({ contractAddress: CONTRACT, entrypoint: 'submit', calldata: submitCalldata(OUTPUTS(PLAYER), [PROGRAM, '0x7d0', '0x1', '0x2']) });
     expect(h.text('.submit-status')).toContain('Provisional record in');
     const live = h.root.querySelector('.submit-board.provisional li')!;
-    expect(live.textContent).toBe(`${shortFelt(PLAYER)} 1650 · provisional · engine ${PROGRAM}`);
+    expect(live.textContent).toBe(`${shortFelt(PLAYER)} 1650 · provisional · program ${PROGRAM}`);
     expect(live.className).toBe('mine');
     // The proof was requested on its own; with a relay the page may be closed.
     expect(h.requests.some((r) => r.url.endsWith('/prove'))).toBe(true);
@@ -191,9 +208,37 @@ describe('SubmitPanel', () => {
     await h.tick();
     expect(h.text('.submit-tier')).toBe(`Settled by the relay in 0x5e7: your settled best 1650 (won, engine ${PROGRAM})`);
     expect(h.execute).toHaveBeenCalledTimes(1); // the player signed nothing more
-    expect(h.text('.submit-board.settled li')).toBe(`${shortFelt(PLAYER)} 1650 · engine ${PROGRAM}`);
+    expect(h.text('.submit-board.settled li')).toBe(`${shortFelt(PLAYER)} 1650 · settled by SHARP · program ${PROGRAM}`);
     expect(h.root.textContent).not.toContain('keep this page open');
     expect(h.button(/^Settle/).hidden).toBe(true);
+  });
+
+  it('proven path: the prover service proves the chain and records it (SNIP-36); the player signs nothing more', async () => {
+    const proving = { tier: 'proven', state: 'proving', proofs: [{ state: 'proved', messages: 2 }, { state: 'proving' }] };
+    const done = { tier: 'proven', state: 'proven', proven: true, proofs: [{ state: 'submitted' }, { state: 'submitted' }], finalize: { transaction_hash: '0xf1' } };
+    const h = setup({ proven: true, statuses: [proving, done] });
+    await connectAndOffer(h);
+    h.button(/^Submit$/).click();
+    await flush();
+    const prove = h.requests.find((r) => r.url.endsWith('/prove'))!.body as Record<string, unknown>;
+    expect(prove).toMatchObject({ level: LEVEL, inputs: INPUTS(PLAYER), tier: 'proven' });
+    expect(h.text('.submit-tier')).toContain('proving by SNIP-36: 1/2 transactions proven');
+    expect(h.text('.submit-tier')).toContain('you may close this page');
+    await h.tick();
+    expect(h.text('.submit-tier')).toBe(`Proven by SNIP-36 (the prover service finalized it in 0xf1): your settled best 1650 (won, bundle ${BUNDLE})`);
+    expect(h.execute).toHaveBeenCalledTimes(1); // only the attested submit
+    expect(h.text('.submit-board.settled li')).toBe(`${shortFelt(PLAYER)} 1650 · proven by SNIP-36 · bundle ${BUNDLE}`);
+    expect(h.button(/^Settle/).hidden).toBe(true);
+  });
+
+  it("falls back to the settled path when the contract's chain is not the service's (409)", async () => {
+    const h = setup({ proven: true, chainMismatch: true, relay: '0xre1a7', statuses: [{ relayed: true, relay: { state: 'relayed' }, relay_transaction_hash: '0x5e7' }] });
+    await connectAndOffer(h);
+    h.button(/^Submit$/).click();
+    await flush();
+    const tiers = h.requests.filter((r) => r.url.endsWith('/prove')).map((r) => (r.body as Record<string, unknown>).tier ?? 'settled');
+    expect(tiers).toEqual(['proven', 'settled']);
+    expect(h.text('.submit-tier')).toBe(`Settled by the relay in 0x5e7: your settled best 1650 (won, engine ${PROGRAM})`);
   });
 
   it('without a relay, offers Settle with the proof\'s program and settles for the player', async () => {

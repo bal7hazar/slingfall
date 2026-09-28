@@ -1,7 +1,8 @@
-# End to end: play, attest, submit, settle (lots G9, E3b, W1)
+# End to end: play, attest, submit, settle, prove (lots G9, E3b, W1, W3)
 
 Contract v2 (`docs/contract-v2.md`) has two tiers, and the client, the services and `deploy/**` speak
-it since lot W1:
+it since lot W1; contract v3 (`docs/contract-v3.md`) adds a third, *proven* (SNIP-36), wired in lot W3
+(on the devnet only: no SNIP-36 proof can be made on Sepolia today, `docs/proving.md` "SNIP-36 tier"):
 
 * **Provisional, in seconds.** The attestation service re-executes the replay natively and signs
   `verifier::attestation_message(chain_id, contract, program_hash, epoch, expiry, outputs)`; the
@@ -11,6 +12,11 @@ it since lot W1:
   the Satellite on Starknet; `submit_settled(outputs, args, child_program_hash)` is checked by
   `SatelliteVerifier` (`docs/proving.md` "Atlantic + Integrity") and recorded for `claim.player`
   whoever sends it, so the prover service's relay may send it: the player need not come back.
+* **Proven (v3), SNIP-36.** The same attempt proven as the chain of the contract's current
+  `SplitChain` (`init`, `step_chunk` x n, `outputs`), one proof per virtual transaction; the prover
+  service sends each proof in one Invoke (`submit_chunk` per message) and `finalize`, for
+  `inputs.player`. Ranked with the settled tier; `attempt()` is 3 and the record's `program_hash` is
+  the chain's bundle hash.
 
 ```
 play (client, Cairo VM in the browser) ──> 10 output felts (player = the wallet)
@@ -33,14 +39,17 @@ Satellite` the attested tier is closed and only `submit_settled` records.
 | path | role |
 |---|---|
 | `deploy/contract/` | a package of its own that builds the registry class `Slingfall` with its CASM (the crate builds Sierra only), and the devnet's `FakeSatellite` (true for the facts its deployer registers); `SlingfallSim` is never declared (over the CASM limit, D11) |
-| `deploy/slingfall.ts` | starknet.js tool (Node 24 runs it as is): `deploy` (fresh v2: key, `pin_program`, Satellite, levels), `pin-program`, `revoke-program`, `set-attestation-key`, `set-satellite`, `set-admin` / `accept-admin`, `upgrade`, `submit`, `submit-settled [--simulate]`, `expire`, `fake-fact`, `best [--settled]`, `leaderboard [--provisional]`, `boards`, `attempt`, `program`, `devnet-time`, `account`, `class-hash` |
-| `deploy/devnet.sh` | installs and starts `starknet-devnet --seed 0` (three accounts), deploys, writes `deploy/devnet.json` and `deploy/devnet.env` |
+| `deploy/slingfall.ts` | starknet.js tool (Node 24 runs it as is): `deploy` (fresh deployment: key, `pin_program`, Satellite, levels; `--artifacts` for another build, e.g. v2), `pin-program`, `revoke-program`, `set-attestation-key`, `set-satellite`, `set-admin` / `accept-admin`, `upgrade`, `snapshot`, `submit`, `submit-settled [--simulate]`, `expire`, `fake-fact`, `best [--settled]`, `leaderboard [--provisional]`, `boards` (each row's proof and release), `attempt` (`proven` = 3), `program`, `devnet-time`, `devnet-blocks`, `account`, `class-hash`; the proven tier: `deploy-split`, `set-chunk-marker`, `pin-virtual-os`, `revoke-virtual-os`, `pin-chain` (prints the bundle hash), `revoke-chain`, `chain`, `submit-proof`, `finalize`, `sign-virtual` |
+| `deploy/split.ts` | layout (e)'s chain as the scripts see it: the pinned class hashes (`crates/slingfall_split/src/hashes.cairo`), the check that `SplitChain` has no entry point but its three transactions, the on-chain check that a chain is the bundle it claims, the virtual Invoke of a proof |
+| `deploy/v2.sh` | contract v2's class as deployed on Sepolia: `git archive` of the D2 commit, built, its hash checked against `deploy/sepolia.json` (the e2e's upgrade) |
+| `deploy/devnet.sh` | installs and starts `starknet-devnet 0.10.0 --seed 0 --accounts 4 --proof-mode none`, deploys (v3, or `DEVNET_CONTRACT=v2`), opens the proven tier (`proven`: the split classes, `SplitChain`, marker, virtual OS, `pin_chain`), writes `deploy/devnet.json`, `deploy/devnet-split.json` and `deploy/devnet.env` |
 | `deploy/outputs.py` | a golden case replayed with `scarb execute` (`main`) for another player; its inputs, its `c1main` argument and (`--child-hash`) its Atlantic facts |
 | `deploy/e2e.sh` | the scripted check below |
 | `deploy/sepolia.sh` | Sepolia: `deploy`, `pin` (explicit grace), `revoke`, `set-attestation-key`, `set-admin` / `accept-admin`, `upgrade`, `settle JOB`, `translate JOB`; keys from the environment |
 | `deploy/sepolia.json` | the v2 Sepolia deployment (lot D2) and its transactions; the v1 deployment (lot E3b) under `"v1"` |
 | `services/attest/attest.py` | the attestation service (`serve --execute | --verify-cmd | --no-verify`, `sign`, `pubkey`, `request`), Python standard library, signing with `crates/slingfall_contract/tools/vectors.py` |
 | `services/prove/prove_service.py`, `relay.py` | the prover service of the settled tier (`serve [--relay]`, `prove`, `status`, `translate`, `relay`), Python standard library on `tools/atlantic` |
+| `services/prove/snip36.py` | its SNIP-36 path (`--snip36 fake|snip36`, `prove --tier proven`, `POST /prove {"tier": "proven"}`): the chain planned by simulation, the prover interface (`FakeProver` on the devnet, `Snip36Prover` for `starknet_proveTransaction`), one Invoke per proof, `finalize` |
 | `deploy/snfoundry.toml` | `sncast` profiles for manual calls |
 | `client/src/chain/` | the client's Submit step: wallet, attestation client, `submit`, both tiers' reads and boards, the prover-service client, the relay's status and "Settle" (`prove.ts`, `panel.ts`) |
 
@@ -54,10 +63,14 @@ scarb --manifest-path crates/slingfall_replay/Scarb.toml build   # the replay ex
 ```
 
 `deploy/devnet.sh` installs `starknet-devnet` when it is not on `PATH`: the release binary of
-`0xSpaceShard/starknet-devnet` for Linux x86-64 (`DEVNET_VERSION=x.y.z` pins one, else the
-latest) into `deploy/.devnet/bin/`, else `cargo install -j 2 --locked starknet-devnet`. The
-devnet must speak RPC 0.10 (starknet.js 10) and accept Sierra 1.9 (Cairo 2.19); the version used is
-printed at start (`devnet: starknet-devnet x.y.z on ...`).
+`0xSpaceShard/starknet-devnet` for Linux x86-64 (`DEVNET_VERSION`, default **0.10.0**: the fake
+prover's facts header is this version's) into `deploy/.devnet/bin/`, else `cargo install -j 2 --locked
+starknet-devnet`; an asdf shim gets `ASDF_STARKNET_DEVNET_VERSION` set to it. The devnet must speak
+RPC 0.10 (starknet.js 10), accept Sierra 1.9 (Cairo 2.19) and take `--proof-mode none` (0.10: an
+Invoke's proof is ignored, its SNIP-36 facts' header checked); the version used is printed at start
+(`devnet: starknet-devnet x.y.z on ...`). Node's `fetch` refuses some ports (5060, 5061, ...): keep
+`DEVNET_PORT` off the WHATWG "bad ports" list. The proven tier needs the split crate's build
+(`scarb build -p slingfall_split`, about a minute; `devnet.sh proven` runs it when missing).
 
 ## The scripted check
 
@@ -65,32 +78,54 @@ printed at start (`devnet: starknet-devnet x.y.z on ...`).
 deploy/e2e.sh            # add --keep to leave the devnet up
 ```
 
-A fresh devnet on port 5055; account #0 is the admin, #1 the player, #2 a third party. It deploys v2
-(attestation key of the public test secret `'slingfall-devnet'`, `pin_program(c1main, 0)`, the
-`FakeSatellite`, the six fixture levels), replays four golden shots with `deploy/outputs.py`
-(`pile10-reference` and two `one_block` shots for the player, `pile10-reference` for the admin), and
-checks:
+A fresh devnet on port 5055; account #0 is the admin, #1 the player, #2 a third party (the relay and
+the prover service's account), #3 a second player. It builds contract v3, contract v2's class of the
+Sepolia deployment (`deploy/v2.sh`, hash-checked) and, in the background, layout (e)'s classes; deploys
+**v2** (attestation key of the public test secret `'slingfall-devnet'`, `pin_program(c1main, 0)`, the
+`FakeSatellite`, the six fixture levels), replays five golden shots with `deploy/outputs.py`
+(`pile10-reference` and two `one_block` shots for the player, `pile10-reference` for the admin and the
+second player), and checks:
 
-1. **Provisional.** `attest.py serve --execute` re-executes the player's pile10 shot and signs (epoch
-   1, the pinned program, this contract); the player's `submit` emits one provisional
+1. **Provisional (v2).** `attest.py serve --execute` re-executes the player's pile10 shot and signs
+   (epoch 1, the pinned program, this contract); the player's `submit` emits one provisional
    `LevelValidated` with its `program_hash`; `best` is provisional, `best_settled` empty, the settled
    board empty and the live board `[(player, 5200)]`; the same `submit` again fails with `'submit:
-   nullifier'`. The admin's attested pile10 record is submitted too, and `expire` on it fails with
-   `'expire: early'`.
-2. **Relayed settle.** A prover-service job of the player's attempt is written to a store; `prove_service.py
-   relay` with account #2 in the environment waits while the fact is absent (`relay.state = waiting`,
-   nothing sent), then, the run's fact registered on the `FakeSatellite`, simulates and sends
-   `submit_settled`: the transaction's sender is account #2, the record (`best`, `best_settled`, the
-   settled board) is the player's. The player's own settle after it fails with `'submit: nullifier'`.
-3. **Re-pin with grace.** `pin-program` pins another hash with a 3 600 s grace: a proof of the old
+   nullifier'`. The admin's and the second player's attested pile10 records are submitted too, and
+   `expire` on the admin's fails with `'expire: early'`.
+2. **Upgrade v2 -> v3.** `snapshot` (admin, pending admin, verifier, attestation key and epoch, expiry
+   delay, program and its validity, Satellite, each level's registration and data hash, both boards
+   with each row's proof, both records and the attempt tier of the three players) before and after
+   `upgrade --declare`: identical but the class hash. The three attested records survive (`attempt` 1).
+3. **Proven tier opened.** `devnet.sh proven`: the split classes declared, `SplitChain` deployed and
+   read back (its class, its five classes in storage), `set_chunk_marker('SLINGFALL')`,
+   `pin_virtual_os` (the devnet's program), `pin_chain(chain, bundle, 0)` (the bundle printed).
+4. **Provisional -> proven (SNIP-36).** `prove_service.py prove --tier proven --snip36 fake` with
+   account #2 in the environment plans the whole chain of the player's pile10 shot (107 ticks, 8 calls,
+   4 transactions at the 1.0e9 L2 gas budget), proves them with the fake prover, sends one Invoke per
+   proof and `finalize`: the job is `proven`, `finalize` was sent by account #2, its `LevelValidated`
+   says `proven` with the bundle hash as `program_hash`, `attempt()` is 3 and the player's
+   `best_settled` carries the bundle hash. Gas goes to `deploy/out/e2e/cost.json` (`docs/proving.md`
+   "Cost sheet").
+5. **Provisional -> settled, relayed.** A prover-service job of the second player's attempt is written
+   to a store; `prove_service.py relay` with account #2 waits while the fact is absent (`relay.state =
+   waiting`, nothing sent), then, the run's fact registered on the `FakeSatellite`, simulates and sends
+   `submit_settled`: the sender is account #2, the record is the second player's, `attempt()` is 2, and
+   the settled board holds both rows, `proven by SNIP-36 · bundle …` and `settled by SHARP · program …`.
+   The second player's own settle after it fails with `'submit: nullifier'`.
+6. **Retired chain.** A second `SplitChain` is pinned with a 3 600 s grace: the first chain's first
+   proof, sent again, is accepted inside the grace (idempotent); after `devnet-time --advance 3601`
+   it fails with `'chunk: chain'` and a `finalize` on the first chain with `'finalize: chain'`.
+7. **Re-pin with grace.** `pin-program` pins another hash with a 3 600 s grace: a proof of the old
    program (a `one_block` shot, simulated first) settles inside the window; after `devnet-time
    --advance 3601` another fails with `'submit: program'` (simulation and transaction).
-4. **Expiry.** 24 h later (`devnet-time --advance 86400`) account #2 expires the admin's provisional
+8. **Expiry.** 24 h later (`devnet-time --advance 86400`) account #2 expires the admin's provisional
    record: its `best` falls back to the empty settled one and its row leaves the live board (the
-   player's stays); a second `expire` fails with `'expire: none'`.
+   players' stay); a second `expire` fails with `'expire: none'`.
 
 `E2E_SETTLE=keccak` registers the bridged keccak facts instead of the translated ones (the path
-Sepolia takes today). Files: `deploy/out/e2e/`. CI runs it in the optional `e2e` job.
+Sepolia takes today). Files: `deploy/out/e2e/`. CI runs it in the optional `e2e` job (under 10
+minutes; 6 min 52 s on the 8-core development machine, of which 3.5 min are the five `scarb execute`
+replays).
 
 Gas on starknet-devnet (v1, 2026-09-26): attested `submit` 5,649,600 L2 gas; `submit_settled` upgrade
 4,453,840 (0.79x) with the translated fact, 11,973,840 (2.12x) with the keccak fact only. The v2
@@ -99,7 +134,7 @@ figures are printed by each run (`e2e: provisional ok; submit l2_gas …`, `e2e:
 ## By hand on the devnet
 
 ```sh
-deploy/devnet.sh                          # devnet on :5050, deploy/devnet.json, deploy/devnet.env
+deploy/devnet.sh                          # devnet on :5050, v3 with its proven tier open: deploy/devnet.json, deploy/devnet-split.json, deploy/devnet.env
 ADDRESS=$(python3 -c 'import json; print(json.load(open("deploy/devnet.json"))["address"])')
 PLAYER=$(node deploy/slingfall.ts account --index 1)
 LEVEL=$(python3 -c 'import json; print(json.load(open("deploy/devnet.json"))["levels"]["pile10"])')
@@ -117,6 +152,15 @@ node deploy/slingfall.ts submit --devnet --index 1 --config deploy/devnet.json \
   --outputs deploy/out/outputs.json --attestation deploy/out/attestation.json
 node deploy/slingfall.ts best --config deploy/devnet.json --player "$PLAYER" --level "$LEVEL"
 node deploy/slingfall.ts boards --config deploy/devnet.json --level "$LEVEL"
+
+# The proven tier (SNIP-36, fake prover): account #2 proves, submits and finalizes for the player.
+RELAY=$(node deploy/slingfall.ts account --index 2 --with-key)
+SLINGFALL_ADDRESS="$ADDRESS" STARKNET_RPC_URL=http://127.0.0.1:5050/rpc \
+  STARKNET_ACCOUNT_ADDRESS=$(echo "$RELAY" | python3 -c 'import json, sys; print(json.load(sys.stdin)["address"])') \
+  STARKNET_PRIVATE_KEY=$(echo "$RELAY" | python3 -c 'import json, sys; print(json.load(sys.stdin)["private_key"])') \
+  python3 services/prove/prove_service.py prove --tier proven --snip36 fake --level pile10 \
+  --inputs "$(python3 -c 'import json; print(",".join(json.load(open("deploy/out/outputs.json"))["inputs"]))')"
+node deploy/slingfall.ts chain --config deploy/devnet.json          # the chain, its bundle, the marker
 deploy/devnet.sh down
 ```
 
@@ -136,8 +180,14 @@ npm --prefix client run dev
 
 The `VITE_*` variables are read when Vite starts (and inlined by `npm run build`). With
 `VITE_SLINGFALL_ADDRESS` set, the end-of-level panel has a **Submit on Starknet** section and shows
-both boards of the level: **Settled (proven)** and **Live (provisional and settled)**, each row with
-the engine release (`program_hash`) of its record. Pick a wallet and **Connect**: the outputs table
+both boards of the level: **Settled (proven: SHARP or SNIP-36)** and **Live (provisional and
+settled)**, each row with its proof and release: `provisional · program 0x…`, `settled by SHARP ·
+program 0x…` or `proven by SNIP-36 · bundle 0x…` (`attempt()` of the record's inputs hash). With a
+prover service that has the SNIP-36 path (`serve --snip36 fake` on the devnet, its account in the
+environment; `/health` `proven.available`), the page requests the *proven* tier after the provisional
+record: the service proves and records the attempt itself (**Proven by SNIP-36 (the prover service
+finalized it in 0x…)**), nothing more to sign; else, or when the service answers that the contract's
+chain is not its release (409), the settled one as below. Pick a wallet and **Connect**: the outputs table
 above is recomputed for the connected account (m11: only `player` and `inputs_hash` change).
 **Submit**: the page asks `/attest` with the level, the inputs and its outputs, sends `submit` through
 the wallet and shows the provisional record. With `VITE_PROVE_URL` (a `prove_service.py serve`), the

@@ -3,23 +3,33 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { Call } from 'starknet';
 import { attestBody, attestationMessage, requestAttestation, type Attestation } from './attest';
+import { hash } from 'starknet';
 import {
+  ATTEMPT,
+  CHUNK_KIND,
+  CHUNK_MARKER,
   LEVEL_VALIDATED,
+  SPLIT_BUNDLE_CLASSES,
   SlingfallContract,
   adminCalls,
+  bundleHash,
   decodeLeaderboard,
   decodeRecord,
+  describeProof,
   explainWalletError,
   expireCall,
   feltHex,
+  finalizeCall,
   levelValidatedEvents,
   mentionsPanic,
+  proofKind,
   readBoards,
   receiptGas,
   registerLevelCall,
   runArgs,
   inputsFelts,
   submitCalldata,
+  submitChunkCall,
   submitSettledCall,
 } from './slingfall';
 import { submitLevel, type Receipt } from './submission';
@@ -167,12 +177,15 @@ describe('encoding', () => {
         { from_address: CONTRACT, keys: ['0x99'], data: [] },
         { from_address: CONTRACT, keys: [LEVEL_VALIDATED, feltHex(C.PLAYER), PILE10_HASH], data: ['0xabc', '0x672', '0x1', '0x0', '0xc1'] },
         { from_address: CONTRACT, keys: [LEVEL_VALIDATED, feltHex(C.PLAYER), PILE10_HASH], data: ['0xabd', '0x672', '0x1', '0x1', '0xc2'] },
+        // v3: the trailing `proven` felt (finalize), the program hash a bundle hash.
+        { from_address: CONTRACT, keys: [LEVEL_VALIDATED, feltHex(C.PLAYER), PILE10_HASH], data: ['0xabe', '0x672', '0x1', '0x1', '0xbd', '0x1'] },
       ],
     };
     const common = { player: feltHex(C.PLAYER), levelHash: feltHex(PILE10_HASH), score: 1650, won: true };
     expect(levelValidatedEvents(receipt, CONTRACT)).toEqual([
-      { ...common, inputsHash: '0xabc', settled: false, programHash: '0xc1' },
-      { ...common, inputsHash: '0xabd', settled: true, programHash: '0xc2' },
+      { ...common, inputsHash: '0xabc', settled: false, programHash: '0xc1', proven: false },
+      { ...common, inputsHash: '0xabd', settled: true, programHash: '0xc2', proven: false },
+      { ...common, inputsHash: '0xabe', settled: true, programHash: '0xbd', proven: true },
     ]);
     expect(receiptGas({ execution_resources: { l1_gas: 0, l1_data_gas: 128, l2_gas: 1_000_000 }, actual_fee: { amount: '0x10', unit: 'FRI' } })).toEqual({
       l1Gas: 0,
@@ -194,6 +207,7 @@ describe('encoding', () => {
     expect(explainWalletError(new Error("RPC: starknet_estimateFee … ('submit: proof')"))).toContain('refuses this proof or attestation');
     expect(explainWalletError(new Error("execution reverted: 'submit: nullifier'"))).toContain('perhaps by the relay');
     expect(explainWalletError(new Error("'expire: early'"))).toContain('not old enough');
+    expect(explainWalletError(new Error("0x66696e616c697a653a20636861696e ('finalize: chain')"))).toContain('SNIP-36 chain');
     expect(explainWalletError(new Error('User rejected request'))).toBe('cancelled in the wallet');
     expect(explainWalletError(new Error('Execute failed'))).toBe('Execute failed');
     expect(explainWalletError('boom')).toBe('boom');
@@ -307,35 +321,106 @@ describe('SlingfallContract (v2)', () => {
     expect(execute).toHaveBeenLastCalledWith(expireCall(CONTRACT, PILE10_HASH, player.address));
   });
 
-  it('reads both boards with the engine release of each row', async () => {
-    const [a, b] = ['0xa1', '0xb2'];
+  it('reads both boards with the release and the proof of each row', async () => {
+    const [a, b, c] = ['0xa1', '0xb2', '0xc3'];
     const reader = {
       callContract: async (call: Call) => {
-        const [who] = (call.calldata as string[]) ?? [];
+        const [first, who] = (call.calldata as string[]) ?? [];
         switch (call.entrypoint) {
           case 'leaderboard':
-            return ['0x1', b, '0x5'];
+            return ['0x2', c, '0x7', b, '0x5'];
           case 'leaderboard_provisional':
-            return ['0x2', a, '0x9', b, '0x5'];
+            return ['0x3', a, '0x9', c, '0x7', b, '0x5'];
           case 'current_program':
             return ['0xc2'];
           case 'best':
-            return who === a ? bestFelts(9, false, '0xc2') : bestFelts(5, true, '0xc1');
+            return first === a ? bestFelts(9, false, '0xc2') : first === c ? bestFelts(7, true, '0xbd') : bestFelts(5, true, '0xc1');
           case 'best_settled':
-            return bestFelts(5, true, '0xc1');
+            return first === c ? bestFelts(7, true, '0xbd') : bestFelts(5, true, '0xc1');
+          case 'attempt': // (level, player, inputs_hash): c proven by SNIP-36, b settled by SHARP
+            return [who === c ? '0x3' : '0x2'];
           default:
             throw new Error(call.entrypoint);
         }
       },
     };
     expect(await readBoards(new SlingfallContract(CONTRACT, reader), PILE10_HASH)).toEqual({
-      settled: [{ player: b, score: 5, programHash: '0xc1', settled: true }],
+      settled: [
+        { player: c, score: 7, programHash: '0xbd', settled: true, proof: 'snip36' },
+        { player: b, score: 5, programHash: '0xc1', settled: true, proof: 'sharp' },
+      ],
       provisional: [
-        { player: a, score: 9, programHash: '0xc2', settled: false },
-        { player: b, score: 5, programHash: '0xc1', settled: true },
+        { player: a, score: 9, programHash: '0xc2', settled: false, proof: null },
+        { player: c, score: 7, programHash: '0xbd', settled: true, proof: 'snip36' },
+        { player: b, score: 5, programHash: '0xc1', settled: true, proof: 'sharp' },
       ],
       currentProgram: '0xc2',
     });
+  });
+
+  it('says which proof validated a row', () => {
+    expect([proofKind(false, ATTEMPT.attested), proofKind(true, ATTEMPT.settled), proofKind(true, ATTEMPT.proven)]).toEqual([null, 'sharp', 'snip36']);
+    expect(describeProof({ proof: 'snip36', programHash: '0xbd' })).toBe('proven by SNIP-36 · bundle 0xbd');
+    expect(describeProof({ proof: 'sharp', programHash: '0xc1' })).toBe('settled by SHARP · program 0xc1');
+    expect(describeProof({ proof: null, programHash: '0xc1' })).toBe('provisional · program 0xc1');
+  });
+});
+
+describe('proven tier (v3)', () => {
+  it('lays out submit_chunk(chain, kind, payload) and finalize(chain, level_hash, inputs, outputs)', () => {
+    const payload = ['0x51', '0x1a', '0x0', '0x5a', '0x52'];
+    expect(submitChunkCall(CONTRACT, '0xc4a1', CHUNK_KIND.step, payload)).toEqual({
+      contractAddress: CONTRACT,
+      entrypoint: 'submit_chunk',
+      calldata: ['0xc4a1', '0x1', '0x5', ...payload],
+    });
+    const call = finalizeCall(CONTRACT, '0xc4a1', PILE10_HASH, INPUTS, GOLDEN);
+    expect(call.entrypoint).toBe('finalize');
+    expect(call.calldata).toEqual(['0xc4a1', feltHex(PILE10_HASH), feltHex(INPUTS.length), ...INPUTS, '0xa', ...GOLDEN.map(feltHex)]);
+    expect(() => finalizeCall(CONTRACT, '0xc4a1', PILE10_HASH, INPUTS, GOLDEN.slice(1))).toThrow('9 felts');
+  });
+
+  it('lays out the v3 admin calls', () => {
+    expect(adminCalls.setChunkMarker(CONTRACT, CHUNK_MARKER)).toMatchObject({ entrypoint: 'set_chunk_marker', calldata: [CHUNK_MARKER] });
+    expect(adminCalls.pinChain(CONTRACT, '0xc4a1', '0xbd', 3600).calldata).toEqual(['0xc4a1', '0xbd', '0xe10']);
+    expect(adminCalls.revokeChain(CONTRACT, '0xc4a1')).toMatchObject({ entrypoint: 'revoke_chain', calldata: ['0xc4a1'] });
+    expect(adminCalls.pinVirtualOs(CONTRACT, '0x53f6', 0).calldata).toEqual(['0x53f6', '0x0']);
+    expect(adminCalls.revokeVirtualOs(CONTRACT, '0x53f6').entrypoint).toBe('revoke_virtual_os');
+  });
+
+  it("uses the contract's marker and the prover service's bundle order", () => {
+    const simulate = readFileSync(root('crates/slingfall_contract/src/simulate.cairo'), 'utf8');
+    const [, marker] = simulate.match(/pub const MARKER: felt252 = '(\w+)';/)!;
+    expect(CHUNK_MARKER).toBe(feltHex(`0x${Buffer.from(marker).toString('hex')}`));
+    const service = readFileSync(root('services/prove/snip36.py'), 'utf8');
+    const [, tuple] = service.match(/BUNDLE_CLASSES = \(([^)]*)\)/)!;
+    expect([...tuple.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual([...SPLIT_BUNDLE_CLASSES]);
+    const classes = SPLIT_BUNDLE_CLASSES.map((_, i) => feltHex(i + 1));
+    expect(bundleHash(classes)).toBe(feltHex(hash.computePoseidonHashOnElements(classes.map(BigInt))));
+    expect(bundleHash([...classes].reverse())).not.toBe(bundleHash(classes));
+    expect(() => bundleHash(classes.slice(1))).toThrow('16 class hashes');
+  });
+
+  it('reads the chain and virtual-OS sets', async () => {
+    const contract = new SlingfallContract(
+      CONTRACT,
+      fakeReader({
+        chunk_marker: [CHUNK_MARKER],
+        current_chain: ['0xc4a1'],
+        chain_valid_until: [feltHex(2n ** 64n - 1n)],
+        chain_bundle: ['0xbd'],
+        current_virtual_os: ['0x53f6'],
+        virtual_os_valid_until: ['0x0'],
+        level: ['0xa0', '0x1', '0x1', '0x64'],
+      }),
+    );
+    expect(await contract.chunkMarker()).toBe(CHUNK_MARKER);
+    expect(await contract.currentChain()).toBe('0xc4a1');
+    expect(await contract.chainValidUntil('0xc4a1')).toBe(2n ** 64n - 1n);
+    expect(await contract.chainBundle('0xc4a1')).toBe('0xbd');
+    expect(await contract.currentVirtualOs()).toBe('0x53f6');
+    expect(await contract.virtualOsValidUntil('0x1')).toBe(0n);
+    expect(await contract.level(PILE10_HASH)).toEqual({ author: '0xa0', version: 1, active: true, registeredAt: 100 });
   });
 });
 

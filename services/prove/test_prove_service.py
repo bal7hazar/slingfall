@@ -349,7 +349,8 @@ class Service(unittest.TestCase):
     def test_health_reports_the_program_hashes(self):
         self.assertEqual(
             {"result": ps.DEFAULT_RESULT, "submit": True, "queued": 0, "program_hash": None,
-             "contract_program_hash": None, "program_valid_until": None, "program_match": None, "relay": None},
+             "contract_program_hash": None, "program_valid_until": None, "program_match": None, "relay": None,
+             "tiers": ["settled"], "proven": None},
             self._health(),
         )
         _, child = self.built_job()

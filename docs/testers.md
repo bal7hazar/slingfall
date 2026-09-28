@@ -172,6 +172,28 @@ You can also drive the same flow without the page (`docs/e2e.md` "Sepolia"): `pr
 `Provisional` is an attestation of the service's key; `Settled` rests on the SHARP proof verified on
 Ethereum and bridged to the Satellite (`proving.md`, "Trust").
 
+### The proven tier (SNIP-36): not on Sepolia yet
+
+Contract v3 (`docs/contract-v3.md`) adds a third tier, **proven**: the shot proven by Starknet itself
+(SNIP-36), as a chain of transactions each proven in one proof, sent to the contract and recorded by the
+prover service for you. It runs on a local devnet only (`docs/e2e.md`): the Sepolia deployment is still
+v2, and no SNIP-36 proof can be made on Sepolia today (the protocol's proof format PROOF2 is not
+confirmed there, and the prover needs a large machine). When it arrives the panel needs nothing from you:
+a prover service started with `--snip36 snip36 --prover-url <a SNIP-36 prover>` says so on `/health`,
+and the page then asks for the proven tier instead of the settled one. What you would see:
+
+| shown | meaning |
+|---|---|
+| `… planning the SNIP-36 chain of the shot …` | the service runs the shot's transactions to cut them under the proof budget |
+| `… proving by SNIP-36: 2/4 transactions proven` | one proof per transaction, in parallel |
+| `… sending the SNIP-36 proofs to the contract: 1/4` | one transaction per proof (`submit_chunk`), then `finalize` |
+| `Proven by SNIP-36 (the prover service finalized it in 0x…): your settled best …` | recorded: ranked on the settled board with SHARP's |
+| board row `… proven by SNIP-36 · bundle 0x…` / `… settled by SHARP · program 0x…` | which proof validated the row, and the release: a SNIP-36 chain's bundle hash, or `c1main`'s program hash |
+
+Cost, measured on the devnet for the pile10 reference shot: 4 proofs, 320M L2 gas (300M of it the
+protocol's 75M per proof), about 6.8 STRK at Sepolia's gas price of 2026-09-28 (`docs/proving.md`
+"Cost sheet"), paid by the service's account.
+
 ## 6. Hosted build (the owner)
 
 `.github/workflows/ci.yml` has a `pages` job that builds the wasm runner and `npm run build:sepolia`

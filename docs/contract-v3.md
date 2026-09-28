@@ -3,7 +3,8 @@
 Lot V3 (2026-09-28): the SNIP-36 tier of `Slingfall` (`crates/slingfall_contract/src/submit.cairo`,
 `submit/chunks.cairo`, `verifier.cairo`), as research 07 §4 and programme research SN1 §4 specify it. Code only:
 nothing is declared, deployed or sent by this lot. v3 is v2 (`docs/contract-v2.md`) plus a third tier; `upgrade`
-carries a v2 deployment to v3 with every record kept.
+carries a v2 deployment to v3 with every record kept. Lot W3 wires the deploy scripts, the services and the client
+to it, on the local devnet ("Wiring (lot W3)" below).
 
 ## What changes
 
@@ -191,6 +192,32 @@ Class of `Slingfall` (`scarb build`; CASM from the `deploy/contract` package), l
   from the stored state.
 - **`bundle_hash` is declared, not read.** The contract cannot read `SplitChain`'s class hashes; the admin states
   them, and a chain whose classes could change after deployment would break "one chain, one bundle" (Escalations
-  of the lot's `REPORT.md`).
+  of the lot's `REPORT.md`). Lot W3 closes the second half: `SplitChain` has no setter (its test and the deploy
+  script's entry-point check), and `pin-chain` recomputes the bundle from the deployed chain itself.
 - **Not built:** finalising in the `outputs` submission (research 07 §4 option), a batch entry point (a multicall
   does it), events per link.
+
+## Wiring (lot W3)
+
+What speaks v3 on the devnet, and where each piece of the interface lands (no Sepolia transaction: Sepolia stays
+v2 until a SNIP-36 proof can be made there, `docs/proving.md` "SNIP-36 tier"):
+
+| v3 piece | where |
+|---|---|
+| `upgrade(v3)` of a v2 deployment, every v2 value read back | `deploy/v2.sh` (v2's class rebuilt from the D2 commit, its hash checked against `deploy/sepolia.json`), `deploy/slingfall.ts deploy --artifacts` / `upgrade --declare` / `snapshot`, `deploy/e2e.sh` |
+| a chain deployment = a bundle: layout (e)'s classes declared, `SplitChain(build, settle, edit, world, outputs, raw = true)` | `deploy/slingfall.ts deploy-split` (hashes from `slingfall_split::hashes`; refuses a `SplitChain` class with any entry point but `init`, `step_chunk`, `outputs`; reads the deployment back), `deploy/split.ts` |
+| `set_chunk_marker('SLINGFALL')`, `pin_virtual_os`, `revoke_virtual_os`, `pin_chain(chain, bundle, grace)` (bundle hash = Poseidon of the ordered class hashes, recomputed from the chain's class and storage, printed), `revoke_chain`; reads | `deploy/slingfall.ts set-chunk-marker` / `pin-virtual-os` / `revoke-virtual-os` / `pin-chain` / `revoke-chain` / `chain`, `deploy/devnet.sh proven` |
+| `submit_chunk` per message with the proof attached, `finalize` for `inputs.player` (a relay) | `services/prove/snip36.py` (plan, prove through `FakeProver` / `Snip36Prover`, submit, finalize), `deploy/slingfall.ts submit-proof` / `finalize` / `sign-virtual` |
+| the proven tier's program check: `chain_bundle(current_chain())` = the service's bundle, `chain_valid_until > now` | `services/prove/prove_service.py` (409, `/status`, `/health` `proven`) |
+| `attempt()` = 3 (`PROVEN`), `LevelValidated.proven`, a proven record's `program_hash` = its bundle hash | `client/src/chain/slingfall.ts` (`ATTEMPT.proven`, `LevelValidated.proven`, `readBoards`: each row's proof, `describeProof`), `panel.ts` (the proven path when `/health` offers it, the settled one otherwise), `deploy/slingfall.ts attempt` / `boards` |
+
+The bundle order (`SPLIT_BUNDLE_CLASSES`, `snip36.BUNDLE_CLASSES`): `SplitChain`, `BuildClass`, `SettleClass`,
+`EditClass`, `WorldClass`, `OutputsClass` (the chain's class and its constructor's, in constructor order), then the
+classes `WorldClass` compiles in: `RulesClass`, `ContactBallClass`, `ContactPolygonClass`, `SolverClass`,
+`SolveAdvanceClass`, `IslandsClass`, `BroadPhaseClass`, `MassClass`, `NarrowPhaseClass`, `ActiveSetClass`,
+`ForceEventsClass`. On today's pins: `0x5bb15de9dd18b5b54ac337bb16aea411064a56a7f4449991bc7e2913dcfc06f`.
+
+`deploy/e2e.sh` runs it on the devnet: a v2 deployment with three attested records, upgraded (every value read
+back), the proven tier opened, the player's attested record proven by SNIP-36 (fake prover, 4 proofs, relayed),
+a second player's settled by the Satellite path, a retired chain accepted inside its grace and refused after it.
+Measured costs: `docs/proving.md` "Cost sheet".

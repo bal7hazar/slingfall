@@ -7,7 +7,8 @@ use slingfall_game::chunk::{ChunkState, hash_felts};
 use slingfall_game::play::decode;
 use slingfall_split::chain::MARKER;
 use snforge_std::{
-    ContractClassTrait, DeclareResultTrait, MessageToL1SpyTrait, declare, spy_messages_to_l1,
+    ContractClassTrait, DeclareResultTrait, MessageToL1SpyTrait, declare, load as load_storage,
+    spy_messages_to_l1,
 };
 use starknet::syscalls::call_contract_syscall;
 use starknet::{ContractAddress, SyscallResultTrait};
@@ -146,6 +147,49 @@ fn test_chain_b_reference() {
 #[test]
 fn steps_chain_e_reference() {
     play_chain("WorldClass", "reference", array![90, 17].span());
+}
+
+/// Contract v3 pins a chain by address as one release's class bundle (`pin_chain(chain,
+/// bundle_hash, grace)`, V3 escalation 2): the chain's marker is the value `set_chunk_marker` is
+/// given, contract v3's `simulate::MARKER` (`'SLINGFALL'`; this crate does not depend on the
+/// contract).
+#[test]
+fn test_chain_bundle_marker_is_the_contracts() {
+    assert_eq!(MARKER, 'SLINGFALL');
+}
+
+/// One deployment, one bundle (V3 escalation 2): the constructor's classes are the storage the
+/// transactions read, and the chain has no entry point that could change them (no setter, no
+/// upgrade). The deployment script checks the complement on the class itself: its external entry
+/// points are exactly `init`, `step_chunk`, `outputs` (`deploy/split.ts` `checkChainEntryPoints`).
+#[test]
+fn test_chain_bundle_has_no_class_setter() {
+    let address = deploy_chain("WorldClass");
+    let stored: Array<(felt252, ByteArray)> = array![
+        (selector!("build"), "BuildClass"), (selector!("settle"), "SettleClass"),
+        (selector!("edit"), "EditClass"), (selector!("world"), "WorldClass"),
+        (selector!("outputs"), "OutputsClass"),
+    ];
+    for (variable, name) in stored {
+        let class_hash: felt252 = declared(name).into();
+        assert_eq!(load_storage(address, variable, 1), array![class_hash]);
+    }
+    assert_eq!(load_storage(address, selector!("raw"), 1), array![1]);
+    let setters = array![
+        selector!("set_build"), selector!("set_settle"), selector!("set_edit"),
+        selector!("set_world"), selector!("set_outputs"), selector!("set_raw"),
+        selector!("set_classes"), selector!("set_class_hashes"), selector!("upgrade"),
+        selector!("replace_class"), selector!("set_admin"),
+    ];
+    for setter in setters {
+        let result = call_contract_syscall(address, setter, array![1].span());
+        assert!(result.is_err(), "SplitChain answers a setter-like selector");
+        let mut not_found = false;
+        for error in result.unwrap_err() {
+            not_found = not_found || error == 'ENTRYPOINT_NOT_FOUND';
+        }
+        assert!(not_found, "not ENTRYPOINT_NOT_FOUND");
+    }
 }
 
 /// `outputs` of an unfinished state reverts (P1b's verifier check 6, in the transaction).
