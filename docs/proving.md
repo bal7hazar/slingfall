@@ -712,3 +712,30 @@ queries are free (Atlantic pricing: S 70 credits, M 120, L 220 on mainnet, trace
 started minute, L2 mainnet verification 25 credits); the job-size tier that works for our program is
 **M** for one_block (S is OOM-killed at trace generation: the bootloaded run is 6.3M steps, 3.6M of them
 Pedersen-hashing the 454k-felt program) and **L** for pile10 (M is OOM-killed).
+
+## SNIP-36 tier
+
+Contract v3 (lot V3, `docs/contract-v3.md`) accepts a shot proven in-protocol as a chain of virtual transactions of a
+chain contract (`init`, `step_chunk` × n, `outputs`; `docs/research/07-split-game-step.md` §4). What a prover service
+does with its proofs:
+
+1. **Prove.** Run the chain locally, then prove every transaction (in parallel, each in its own virtual block on the
+   same base block, at least 10 blocks old when submitted). Each proof's `proof_facts` hold one message hash per
+   `send_message_to_l1` of its virtual transaction: `poseidon([chain, 'SLINGFALL', len(payload), ...payload])`.
+2. **Submit the links.** One real Invoke per proof, carrying `proof` and `proof_facts`, calling
+   `submit_chunk(chain, kind, payload)` once per message of that proof (a multicall when a virtual transaction called
+   several entry points): `kind` 0 `init` `[LEVEL_HASH, STATE_OUT_HASH]`, 1 `step_chunk` `[STATE_IN_HASH,
+   INPUTS_HASH, shot, k, STATE_OUT_HASH]`, 2 `outputs` `[STATE_IN_HASH, INPUTS_HASH] ++ outputs`. Any account, any
+   order; resubmitting a link is a no-op.
+3. **Finalize.** `finalize(chain, level_hash, inputs, outputs)` from any account once every link is stored: the
+   contract walks `init` → steps → `outputs` and records the outputs for `inputs.player` (tier `PROVEN`, ranked with
+   the Satellite's settled tier).
+
+The contract checks the facts as the protocol lays them out (SN1 §4): `'PROOF1'`/`'PROOF2'`, `'VIRTUAL_SNOS'`, the
+virtual-OS program at index 2 in the admin's set, `'VIRTUAL_SNOS0'`, the base block at index 4 at least 10 blocks old
+with a non-zero hash at 5, `n` at 7, the message hashes in `[8, 8 + n)` only. The same parser now backs `submit`'s
+`Snip36` verifier (a whole-level `simulate` proof), whose v2 offsets (program at 0, messages anywhere after it) were
+wrong.
+
+Costs (snforge, contract execution only): `submit_chunk` 0.84-1.20M L2 gas per link, `finalize` 7.0-7.2M for 5-7
+steps plus 71k per further step (at most 64), on top of 75M L2 gas per proof.

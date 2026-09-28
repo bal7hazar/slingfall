@@ -31,6 +31,41 @@ pub const SUBMIT_PROOF: felt252 = 'submit: proof';
 /// period, or revoked).
 pub const SUBMIT_PROGRAM: felt252 = 'submit: program';
 
+/// `submit_chunk`: the chain is not valid now (never pinned, past its grace, revoked), or no
+/// marker is set.
+pub const CHUNK_CHAIN: felt252 = 'chunk: chain';
+/// `submit_chunk`: the transaction's `proof_facts` are not SNIP-36 facts (`verifier::parse_facts`).
+pub const CHUNK_FACTS: felt252 = 'chunk: facts';
+/// `submit_chunk`: the facts' virtual-OS program is not valid now.
+pub const CHUNK_PROGRAM: felt252 = 'chunk: program';
+/// `submit_chunk`: the facts' base block is younger than `BLOCK_HASH_BUFFER` blocks, or has no
+/// hash.
+pub const CHUNK_BASE_BLOCK: felt252 = 'chunk: base block';
+/// `submit_chunk`: the chain's message with this payload is not among the facts' messages.
+pub const CHUNK_MESSAGE: felt252 = 'chunk: message';
+/// `submit_chunk`: an unknown kind.
+pub const CHUNK_KIND: felt252 = 'chunk: kind';
+/// `submit_chunk`: a payload of the wrong length or with impossible values (`chunks::parse`).
+pub const CHUNK_PAYLOAD: felt252 = 'chunk: payload';
+/// `submit_chunk`: another link is stored under the same key (the same one is a no-op).
+pub const CHUNK_CONFLICT: felt252 = 'chunk: conflict';
+
+/// `finalize`: the chain is not valid now.
+pub const FINALIZE_CHAIN: felt252 = 'finalize: chain';
+/// `finalize`: the inputs felts are not exactly one `Inputs`.
+pub const FINALIZE_INPUTS: felt252 = 'finalize: inputs';
+/// `finalize`: the outputs are not the level's, the inputs' (hash, player) or the chain's end.
+pub const FINALIZE_OUTPUTS: felt252 = 'finalize: outputs';
+/// `finalize`: no `init` of the level, or a state with neither a step nor an end (a broken or
+/// unfinished chain).
+pub const FINALIZE_LINK: felt252 = 'finalize: link';
+/// `finalize`: a step's shot is before the previous one's, or not a shot of the inputs.
+pub const FINALIZE_SHOT: felt252 = 'finalize: shot';
+/// `finalize`: more than `chunks::MAX_EDGES` steps.
+pub const FINALIZE_LENGTH: felt252 = 'finalize: length';
+/// `pin_chain` with the zero address or bundle hash.
+pub const CHAIN_ZERO: felt252 = 'chain: zero';
+
 /// `expire`: the player's record on the level is not a provisional one above their settled best.
 pub const EXPIRE_NONE: felt252 = 'expire: none';
 /// `expire`: the provisional record is younger than `expire_delay`.

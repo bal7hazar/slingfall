@@ -19,9 +19,9 @@ use crate::registry::{Best, LEADERBOARD_SIZE, LevelMeta};
 use crate::simulate::MARKER;
 use crate::verifier::{VerifierKind, attestation_message, message_hash};
 use super::fixtures::{
-    ATTESTATION_KEY, ATTEST_CHAIN_ID, ATTEST_EXPIRY, E3A_CHILD_PROGRAM_HASH, GOLDEN_ATTEST_R,
-    GOLDEN_ATTEST_S, GOLDEN_R, GOLDEN_S, MESSAGE_FROM, PLAYER, SECRET, golden_claim,
-    reference_inputs, reference_outputs, simulated_reference_outputs,
+    ATTESTATION_KEY, ATTEST_CHAIN_ID, ATTEST_EXPIRY, BASE_BLOCK, E3A_CHILD_PROGRAM_HASH,
+    GOLDEN_ATTEST_R, GOLDEN_ATTEST_S, GOLDEN_R, GOLDEN_S, MESSAGE_FROM, PLAYER, SECRET,
+    VIRTUAL_OS_HASH, golden_claim, proof_facts, reference_inputs, simulated_reference_outputs,
 };
 use super::{
     ISlingfallAdminDispatcher, ISlingfallAdminDispatcherTrait, ISlingfallAdminSafeDispatcher,
@@ -33,8 +33,10 @@ use super::{
 
 mod governance;
 mod programs;
+mod proven;
 mod settled;
 mod tiers;
+mod upgrade;
 
 /// The program `setup_stub` pins (E3a's `c1main`, the one the settled vectors were proven with).
 const PROGRAM: felt252 = E3A_CHILD_PROGRAM_HASH;
@@ -42,7 +44,6 @@ const PROGRAM: felt252 = E3A_CHILD_PROGRAM_HASH;
 const ADMIN: felt252 = 'admin';
 const AUTHOR: felt252 = 'author';
 const OTHER: felt252 = 'other';
-const VIRTUAL_OS_HASH: felt252 = 0x53f6c9fc;
 
 fn other_class() -> ClassHash {
     0x5117.try_into().unwrap()
@@ -297,6 +298,7 @@ fn test_attestation_accepts_the_golden_vector() {
         won: true,
         settled: false,
         program_hash: PROGRAM,
+        proven: false,
     };
     spy.assert_emitted(@array![(setup.address, Slingfall::Event::LevelValidated(event))]);
     // snforge's signer derives the same public key as the Python helper.
@@ -352,19 +354,24 @@ fn test_snip36_verifier_reads_the_proof_facts() {
     let claim = golden_claim();
     // No program hash configured: rejected even with matching facts.
     let message = message_hash(setup.address.into(), MARKER, claim.to_felts().span());
-    start_cheat_proof_facts(setup.address, array![0, message].span());
+    let facts = |program: felt252, messages: Array<felt252>| {
+        proof_facts(program, BASE_BLOCK, messages.span())
+    };
+    start_cheat_proof_facts(setup.address, facts(0, array![message]).span());
     assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), array![])), 'submit: proof');
     as_caller(setup, ADMIN);
     setup.admin.set_virtual_os_hash(VIRTUAL_OS_HASH);
     as_caller(setup, PLAYER);
-    // Wrong program, then a message from another contract.
-    start_cheat_proof_facts(setup.address, array![VIRTUAL_OS_HASH + 1, message].span());
+    // Wrong program, a message from another contract, v2's provisional layout.
+    start_cheat_proof_facts(setup.address, facts(VIRTUAL_OS_HASH + 1, array![message]).span());
     assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), array![])), 'submit: proof');
     let foreign = message_hash(0x5afe, MARKER, claim.to_felts().span());
-    start_cheat_proof_facts(setup.address, array![VIRTUAL_OS_HASH, foreign].span());
+    start_cheat_proof_facts(setup.address, facts(VIRTUAL_OS_HASH, array![foreign]).span());
+    assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), array![])), 'submit: proof');
+    start_cheat_proof_facts(setup.address, array![VIRTUAL_OS_HASH, message].span());
     assert_eq!(panic_of(setup.safe.submit(claim.to_felts(), array![])), 'submit: proof');
     // The facts of `simulate`'s message.
-    start_cheat_proof_facts(setup.address, array![VIRTUAL_OS_HASH, 0x1, message].span());
+    start_cheat_proof_facts(setup.address, facts(VIRTUAL_OS_HASH, array![0x1, message]).span());
     setup.game.submit(claim.to_felts(), array![]);
     let best = setup.game.best(address(PLAYER), PILE10_HASH);
     // The record names the simulation class (unset here).
