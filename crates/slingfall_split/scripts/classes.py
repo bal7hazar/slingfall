@@ -8,7 +8,8 @@
 
 Derived: `Scarb.toml`'s `build-external-contracts`, `tests/harness.cairo`'s `classes()`,
 `src/hashes.cairo`'s `pinned()` entries of the rapier classes (a new class gets a placeholder
-constant: run `pin.py` next), `client/src/chain/slingfall.ts`'s `SPLIT_BUNDLE_CLASSES`.
+constant: run `pin.py` next), `client/src/chain/slingfall.ts`'s `SPLIT_BUNDLE_CLASSES`. Run
+`scarb fmt --workspace` after a rewrite (`--check` ignores the formatter's layout).
 `services/prove/snip36.py` reads the JSON itself. Python 3 standard library only.
 """
 import json
@@ -63,12 +64,17 @@ TARGETS = [(PACKAGE / "Scarb.toml", scarb), (PACKAGE / "tests" / "harness.cairo"
            (PACKAGE / "src" / "hashes.cairo", hashes), (TS, typescript)]
 
 
+def same(a: str, b: str) -> bool:
+    """Equal but for `scarb fmt`'s layout (whitespace, trailing commas)."""
+    return re.sub(r"\s+|,(?=\s*[\])])", "", a) == re.sub(r"\s+|,(?=\s*[\])])", "", b)
+
+
 def main() -> int:
     stale = []
     for path, derive in TARGETS:
         old = path.read_text()
         new = derive(old)
-        if new != old:
+        if not same(new, old):
             stale.append(path)
             if "--check" not in sys.argv:
                 path.write_text(new)
