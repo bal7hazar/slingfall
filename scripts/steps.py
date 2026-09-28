@@ -60,6 +60,11 @@ def is_probe(test: str) -> bool:
 def module_of(test: str) -> tuple[str, str]:
     parts = test.split("::")
     crate = parts[0]
+    # A crate whose tests live in `tests/` is reported as `<crate>_tests` (or `_integrationtest`):
+    # its snapshots belong to `steps/<crate>/`.
+    for suffix in ("_integrationtest", "_tests"):
+        if crate.endswith(suffix) and crate[: -len(suffix)] in crates():
+            crate = crate[: -len(suffix)]
     module = parts[1] if len(parts) > 2 and parts[1] != "tests" else "lib"
     return crate, module
 
