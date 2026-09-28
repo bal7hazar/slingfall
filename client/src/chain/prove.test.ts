@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProgramMismatchError, describeJob, fetchHealth, proofStatus, requestProof, settleLabel, waitCheap, waitRelayed, waitSettleable } from './prove';
+import {
+  ChainMismatchError,
+  ProgramMismatchError,
+  describeJob,
+  fetchHealth,
+  proofStatus,
+  requestProof,
+  settleLabel,
+  waitCheap,
+  waitRelayed,
+  waitSettleable,
+} from './prove';
 
 const JOB = {
   id: 'bcbdf222b4585dc0821f5b88135a3026',
@@ -141,7 +152,62 @@ describe('prover service client', () => {
       contractProgramHash: '0x1',
       programMatch: true,
       relay: '0xre1a7',
+      proven: null,
     });
     expect(vi.mocked(fetchFn).mock.calls[0][0]).toBe('http://prove/health');
+  });
+});
+
+describe('proven tier (SNIP-36)', () => {
+  const PROVEN_JOB = {
+    id: 'f55f0fdd2eeb24d7d4ab25e6aeaaf0f2',
+    tier: 'proven',
+    state: 'proving',
+    level_hash: JOB.level_hash,
+    inputs: JOB.inputs,
+    proven: false,
+    settleable: false,
+    plan: { transactions: 4 },
+    proofs: [{ state: 'proved', messages: 2 }, { state: 'proving' }, { state: 'pending' }, { state: 'pending' }],
+    error: null,
+  };
+  const PROVEN = {
+    ...PROVEN_JOB,
+    state: 'proven',
+    proven: true,
+    proofs: PROVEN_JOB.proofs.map((p, i) => ({ ...p, state: 'submitted', transaction_hash: `0x70${i}` })),
+    finalize: { state: 'finalized', transaction_hash: '0xf1' },
+  };
+
+  it('asks for the proven tier and follows the proofs until proven', async () => {
+    const fetchFn = answers([202, { ...PROVEN_JOB, state: 'queued', proofs: undefined }], [200, PROVEN_JOB], [200, { ...PROVEN_JOB, state: 'submitting' }], [200, PROVEN]);
+    const job = await requestProof('http://prove/', JOB.level_hash, JOB.inputs, fetchFn, 'proven');
+    expect(JSON.parse(String(vi.mocked(fetchFn).mock.calls[0][1]?.body))).toEqual({ level: JOB.level_hash, inputs: JOB.inputs, tier: 'proven' });
+    expect(job).toMatchObject({ tier: 'proven', state: 'queued', proven: false, proofs: [] });
+    expect(describeJob(job)).toContain('planning the SNIP-36 chain');
+    const seen: string[] = [];
+    const done = await waitSettleable('u', job.id, (j) => seen.push(describeJob(j)), { fetchFn, sleep: async () => {} });
+    expect(done).toMatchObject({ proven: true, finalizeTransactionHash: '0xf1' });
+    expect(done?.proofs.map((p) => p.transactionHash)).toEqual(['0x700', '0x701', '0x702', '0x703']);
+    expect(seen).toEqual([
+      'proving by SNIP-36: 1/4 transactions proven',
+      'sending the SNIP-36 proofs to the contract: 0/4',
+      'proven by SNIP-36 on Starknet (finalized by the prover service in 0xf1)',
+    ]);
+  });
+
+  it('reads the proven path of /health and refuses a chain mismatch (409)', async () => {
+    const proven = { available: true, prover: 'fake', chain: '0xc4a1', own_bundle_hash: '0xbd', bundle_hash: '0xbd', chain_match: true };
+    const health = await fetchHealth('http://prove/', answers([200, { result: 'PROOF_VERIFICATION_ON_L2', proven }]));
+    expect(health.proven).toEqual({ available: true, prover: 'fake', chain: '0xc4a1', bundleHash: '0xbd', chainMatch: true });
+    const refused = answers([409, { error: 'prove: chain mismatch', chain: '0xc4a1', own_bundle_hash: '0xbd', bundle_hash: '0xbe', chain_match: false }]);
+    const error = await requestProof('u', JOB.level_hash, JOB.inputs, refused, 'proven').catch((e) => e);
+    expect(error).toBeInstanceOf(ChainMismatchError);
+    expect(error.message).toContain('chain mismatch');
+  });
+
+  it('stops on a failed proof', async () => {
+    const failed = { ...PROVEN_JOB, state: 'failed', error: 'prover: proving failed' };
+    await expect(waitSettleable('u', PROVEN_JOB.id, () => {}, { fetchFn: answers([200, failed]), sleep: async () => {} })).rejects.toThrow('prover: proving failed');
   });
 });
