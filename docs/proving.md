@@ -459,6 +459,7 @@ is refused with `'submit: program'` after it.
 | alpha.3 | B2 / E3b | 459 803 | `0x674479c20ac59520857856f672b063c6896d7ef1c86d385c54bb5982c72cf99` | 2026-09-26 (E3b's deployment) |
 | alpha.5 | B3 | 582 399 | `0x3f961b5c5b590fbc720048672b0ddeda96aa52ab16b56365f6d1583c5ed27ec` | 2026-09-27 (`set_satellite_config` tx `0x1f3652885aec68ea61add59bb3814dbd44e55669f8e5727d74c347dc28a1447`) |
 | alpha.6 | B4 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` | 2026-09-27 (v1: `set_satellite_config` tx `0x4a77159da8decd6f2659649e642b488d154e737618566e4219ea589845d4bdf`; v2, lot D2: `pin_program(hash, 0)` in the `configure` tx `0x6079548cffbd0d81aae63468e0fb4a36833b0377983982b2e150461eb4fe3b0`) |
+| alpha.7 | B5 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` (the alpha.6 hash) | no transaction: the program hash is unchanged (`fixtures/proofs/atlantic/child-hash-alpha7.json`) |
 
 The felt count jumps 26.6 % from alpha.3 to alpha.5 (CC1 + CC2 + LO2 + SH2a: shape casts, the CCD
 solver, Polyline / HeightField), well past a rapier2d MINOR version's usual size drift; none of it
@@ -472,6 +473,11 @@ and the other shapes' generators are no longer in the program: `c1main` 582 399 
 (-53.3 %), `SlingfallSim` 273 632 -> 140 568 Sierra felts (-48.6 %). The SF1 numeric change
 (exactly closed contact gaps solve rigidly) changes the `final_state_hash` of the goldens whose
 pile is hit; scores, wins and ticks are unchanged.
+
+alpha.7 (B5) changes nothing the game runs: the 11 golden cases are bit-identical (outputs,
+`final_state_hash`) and take exactly the same Cairo steps, the replay executables and `ball_drop`
+rebuild byte-identical, and `c1main`'s program hash is the alpha.6 one, so the Sepolia
+v2 pin needs no `pin_program` (the contract's `current_program()` already is that hash).
 
 ### Contract side (E3b): `SatelliteVerifier`
 

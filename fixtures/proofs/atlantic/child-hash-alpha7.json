@@ -1,0 +1,10 @@
+{
+  "note": "B5: c1main's program hash after the rapier2d alpha.7 bump (docs/proving.md \"Program hash history\"). It is the alpha.6 hash: the compiled program is unchanged, so no Sepolia transaction was sent. No Atlantic query was submitted for this record.",
+  "rapier2d_version": "0.1.0-alpha.7",
+  "data_felts": 271833,
+  "child_program_hash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a",
+  "computed_from": "cairo1-run --layout all_cairo --append_return_values --cairo_pie_output on tools/atlantic/c1main's Sierra (pile10-reference args, player 'player'), then atlantic.py program-hash --pie",
+  "date": "2026-09-28",
+  "outputs_check": "the PIE's Program Output equals fixtures/golden/pile10-reference.json's outputs bit for bit (score 5200, 107 ticks, final_state_hash unchanged from alpha.6)",
+  "sepolia": "no transaction: deploy/sepolia.json's program.current (contract v2) equals this hash; current_program() and program_valid_until(hash) (u64 max) read back on Sepolia"
+}
