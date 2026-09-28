@@ -20,6 +20,12 @@ usage:
       module path (N segments), its K heaviest functions, and the exclusive statements of the
       engine code the game never runs (`UNREACHABLE`, a cut of the call graph). H: `replay`
       (default, the real hook), `stub`, or a `slingfall_sizes::hooks` impl.
+  tools/classsize/classsize.py split [--no-build] [--profile P]
+      build the nested package `crates/slingfall_split` (spike S36a: the game's chunk on
+      declared classes, rapier2d alpha.7) and print its classes against the programme's
+      declared-class gate (`GATE`, 73,728 Sierra and CASM felts) and the Starknet limits, with the
+      margin of each; exit 1 when a class of a layout marked shippable (`SPLIT_SHIPPABLE`) is over
+      the gate.
   tools/classsize/classsize.py strategies [--strategy S ...] [--cairo 'KEY = VALUE' ...]
       rebuild the `slingfall_sizes` fixtures in a temporary package (its own workspace: scarb
       only applies the `[cairo]` of the workspace root) once per `[cairo]` variant:
@@ -70,6 +76,13 @@ ORDER = [
 # `check`: the class that must stay declarable, and the one that is only reported.
 REGISTRY_CLASS = "Slingfall"
 SIM_CLASS = "SlingfallSim"
+
+# The programme's gate for a declared class of the SNIP-36 path (rapier-cairo CS6: 73,728 felts in
+# Sierra and in CASM, 8,192 under Starknet's 81,920), and the spike's package.
+GATE = 73728
+SPLIT = ROOT / "crates" / "slingfall_split"
+# The classes a shippable layout declares (checked by `split`); the others are measured only.
+SPLIT_SHIPPABLE = []
 
 HOOKS = {
     "replay": "slingfall_contract::simulate::replay_hook::ReplaySimulateHook",
@@ -184,6 +197,32 @@ def check(build):
         sys.exit(f"classsize check FAILED, `{REGISTRY_CLASS}` over the Starknet limits: "
                  + "; ".join(over))
     print(f"\nclasssize check ok: `{REGISTRY_CLASS}` is within the Starknet limits")
+
+
+def split(build, profile):
+    """The classes of `crates/slingfall_split` against `GATE`, with their margins."""
+    manifest = str(SPLIT / "Scarb.toml")
+    if build:
+        args = ["--manifest-path", manifest] + (["--profile", profile] if profile != "dev" else [])
+        scarb(ROOT, args + ["build"])
+    # The package's own artifacts (snforge also writes `slingfall_split_tests.test.*`, Sierra only).
+    rows = measure(SPLIT / "target" / profile, "slingfall_split")
+    print(f"\n### Classes of crates/slingfall_split ({profile} profile)\n")
+    print("| class | Sierra felts | margin | CASM felts | margin | class bytes | CASM class bytes |")
+    print("|---|--:|--:|--:|--:|--:|--:|")
+    over = []
+    for name in sorted(rows):
+        r = rows[name]
+        margin = {m: None if r[m] is None else GATE - r[m] for m in ("sierra_felts", "casm_felts")}
+        print(f"| `{name}` | {fmt(r['sierra_felts'])} | {fmt(margin['sierra_felts'])} "
+              f"| {fmt(r['casm_felts'])} | {fmt(margin['casm_felts'])} "
+              f"| {fmt(r['sierra_bytes'])} | {fmt(r['casm_bytes'])} |")
+        if name in SPLIT_SHIPPABLE and any(v is not None and v < 0 for v in margin.values()):
+            over.append(name)
+    print(f"\nGate: {GATE:,} Sierra and CASM felts per declared class (Starknet: "
+          f"{LIMITS['casm_felts']:,}); margin = gate - size.")
+    if over:
+        sys.exit("classsize split FAILED, over the gate: " + ", ".join(over))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -362,8 +401,11 @@ def attribution_build(hook, strategy, dump):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", nargs="?", default="table", choices=["table", "check", "attribution", "strategies"])
-    ap.add_argument("--no-build", action="store_true", help="table, check: measure target/dev as it is")
+    ap.add_argument("cmd", nargs="?", default="table",
+                    choices=["table", "check", "attribution", "strategies", "split"])
+    ap.add_argument("--no-build", action="store_true",
+                    help="table, check, split: measure the target directory as it is")
+    ap.add_argument("--profile", default="dev", help="split: scarb profile (dev, release)")
     ap.add_argument("--hook", default="replay", help="attribution: replay, stub or a hooks impl")
     ap.add_argument("--depth", type=int, default=2, help="attribution: module path segments")
     ap.add_argument("--top", type=int, default=25, help="attribution: heaviest functions shown")
@@ -378,6 +420,8 @@ def main():
         table(not a.no_build)
     elif a.cmd == "check":
         check(not a.no_build)
+    elif a.cmd == "split":
+        split(not a.no_build, a.profile)
     elif a.cmd == "strategies":
         lines = [f"inlining-strategy = {strategy_toml(s)}" for s in a.strategy or []] + a.cairo
         strategies(lines or ['inlining-strategy = "default"', 'inlining-strategy = "avoid"'])
