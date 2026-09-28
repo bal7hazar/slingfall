@@ -84,8 +84,8 @@ import type { Receipt } from '../client/src/chain/submission.ts';
 const root = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url));
 const ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_Slingfall';
 const FAKE_ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_FakeSatellite';
-// `docs/proving.md` "Program hash history": the pinned `c1main` (rapier2d alpha.6, lot B4,
-// `fixtures/proofs/atlantic/child-hash-alpha6.json`), Atlantic's bootloader, Integrity's SHARP
+// `docs/proving.md` "Program hash history": the pinned `c1main` (rapier2d alpha.6, lot B4; unchanged by alpha.7, lot B5,
+// `fixtures/proofs/atlantic/child-hash-alpha7.json`), Atlantic's bootloader, Integrity's SHARP
 // bootloader, Herodotus's Satellite on Sepolia.
 const CHILD_PROGRAM_HASH = '0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a';
 const ATLANTIC_BOOTLOADER_HASH = '0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09';
