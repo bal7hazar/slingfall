@@ -1,7 +1,7 @@
 # 07 — The game's chunk on declared classes (SNIP-36 path): sizes and steps measured (S36a)
 
 Date: 2026-09-28. Author: S36a executor (Opus 5.5). Toolchain: scarb / Cairo 2.19.4, snforge 0.61.0,
-`rapier2d` / `rapier2d_classes` `=0.1.0-alpha.7`. Base: `main` at `36def9d`. Code: `crates/slingfall_split`
+`rapier2d` / `rapier2d_classes` `=0.1.0-alpha.7` (alpha.8 since lot B6: "Status after B6"). Base: `main` at `36def9d`. Code: `crates/slingfall_split`
 (spike, not published). Sizes: `python3 tools/classsize/classsize.py split` (dev profile; the release profile gives the
 same figures). Steps: exact Cairo steps from `snforge test --detailed-resources` (the library-called classes and the
 syscalls included), each probe's own setup subtracted.
@@ -124,6 +124,68 @@ Lot H3 builds, gates, pins and declares only the classes the game's layout calls
   45.9 s after, within noise: the crate's compile is dominated by the classes that stay.
 - **Layout (f)** (`ForceEventsClass`, probes) is no longer built: re-running its probes needs
   `rapier2d_classes::forces::ForceEventsClass` added to `classes.json`'s `rapier` (and `classes.py`, `pin.py`).
+
+## Status after B6 (2026-09-29)
+
+Lot B6 moves the crate to rapier2d / rapier2d_classes / rapier_dynamics2d `=0.1.0-alpha.8` (`fixed` 0.4.0, `glam_core`
+0.4.1). Step results are unchanged (the 11 goldens bit-identical with the same steps; the window probes of `m`
+reproduce main's states), every class hash changes, and rapier's slim caller is smaller (`SlimSplitStep` 67,076 CASM,
+was 73,083).
+
+- **The world class fits the gate.** `WorldClass` is **71,076 CASM** (28,203 Sierra), margin 2,652 under 73,728:
+  `WORLD_GATE = GATE` in `tools/classsize`. Every declared class is gated at 73,728; the smallest CASM margins are
+  `WorldClass` 2,652, `NarrowPhaseClass` 5,356 (rapier's, now holding the polygon contacts), `FallbackGame` 6,102,
+  `StepClass` 7,338, `SettleClass` 7,356.
+- **Rapier's `WorldEditClass` replaces the game's `EditClass`.** The rules class writes the tick's edits as
+  `rapier2d_classes::WorldEdit`s (`world::world_edits`: `Remove`, `Sleep`, and the pebble as a `BodyInsert` built
+  from the same values as `insert_pebble`), `WorldClass` forwards them to `WorldEditClass::edit` unchanged, and
+  `init`'s sleeps go through it too (`BuildClass` writes them, `SettleClass` returns `edit`'s calldata beside the
+  rules, `SplitChain::init` splits it without decoding). The game's `EditClass` is `probes::layouts::EditClass`
+  (layout (d) only). Measured both ways on alpha.8, same transaction boundaries:
+
+  | | game's `EditClass` | rapier's `WorldEditClass` |
+  |---|--:|--:|
+  | edit class (CASM) | 55,440 | 51,865 |
+  | `WorldClass` (CASM) | 71,076 | 71,076 |
+  | owner's shot, 7 transactions (alpha.7 boundaries) | 35.43M | 35.52M |
+  | of which `init` | 0.749M | 0.833M |
+  | reference shot, 4 transactions | 15.84M | 15.93M |
+
+  The world class compiles the same code (only the class-hash constant differs); the chunks cost 2-3k steps more
+  each, `init` 84k more (the sleeps' framing through three classes). Not worse on the gate, the class count (one
+  class of the game's less to keep) or the transactions; +0.25 % steps on a shot. Adopted.
+- **Classes.** `ContactPolygonClass` is not called any more (its pairs are in `NarrowPhaseClass`), `WorldEditClass`
+  is: `classes.py --measure` gives exactly `classes.json` (layout (e) and the fallback (b) both call
+  `ActiveSetClass`, `BroadPhaseClass`, `ContactBallClass`, `IslandsClass`, `MassClass`, `NarrowPhaseClass`,
+  `SolveAdvanceClass`, `WorldEditClass`). 16 classes built (was 17), **14 declared** by `deploy-split` (was 15).
+  Bundle order: `SplitChain`, `BuildClass`, `SettleClass`, `WorldClass`, `OutputsClass`, `RulesClass`,
+  `WorldEditClass`, `ContactBallClass`, `SolveAdvanceClass`, `IslandsClass`, `BroadPhaseClass`, `MassClass`,
+  `NarrowPhaseClass`, `ActiveSetClass`. Bundle hash
+  `0x8a629c64c8e6c34dcc4cd0f29fd51c2c34d19cefe83647335a98825ddd7368`, pinned in Cairo (`hashes::BUNDLE_HASH`, checked
+  by `test_pinned_class_hashes`; `pin.py` rewrites it) and checked by the prover service's and the client's tests.
+- **Bit-identity.** The 21 window probes of `e` and `m`, the 16 tick-by-tick probes (`ticks_`, layouts (b) and (e),
+  both shots: main's state after every tick) and the whole chain on the reference shot (main's first state, main's
+  outputs) pass on alpha.8 with `WorldEditClass`.
+- **Steps, layout (e).** Window probes (each window its own chunk):
+
+  | | flight | impact, owner | impact, reference | steady, owner | owner's shot | reference shot |
+  |---|--:|--:|--:|--:|--:|--:|
+  | main (`m`), unchanged | 20,208 | 211,631 | 266,250 | 198k | 23.77M | 9.79M |
+  | (e) alpha.7 | 57,548 | 337,670 | 404,585 | 298k | 37.60M | 16.91M |
+  | **(e) alpha.8** | **58,356** | **323,017** | **384,748** | **281k** | **35.61M** (+49.8 %) | **16.28M** |
+
+  The greedy packing of the owner's windows under 10M is now 4 chunks (0-60, 60-90, 90-120, 120-151), was 5.
+  Measured through `SplitChain` (`tests/transactions.cairo`, regenerated with those boundaries):
+
+  | owner's shot, (e) | `init` | 0-60 | 60-90 | 90-120 | 120-151 | `outputs` | total |
+  |---|--:|--:|--:|--:|--:|--:|--:|
+  | steps | 0.833M | 8.414M | 9.215M | 8.190M | 8.556M | 0.077M | **35.29M in 6 transactions** (alpha.7: 37.50M in 7) |
+
+  Reference shot: `init` 0.833M, 0-90 7.820M, 90-107 7.170M, `outputs` 0.105M (15.93M in 4). The fallback (b):
+  owner 50.10M in 9, reference 30.03M in 6 (its chunk 0-50 is 9.64M, close to the limit). Step probes
+  `steps_chain_e_reference` 16,268,725 (was 16,888,755), `steps_init_world_is_mains` 898,449 (was 934,075).
+- **Proofs** (the planner budgets the node's L2 gas, 1.0e9 per virtual transaction; `docs/proving.md` "Cost sheet on
+  alpha.8"): owner's shot 6 proofs, 10.12 STRK; reference shot 3 proofs, 5.25 STRK.
 
 ## 1. How it was measured
 

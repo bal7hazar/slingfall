@@ -19,7 +19,7 @@ Promoted from the spike `pm/spikes/wasm-vm` (docs/research/03 and 04).
 | `fixtures/replay/` | the executables the client runs: `init`, `step_chunk`, `outputs` and `main_trace` (tests), all four built from `crates/slingfall_replay` (lots G4, G4c) |
 | `fixtures/pile10-reference.main_trace.txt` | `scarb execute` of `main_trace` on pile10, reference shot (the lines and outputs the tests compare with) |
 | `fixtures/pile10-*.args.json` | `tools/tracec/tracec.py args` on pile10 (the argument-encoding tests) |
-| `fixtures/ball_drop/` | the G1c stand-in executable's source (spike G1b copy, registry `rapier2d` `=0.1.0-alpha.7` since lot B5) |
+| `fixtures/ball_drop/` | the G1c stand-in executable's source (spike G1b copy, registry `rapier2d` `=0.1.0-alpha.8` since lot B6, byte-identical build) |
 | `fixtures/ball_drop.executable.json` | its build (the runner's bit-exactness tests and `bench.mjs` load it) |
 | `fixtures/pile12-mode3-120.state.txt` | golden: pile12's state after 120 uninterrupted ticks (`mode 3`, native) |
 | `../src/vm/` | TypeScript: sizing rule, chunk loop, worker, `WorkerTraceSource` |

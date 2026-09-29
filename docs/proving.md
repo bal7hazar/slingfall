@@ -460,6 +460,7 @@ is refused with `'submit: program'` after it.
 | alpha.5 | B3 | 582 399 | `0x3f961b5c5b590fbc720048672b0ddeda96aa52ab16b56365f6d1583c5ed27ec` | 2026-09-27 (`set_satellite_config` tx `0x1f3652885aec68ea61add59bb3814dbd44e55669f8e5727d74c347dc28a1447`) |
 | alpha.6 | B4 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` | 2026-09-27 (v1: `set_satellite_config` tx `0x4a77159da8decd6f2659649e642b488d154e737618566e4219ea589845d4bdf`; v2, lot D2: `pin_program(hash, 0)` in the `configure` tx `0x6079548cffbd0d81aae63468e0fb4a36833b0377983982b2e150461eb4fe3b0`) |
 | alpha.7 | B5 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` (the alpha.6 hash) | no transaction: the program hash is unchanged (`fixtures/proofs/atlantic/child-hash-alpha7.json`) |
+| alpha.8 (`fixed` 0.4.0, `glam_core` 0.4.1) | B6 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` (the alpha.6 hash) | no transaction: the program hash is unchanged (`fixtures/proofs/atlantic/child-hash-alpha8.json`) |
 
 The felt count jumps 26.6 % from alpha.3 to alpha.5 (CC1 + CC2 + LO2 + SH2a: shape casts, the CCD
 solver, Polyline / HeightField), well past a rapier2d MINOR version's usual size drift; none of it
@@ -478,6 +479,13 @@ alpha.7 (B5) changes nothing the game runs: the 11 golden cases are bit-identica
 `final_state_hash`) and take exactly the same Cairo steps, the replay executables and `ball_drop`
 rebuild byte-identical, and `c1main`'s program hash is the alpha.6 one, so the Sepolia
 v2 pin needs no `pin_program` (the contract's `current_program()` already is that hash).
+
+alpha.8 (B6, with `fixed` 0.4.0 and `glam` replaced by `glam_core` 0.4.1) changes nothing the game runs
+either: the 11 goldens are bit-identical with the same Cairo steps, the replay executables and
+`ball_drop` rebuild byte-identical, and `c1main`'s Sierra differs from alpha.7's only by the ids of
+24 user types (hashes of their paths, `glam::` -> `glam_core::`), which the CASM does not carry: same
+program hash, no `pin_program` (read back on Sepolia: `current_program()` is that hash, valid
+forever).
 
 ### Contract side (E3b): `SatelliteVerifier`
 
@@ -784,8 +792,12 @@ proves only what is missing. `/status/<id>` says `"tier": "proven"`, the job's `
 `proofs` (`pending`, `proving`, `proved`, `ripening`, `submitted`, with its transaction and gas), `finalize`.
 
 **Program check.** The service's release is a *bundle*: Poseidon of the ordered class hashes of
-`crates/slingfall_split/src/hashes.cairo` (`SplitChain`, its five constructor classes, then `RulesClass` and
-the eight rapier stage classes the game calls, one list in `crates/slingfall_split/classes.json`; `snip36.BUNDLE_CLASSES`, `client/src/chain/slingfall.ts` `SPLIT_BUNDLE_CLASSES`). A
+`crates/slingfall_split/src/hashes.cairo` (`SplitChain`, its four constructor classes of the crate, `RulesClass`,
+then rapier's `WorldEditClass` and the seven stage classes the game calls: 14 classes since lot B6, one list in
+`crates/slingfall_split/classes.json`; `snip36.BUNDLE_CLASSES`, `client/src/chain/slingfall.ts`
+`SPLIT_BUNDLE_CLASSES`). The crate pins the value itself (`hashes::BUNDLE_HASH`, alpha.8:
+`0x8a629c64c8e6c34dcc4cd0f29fd51c2c34d19cefe83647335a98825ddd7368`), and the Cairo, Python and TypeScript tests
+check that the three computations agree. A
 proven job is refused with 409 unless `chain_bundle(current_chain())` is that bundle and `chain_valid_until(chain) >
 now`; `/health`'s `proven.available` says so before any request, and the client then offers the settled path.
 
@@ -816,3 +828,35 @@ public RPC: L2 gas 21.390 gFri, L1 data gas 530.55 gFri.
   prover a few seconds per transaction.
 * Compare: the settled tier's `submit_settled` of the same shot on the devnet costs 6.7M L2 gas (0.14 STRK) plus
   Atlantic's proof (free on testnet, L-size credits on mainnet, ≈ 1.5 h); the attested `submit` 5.2M (0.11 STRK).
+
+### Cost sheet on alpha.8 (lot B6)
+
+The same measurement as W3's, on rapier alpha.8 (layout (e), `WorldClass` 71,076 CASM, rapier's
+`WorldEditClass`), both pile10 shots proven end to end on a local starknet-devnet 0.10.0 by the fake prover
+(`prove_service.py prove --tier proven --snip36 fake`, budget 1.0e9 L2 gas per virtual transaction, outputs equal to
+main's golden). Prices: Sepolia block 15,804,508 (2026-09-29 05:47 UTC, Starknet 0.14.4), public RPC
+(`starknet-sepolia-rpc.publicnode.com`): L2 gas 21.102 gFri, L1 data gas 522.73 gFri.
+
+**The owner's shot** (player `'player'`, pull (-1022, -63), 151 ticks, 5,300 points):
+
+| | virtual tx L2 gas | messages | Invoke L2 gas | of which proof | of which `submit_chunk` + account | L1 data gas | STRK |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| proof 0: `init` + chunks 0-45, 45-53 | 961,487,680 | 3 | 79,675,280 | 75,000,000 | 4,675,280 | 512 | 1.682 |
+| proof 1: chunk 53-72 | 929,610,240 | 1 | 77,321,760 | 75,000,000 | 2,321,760 | 320 | 1.632 |
+| proof 2: chunks 72-91, 91-92 | 962,560,320 | 2 | 78,787,200 | 75,000,000 | 3,787,200 | 448 | 1.663 |
+| proof 3: chunks 92-105, 105-114 | 970,665,280 | 2 | 78,787,200 | 75,000,000 | 3,787,200 | 448 | 1.663 |
+| proof 4: chunk 114-135 | 904,435,200 | 1 | 77,321,760 | 75,000,000 | 2,321,760 | 320 | 1.632 |
+| proof 5: chunk 135-151 + `outputs` | 716,254,720 | 2 | 78,341,040 | 75,000,000 | 3,341,040 | 384 | 1.653 |
+| `finalize` (10 links walked) | | | 9,060,560 | | 9,060,560 | 1,024 | 0.192 |
+| **shot** | 5,445,013,440 | 11 | **479,294,800** | 450,000,000 | 29,294,800 | 3,456 | **10.12** |
+
+**The reference shot** (107 ticks): 3 proofs (`init` + chunks to tick 84; chunks 84-97; chunk 97-107 + `outputs`),
+virtual L2 gas 955.2M / 941.6M / 748.2M, Invokes 248,634,960 L2 gas (225M of it the proofs), `finalize` 8.9M:
+**5.25 STRK** (W3 on alpha.7: 4 proofs, 6.84 STRK at 21.39 gFri).
+
+* In snforge steps the owner's shot is 35.29M in 6 transactions of at most 9.22M (`init` 0.83M, chunks 0-60 8.41M,
+  60-90 9.22M, 90-120 8.19M, 120-151 8.56M, `outputs` 0.08M; research 07 "Status after B6"); alpha.7: 37.50M in 7.
+  The node's L2 gas is what the planner budgets (about 150 L2 gas per step on the heavy ticks), hence 6 proofs at
+  1.0e9 rather than 4 by steps.
+* The 75M L2 gas per proof is 94 % of the cost (9.50 of 10.12 STRK): the proof count is still the lever.
+

@@ -205,23 +205,25 @@ v2 until a SNIP-36 proof can be made there, `docs/proving.md` "SNIP-36 tier"):
 | v3 piece | where |
 |---|---|
 | `upgrade(v3)` of a v2 deployment, every v2 value read back | `deploy/v2.sh` (v2's class rebuilt from the D2 commit, its hash checked against `deploy/sepolia.json`), `deploy/slingfall.ts deploy --artifacts` / `upgrade --declare` / `snapshot`, `deploy/e2e.sh` |
-| a chain deployment = a bundle: layout (e)'s classes declared, `SplitChain(build, settle, edit, world, outputs, raw = true)` | `deploy/slingfall.ts deploy-split` (hashes from `slingfall_split::hashes`; refuses a `SplitChain` class with any entry point but `init`, `step_chunk`, `outputs`; reads the deployment back), `deploy/split.ts` |
+| a chain deployment = a bundle: layout (e)'s classes declared, `SplitChain(build, settle, edit, world, outputs, raw = true)` (`edit` = rapier's `WorldEditClass` since B6) | `deploy/slingfall.ts deploy-split` (hashes from `slingfall_split::hashes`; refuses a `SplitChain` class with any entry point but `init`, `step_chunk`, `outputs`; reads the deployment back), `deploy/split.ts` |
 | `set_chunk_marker('SLINGFALL')`, `pin_virtual_os`, `revoke_virtual_os`, `pin_chain(chain, bundle, grace)` (bundle hash = Poseidon of the ordered class hashes, recomputed from the chain's class and storage, printed), `revoke_chain`; reads | `deploy/slingfall.ts set-chunk-marker` / `pin-virtual-os` / `revoke-virtual-os` / `pin-chain` / `revoke-chain` / `chain`, `deploy/devnet.sh proven` |
 | `submit_chunk` per message with the proof attached, `finalize` for `inputs.player` (a relay) | `services/prove/snip36.py` (plan, prove through `FakeProver` / `Snip36Prover`, submit, finalize), `deploy/slingfall.ts submit-proof` / `finalize` / `sign-virtual` |
 | the proven tier's program check: `chain_bundle(current_chain())` = the service's bundle, `chain_valid_until > now` | `services/prove/prove_service.py` (409, `/status`, `/health` `proven`) |
 | `attempt()` = 3 (`PROVEN`), `LevelValidated.proven`, a proven record's `program_hash` = its bundle hash | `client/src/chain/slingfall.ts` (`ATTEMPT.proven`, `LevelValidated.proven`, `readBoards`: each row's proof, `describeProof`), `panel.ts` (the proven path when `/health` offers it, the settled one otherwise), `deploy/slingfall.ts attempt` / `boards` |
 
 The bundle order (`SPLIT_BUNDLE_CLASSES`, `snip36.BUNDLE_CLASSES`, both derived from
-`crates/slingfall_split/classes.json`, lot H3): `SplitChain`, `BuildClass`, `SettleClass`, `EditClass`, `WorldClass`,
-`OutputsClass` (the chain's class and its constructor's, in constructor order), then the classes `WorldClass`
-compiles in: `RulesClass`, and the eight rapier classes the game's layouts call, `ContactBallClass`,
-`ContactPolygonClass`, `SolveAdvanceClass`, `IslandsClass`, `BroadPhaseClass`, `MassClass`, `NarrowPhaseClass`,
-`ActiveSetClass` (15 classes; `SolverClass` and `ForceEventsClass` are neither built nor declared: the slim layout
-never calls them, `docs/research/07-split-game-step.md` "Status after H3"). On today's pins:
-`0x31e8cf85968b72f60645e8687591a8c7dacb476f60cbfe07fb9ef3341351fbd` (H2's 17-class bundle was
+`crates/slingfall_split/classes.json`, lot H3): the crate's classes, `SplitChain`, `BuildClass`, `SettleClass`,
+`WorldClass`, `OutputsClass`, `RulesClass`, then the rapier classes the game calls, `WorldEditClass` (the
+constructor's `edit` since lot B6: rapier's World edits replaced the game's `EditClass`), `ContactBallClass`,
+`SolveAdvanceClass`, `IslandsClass`, `BroadPhaseClass`, `MassClass`, `NarrowPhaseClass`, `ActiveSetClass` (14
+classes; `ContactPolygonClass` is not called on rapier alpha.8, `SolverClass` and `ForceEventsClass` never were:
+none is built or declared, `docs/research/07-split-game-step.md` "Status after B6"). On today's pins (alpha.8):
+`0x8a629c64c8e6c34dcc4cd0f29fd51c2c34d19cefe83647335a98825ddd7368`, the crate's `hashes::BUNDLE_HASH` (H3's 15-class
+bundle on alpha.7 was `0x31e8cf85968b72f60645e8687591a8c7dacb476f60cbfe07fb9ef3341351fbd`, H2's 17-class bundle
 `0x5bb15de9dd18b5b54ac337bb16aea411064a56a7f4449991bc7e2913dcfc06f`).
 
 `deploy/e2e.sh` runs it on the devnet: a v2 deployment with three attested records, upgraded (every value read
-back), the proven tier opened, the player's attested record proven by SNIP-36 (fake prover, 4 proofs, relayed),
+back), the proven tier opened, the player's attested record proven by SNIP-36 (fake prover, 4 proofs on alpha.7, 3
+on alpha.8, relayed),
 a second player's settled by the Satellite path, a retired chain accepted inside its grace and refused after it.
 Measured costs: `docs/proving.md` "Cost sheet".

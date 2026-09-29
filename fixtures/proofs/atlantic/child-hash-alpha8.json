@@ -1,0 +1,10 @@
+{
+  "note": "B6: c1main's program hash after the bump to rapier2d alpha.8, fixed 0.4.0, glam_core 0.4.1 (docs/proving.md \"Program hash history\"). It is the alpha.6 / alpha.7 hash: the compiled program is unchanged, so no Sepolia transaction was sent. No Atlantic query was submitted for this record.",
+  "rapier2d_version": "0.1.0-alpha.8",
+  "data_felts": 271833,
+  "child_program_hash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a",
+  "computed_from": "c1main's Sierra (scarb build of tools/atlantic/c1main) on alpha.8 against alpha.7 (the same package at f5c81a0): identical statements, libfunc declarations and functions once the ids are renumbered by declaration order; the only differences are the UserType ids of 24 type declarations (hashes of the type paths, glam:: -> glam_core::), which the CASM compilation does not read. The replay executables (crates/slingfall_replay: main, main_trace, init, step_chunk, outputs) rebuild byte-identical, CASM bytecode included. The program hash (bootloader Pedersen hash of the compiled program) is therefore the alpha.7 record's (child-hash-alpha7.json); no cairo1-run was made (the patched cairo-vm of docs/proving.md is not built on this machine).",
+  "date": "2026-09-29",
+  "outputs_check": "golden.py run (without --update): the 11 cases bit-identical (outputs, final_state_hash) with the same Cairo steps as alpha.7",
+  "sepolia": "no transaction: deploy/sepolia.json's program.current (contract v2) equals this hash; current_program() = this hash and program_valid_until(hash) = u64 max read back on Sepolia (2026-09-29)"
+}
