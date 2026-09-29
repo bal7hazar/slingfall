@@ -311,6 +311,45 @@ jobs:
           name: e2e
           path: deploy/out/
 
+  play-local:
+    # Lot L1 (docs/play-local.md): `scripts/play.sh up` on a fresh runner, without the wasm runner
+    # (PLAY_NO_VM=1: nothing here opens the page), then the page's own calls through the dev server
+    # (scripts/play/check.ts: provisional, proven by the fake SNIP-36 prover, settled on the
+    # FakeSatellite by the relay, both boards), `status`, `down`, and a second `up` from the saved
+    # devnet state. Optional: not in `all-checks` (external devnet).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PLAY_NO_VM: 1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: software-mansion/setup-scarb@v1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: doctor
+        run: scripts/play.sh doctor
+      - name: up (cold)
+        run: scripts/play.sh up
+      - name: A shot through the page's calls (provisional, proven, settled)
+        run: node scripts/play/check.ts
+      - run: scripts/play.sh status
+      - run: scripts/play.sh down
+      - name: up again (the saved devnet state), status, down
+        run: |
+          start=$SECONDS
+          scripts/play.sh up
+          echo "second up: $((SECONDS - start)) s" >> "$GITHUB_STEP_SUMMARY"
+          scripts/play.sh status
+          scripts/play.sh down
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: play-local
+          path: target/play/*.log
+
   all-checks:
     # The single required check: green only when every job above is.
     if: always()
