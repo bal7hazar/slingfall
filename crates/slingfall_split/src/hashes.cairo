@@ -1,54 +1,61 @@
 //! The class hashes of every class this crate declares, pinned in one module: the constants are the
 //! hashes snforge declares. The classes that library-call others compile them as constants
-//! (`GameClasses`:
-//! rapier's stage classes; `PinnedSplit`: `RulesClass`, `EditClass`, `StepClass`), as a game would
-//! after declaring them; the others (`WorldClass`, `FallbackGame`, the chain's classes) are pinned
-//! for the deployment that reads them. `tests::hashes::test_pinned_class_hashes` fails, printing
-//! the stale ones, when a class changes without its constant being regenerated (`scripts/pin.py`).
+//! (`GameClasses`: rapier's stage classes; `PinnedSplit`: `RulesClass`, rapier's `WorldEditClass`,
+//! `StepClass`), as a game would after declaring them; the others (`WorldClass`, `FallbackGame`,
+//! the chain's classes) are pinned for the deployment that reads them.
+//! `tests::hashes::test_pinned_class_hashes` fails, printing the stale ones, when a class changes
+//! without its constant being regenerated (`scripts/pin.py`), and when [`BUNDLE_HASH`] is not the
+//! Poseidon of [`bundle`].
 
+use core::poseidon::poseidon_hash_span;
 use rapier2d_classes::ClassHashes;
 use starknet::ClassHash;
 
-/// Where the world classes find this crate's declared classes.
+/// Where the world classes find the declared classes they call besides rapier's stages.
 pub trait SplitHashes {
     /// `crate::lean::RulesClass` (layout (e)).
     fn rules() -> ClassHash;
-    /// `crate::classes::EditClass`.
+    /// `rapier2d_classes::edits::WorldEditClass` (layout (e)'s edit crossing).
     fn edit() -> ClassHash;
     /// `crate::classes::StepClass` (layout (b)).
     fn step() -> ClassHash;
 }
 
+pub const WORLD_EDIT_HASH: felt252 =
+    0x6b80770cb8a1b6d5d31003c35a670cede94c049e22718077c8f728f1ccf3610;
 pub const CONTACT_BALL_HASH: felt252 =
-    0x7821f7fd3f73ec3e2000804015f615c63a5dde2495e2a8b3097f6e701f4153f;
-pub const CONTACT_POLYGON_HASH: felt252 =
-    0x641aec5d123fca908fcb15ac8ea473bbd08dc2a2d06ca6fba995f4e0ac98676;
+    0x4efa41be660cdf0afad6953de378645d439efea43d9409603db060d432c38df;
 pub const SOLVE_ADVANCE_HASH: felt252 =
-    0x484f69de20d79c8ec04effc9557b3ce9a63cc0940d9643f9a954c4a436c4239;
-pub const ISLANDS_HASH: felt252 = 0x6124b2b6093c09826da9b57e8008363ad730eae18a95ad5d6f5208342830f54;
+    0x6f22ca2b78b9955a5b288e4e80663a65fcb997739e11b68bf5c2226022b72d3;
+pub const ISLANDS_HASH: felt252 = 0x640435f9c277ebb55e1c01979eeb2cf84948424dcacbd669e11055d12b78bde;
 pub const BROAD_PHASE_HASH: felt252 =
-    0x7d3eed01dc6daa7f8ccdc93ffbed0f86c938302bbc3f8b1fcc24694b448c4d7;
-pub const MASS_HASH: felt252 = 0x5415bd22e6c965a3c006b598c748686672ef13cecde4d60cadb674184e451a2;
+    0x63c302fc078a15b81bc53c4d4bbc7c3c10920773cedcf9c4edf5a64c8e7a2b8;
+pub const MASS_HASH: felt252 = 0x59bd3e4c27c773dc1cd65d09408315b6344aad370a0ef1c60f8b24af42c0fce;
 pub const NARROW_PHASE_HASH: felt252 =
-    0x69d00ab7e3ebdb09cfeaee8bb6acc4b2f49468e06d516c72f16936b44dcf336;
+    0x447bcf48b1735aaba6fdfaa632aed8582d115764ae676fdda24c31b20a10dbd;
 pub const ACTIVE_SET_HASH: felt252 =
-    0x4a6e55fafd8273f75152b3509aa40223f5f50e882ab1978a91beeb895201d02;
-pub const RULES_HASH: felt252 = 0x1252255e389d7be57c38073f06d273ece226ba8c5158f0631603aeb1591b4ae;
-pub const EDIT_HASH: felt252 = 0x38c35b4f684d8228998d652f48a13d0631be9b9db51bc5e46eb4c86c5cb1dd5;
-pub const STEP_HASH: felt252 = 0x3730c4a319a31a3a9f2c399cce7c1ac8f1535feda549cc6059022ba4763f5;
+    0x74d52fcda3b1da92328620cffef1ff1b9563f36b5cb02512dd1505a5fe12b14;
+pub const RULES_HASH: felt252 = 0x712ae1a857fbf88caef8749cda329cc9746a7fd01d2095357d5f1c4abefb9d0;
+pub const STEP_HASH: felt252 = 0x70f5ddc00c002eccc615047984e25e3f6ac5fa522a110d22985add7696a2c70;
 
-pub const WORLD_HASH: felt252 = 0x30b53e086f4d809518e166b070d4092cd4a7684aba7e2c81460673ac74f8b38;
+pub const WORLD_HASH: felt252 = 0x3334afa92dfe4025d77d6e9358cd62850b3b8442e36aa6bca10367900968523;
 pub const FALLBACK_GAME_HASH: felt252 =
-    0x720225f8d2387c33d7412b20f6e0e311a0afa72aa42d2374b05f2c2e52760e3;
-pub const BUILD_HASH: felt252 = 0x5072b33404b0460aecc752ac5f061f93536bc40de808b2c31b8feebb770b94b;
-pub const SETTLE_HASH: felt252 = 0x7e9a195cd593b728e4ee7b5338d81f564673afbad5b7d11382f1a76e58d457f;
-pub const OUTPUTS_HASH: felt252 = 0x30e684c2fd7005e22c7fe4200681c27d76ab2bbe8abcf3633da59ebc0b0558d;
+    0x58891d8ad938fde422281f13941e3521a26af6e7cdc1397f85602130d366ae7;
+pub const BUILD_HASH: felt252 = 0x6e49b45453d93f54a0b8b88f402c548456d5da1bf63d7d4fcf4aafb5fa860d8;
+pub const SETTLE_HASH: felt252 = 0x70334b5eb173685c788f43c0e2ddc129b9aa6fdbb7e8222f172a8f488c9fb15;
+pub const OUTPUTS_HASH: felt252 = 0x3a619e67f7d06f3a10d54f9a2b79b9cc681155273b33b24892a05b59fd236fc;
 pub const SPLIT_CHAIN_HASH: felt252 =
-    0x6faa02c304d1de84c0111cc0d72e12ab02fcb40934b19008384f34bbcf4712a;
+    0x6120153d1ba21f4599a43a49da1e31a8a432ef7cb12c6fff4196e1e23b72cdd;
 
-/// The class hash of the stage classes the game never calls (`SolverClass`, `ForceEventsClass`:
-/// `SlimSplitStages` runs the solve in `SolveAdvanceClass` and the force events in process,
-/// `tests/called.cairo`): none is built or declared, and a call of it fails on an undeclared class.
+/// The bundle hash of layout (e)'s chain (contract v3's `pin_chain`): Poseidon of [`bundle`].
+/// `services/prove/snip36.py` (`own_bundle`) and `deploy/split.ts` (`bundleOf`) compute the same
+/// value from `classes.json`'s order and the constants above (their tests check this one).
+pub const BUNDLE_HASH: felt252 = 0x8a629c64c8e6c34dcc4cd0f29fd51c2c34d19cefe83647335a98825ddd7368;
+
+/// The class hash of the stage classes the game never calls (`ContactPolygonClass`: in
+/// `NarrowPhaseClass` since alpha.8; `SolverClass`, `ForceEventsClass`: `SlimSplitStages` runs the
+/// solve in `SolveAdvanceClass` and the force events in process; `tests/called.cairo`): none is
+/// built or declared, and a call of it fails on an undeclared class.
 const NOT_DECLARED: ClassHash = 0.try_into().unwrap();
 
 /// The stage classes of `rapier2d_classes` at their declared hashes.
@@ -59,8 +66,7 @@ pub impl GameClasses of ClassHashes {
     }
 
     fn contact_polygon() -> ClassHash {
-        const H: ClassHash = CONTACT_POLYGON_HASH.try_into().unwrap();
-        H
+        NOT_DECLARED
     }
 
     fn solver() -> ClassHash {
@@ -102,7 +108,7 @@ pub impl GameClasses of ClassHashes {
     }
 }
 
-/// This crate's classes at their declared hashes.
+/// The declared classes the world classes call besides the stages, at their hashes.
 pub impl PinnedSplit of SplitHashes {
     fn rules() -> ClassHash {
         const H: ClassHash = RULES_HASH.try_into().unwrap();
@@ -110,7 +116,7 @@ pub impl PinnedSplit of SplitHashes {
     }
 
     fn edit() -> ClassHash {
-        const H: ClassHash = EDIT_HASH.try_into().unwrap();
+        const H: ClassHash = WORLD_EDIT_HASH.try_into().unwrap();
         H
     }
 
@@ -120,16 +126,31 @@ pub impl PinnedSplit of SplitHashes {
     }
 }
 
+/// The class hashes of layout (e)'s bundle in bundle order (`classes.json`: `chain`, then
+/// `rapier`; `scripts/classes.py` derives this list).
+pub fn bundle() -> Array<felt252> {
+    array![
+        SPLIT_CHAIN_HASH, BUILD_HASH, SETTLE_HASH, WORLD_HASH, OUTPUTS_HASH, RULES_HASH,
+        WORLD_EDIT_HASH, CONTACT_BALL_HASH, SOLVE_ADVANCE_HASH, ISLANDS_HASH, BROAD_PHASE_HASH,
+        MASS_HASH, NARROW_PHASE_HASH, ACTIVE_SET_HASH,
+    ]
+}
+
+/// Poseidon of [`bundle`] (what [`BUNDLE_HASH`] must be).
+pub fn bundle_hash() -> felt252 {
+    poseidon_hash_span(bundle().span())
+}
+
 /// Every declared class of the default build by contract name, with its pinned hash.
 pub fn pinned() -> Array<(ByteArray, felt252)> {
     array![
-        ("ContactBallClass", CONTACT_BALL_HASH), ("ContactPolygonClass", CONTACT_POLYGON_HASH),
+        ("WorldEditClass", WORLD_EDIT_HASH), ("ContactBallClass", CONTACT_BALL_HASH),
         ("SolveAdvanceClass", SOLVE_ADVANCE_HASH), ("IslandsClass", ISLANDS_HASH),
         ("BroadPhaseClass", BROAD_PHASE_HASH), ("MassClass", MASS_HASH),
         ("NarrowPhaseClass", NARROW_PHASE_HASH), ("ActiveSetClass", ACTIVE_SET_HASH),
-        ("RulesClass", RULES_HASH), ("EditClass", EDIT_HASH), ("StepClass", STEP_HASH),
-        ("WorldClass", WORLD_HASH), ("FallbackGame", FALLBACK_GAME_HASH),
-        ("BuildClass", BUILD_HASH), ("SettleClass", SETTLE_HASH), ("OutputsClass", OUTPUTS_HASH),
+        ("RulesClass", RULES_HASH), ("StepClass", STEP_HASH), ("WorldClass", WORLD_HASH),
+        ("FallbackGame", FALLBACK_GAME_HASH), ("BuildClass", BUILD_HASH),
+        ("SettleClass", SETTLE_HASH), ("OutputsClass", OUTPUTS_HASH),
         ("SplitChain", SPLIT_CHAIN_HASH),
     ]
 }

@@ -2,7 +2,9 @@
 //! the reference shot's whole chain (`chain::play_chain`) with one class left undeclared; a class
 //! the shot calls makes its library call fail, hence the chain panic. Layout (e) is `WorldClass`,
 //! the fallback (b) is `FallbackGame`. The result is `classes.json`'s list
-//! (`scripts/classes.py`); the default chain tests run with exactly that list declared.
+//! (`scripts/classes.py`); the default chain tests run with exactly that list declared, so a class
+//! outside it (`ContactPolygonClass` since alpha.8, `SolverClass`, `ForceEventsClass`) is never
+//! declared and its `test_called_*` passes: the shot does not call it.
 
 use crate::chain::play_chain_except;
 
@@ -132,4 +134,16 @@ fn test_called_e_force_events() {
 #[ignore]
 fn test_called_b_force_events() {
     b("ForceEventsClass");
+}
+
+#[test]
+#[ignore]
+fn test_called_e_world_edit() {
+    e("WorldEditClass");
+}
+
+#[test]
+#[ignore]
+fn test_called_b_world_edit() {
+    b("WorldEditClass");
 }

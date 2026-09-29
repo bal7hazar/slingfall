@@ -5,7 +5,7 @@
 //! its variant index then its payload, and a `Pose2` is `[x, y, re, im]`.
 
 use fixed::Fixed;
-use glam::Vec2;
+use glam_core::Vec2;
 use crate::errors;
 use crate::hash::serde_hash;
 

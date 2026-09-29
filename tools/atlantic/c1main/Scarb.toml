@@ -13,9 +13,9 @@ license = "MIT"
 
 [dependencies]
 # Same pins as crates/slingfall_replay.
-fixed = "0.3.0"
-glam = "0.3.0"
-rapier2d = "=0.1.0-alpha.7"
+fixed = "0.4.0"
+glam_core = "0.4.1"
+rapier2d = "=0.1.0-alpha.8"
 slingfall_game = { path = "../../../crates/slingfall_game" }
 slingfall_level = { path = "../../../crates/slingfall_level" }
 slingfall_rules = { path = "../../../crates/slingfall_rules" }

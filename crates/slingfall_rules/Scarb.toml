@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 fixed.workspace = true
-glam.workspace = true
+glam_core.workspace = true
 rapier2d.workspace = true
 slingfall_level = { path = "../slingfall_level" }
 

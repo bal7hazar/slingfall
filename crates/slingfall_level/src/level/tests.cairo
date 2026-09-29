@@ -2,7 +2,7 @@
 
 use core::fmt::Debug;
 use fixed::Fixed;
-use glam::Vec2;
+use glam_core::Vec2;
 use slingfall_testing::opaque;
 use crate::hash::{serde_hash, to_felts};
 use crate::inputs::PULL_MAX;

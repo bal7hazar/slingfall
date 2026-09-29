@@ -2,9 +2,9 @@
 //! (`docs/research/07-split-game-step.md`). Not published.
 //!
 //! * [`lean::WorldClass`]: layout (e), the game's layout. The class keeps the world for the chunk,
-//!   calls [`lean::RulesClass`] once per tick and crosses the world to [`classes::EditClass`] on
-//!   the ticks that edit it. Its size is gated at 78,000 CASM felts (`tools/classsize`), every
-//!   other class at 73,728.
+//!   calls [`lean::RulesClass`] once per tick and crosses the world to rapier's `WorldEditClass`
+//!   on the ticks that edit it. Every declared class is gated at 73,728 CASM felts
+//!   (`tools/classsize`).
 //! * [`classes::FallbackGame`] with [`classes::StepClass`]: layout (b), the fallback that passes
 //!   73,728 everywhere, at twice the steps.
 //! * [`chain::SplitChain`]: the three proven transactions (`init`, `step_chunk`, `outputs`).

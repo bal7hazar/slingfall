@@ -81,7 +81,8 @@ export interface ChainStateReader {
  */
 export async function verifyChain(reader: ChainStateReader, chain: string, classes: Record<string, string>): Promise<ReturnType<typeof bundleOf>> {
   const onChain: Record<string, string> = { ...classes, SplitChain: feltHex(await reader.getClassHashAt(chain)) };
-  const names = ['BuildClass', 'SettleClass', 'EditClass', 'WorldClass', 'OutputsClass'];
+  // Storage `edit` is rapier's `WorldEditClass` since lot B6 (the game's `EditClass` before).
+  const names = ['BuildClass', 'SettleClass', 'WorldEditClass', 'WorldClass', 'OutputsClass'];
   for (const [i, variable] of CHAIN_STORAGE.entries()) {
     const stored = await reader.getStorageAt(chain, hash.getSelectorFromName(variable));
     onChain[names[i]] = feltHex(typeof stored === 'string' ? stored : stored.value);

@@ -91,7 +91,7 @@ pub mod LayoutC {
 #[starknet::contract]
 pub mod LayoutD {
     use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
-    use crate::hashes::{GameClasses, PinnedSplit};
+    use crate::hashes::GameClasses;
     use crate::probes::hashes::PinnedProbes;
     use crate::probes::world::{CrossingEdits, LibraryCallRules};
     use crate::world::SlimStep;
@@ -113,7 +113,7 @@ pub mod LayoutD {
             Array<felt252>,
             SlimStep<GameClasses>,
             LibraryCallRules<PinnedProbes>,
-            CrossingEdits<PinnedSplit>,
+            CrossingEdits<PinnedProbes>,
         >(from_basic_state(world), ref rules, inputs.span(), shot, k);
         (into_basic_state(world), rules, stepped, over)
     }
@@ -202,5 +202,34 @@ pub mod LayoutF {
         out.append(stepped.into());
         out.append(over.into());
         out
+    }
+}
+
+/// The game's own World edits of layout (d), the world in and out with the basic codec (the edit
+/// class of layout (e) until lot B6, which moved it to rapier's `WorldEditClass`).
+#[starknet::contract]
+pub mod EditClass {
+    use rapier2d::prelude::Handle;
+    use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
+    use crate::rules::{Launch, Op};
+    use crate::world::{apply_ops, insert_pebble};
+
+    #[storage]
+    struct Storage {}
+
+    #[external(v0)]
+    fn apply(self: @ContractState, world: BasicWorldState, ops: Span<Op>) -> BasicWorldState {
+        let mut world = from_basic_state(world);
+        apply_ops(ref world, ops);
+        into_basic_state(world)
+    }
+
+    #[external(v0)]
+    fn insert(
+        self: @ContractState, world: BasicWorldState, launch: Launch,
+    ) -> (BasicWorldState, Handle) {
+        let mut world = from_basic_state(world);
+        let handle = insert_pebble(ref world, launch);
+        (into_basic_state(world), handle)
     }
 }

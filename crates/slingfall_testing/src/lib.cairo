@@ -2,7 +2,7 @@
 //! rapier-cairo's `rapier_testing` and `rapier_golden::compare`).
 
 use fixed::Fixed;
-use glam::Vec2;
+use glam_core::Vec2;
 
 /// Returns its argument through a call the compiler cannot inline.
 ///
@@ -56,7 +56,7 @@ pub fn assert_vec2_approx(actual: Vec2, expected: Vec2, tolerance: u64) {
 #[cfg(test)]
 mod tests {
     use fixed::Fixed;
-    use glam::Vec2;
+    use glam_core::Vec2;
     use super::{abs_diff, assert_approx, assert_vec2_approx, opaque, vec2_within, within};
 
     /// Empty probe: the fixed overhead snforge charges to any test. Subtract it from the other

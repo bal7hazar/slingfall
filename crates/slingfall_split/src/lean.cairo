@@ -4,13 +4,14 @@
 //! * one rules call site: every call (`begin`, `tick`, `calm`) sends the same calldata
 //!   (`rules ++ inputs ++ [shot, more] ++ inserted ++ hits ++ views`) and gets the same answer
 //!   (`rules' ++ edit ++ watch ++ [status]`);
-//! * the edit request is opaque here: forwarded verbatim to `EditClass::edit`, which applies the
-//!   removals and sleeps of the tick, then inserts the next tick's pebble (one crossing for both;
-//!   `more` tells the rules whether a next tick follows in this chunk, so that a launch never
-//!   outlives its chunk);
+//! * the edit request is opaque here: the felts of a `Span<rapier2d_classes::WorldEdit>` the rules
+//!   class writes (the removals and sleeps of the tick, then the next tick's pebble: one crossing
+//!   for both; `more` tells the rules whether a next tick follows in this chunk, so that a launch
+//!   never outlives its chunk), forwarded verbatim to rapier's `WorldEditClass::edit` (lot B6; the
+//!   game's own `EditClass` until then, now `crate::probes::layouts::EditClass`);
 //! * the views and the hits are written straight into the calldata.
 //!
-//! The world class compiles no `Rules`, `TickOut`, `Op` or `Launch` code.
+//! The world class compiles no `Rules`, `TickOut`, `Op`, `Launch` or `WorldEdit` code.
 
 use rapier2d::prelude::{ContactForceEvent, Handle, RigidBodyTrait, WorldTrait};
 use rapier2d::world::World;
@@ -18,7 +19,7 @@ use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic
 use starknet::SyscallResultTrait;
 use starknet::syscalls::library_call_syscall;
 use crate::hashes::SplitHashes;
-use crate::rules::{Launch, Op, Rules, TickOut};
+use crate::rules::{Rules, TickOut};
 use crate::world::{Stepper, errors};
 
 /// The answer's `status`: the tick goes on.
@@ -128,9 +129,9 @@ fn write_views(ref world: World, watch: Span<Handle>, ref out: Array<felt252>) {
     }
 }
 
-/// The rules class's answer: the state's felts, the edit request (the tick's ops, then the
-/// launch when a next tick follows in the chunk; empty when there is nothing to edit), the bodies
-/// to view and the status.
+/// The rules class's answer: the state's felts, the edit request (`WorldEditClass::edit`'s
+/// `Span<WorldEdit>`: the tick's ops, then the launch when a next tick follows in the chunk; empty
+/// when there is nothing to edit), the bodies to view and the status.
 pub fn answer(
     rules: Rules, out: TickOut, more: bool,
 ) -> (Array<felt252>, Array<felt252>, Array<Handle>, felt252) {
@@ -143,8 +144,7 @@ pub fn answer(
     };
     let mut edit = array![];
     if !out.ops.is_empty() || launch.is_some() {
-        out.ops.serialize(ref edit);
-        launch.serialize(ref edit);
+        crate::world::world_edits(out.ops.span(), launch).span().serialize(ref edit);
     }
     let status = if out.calm_pending {
         CALM
@@ -156,19 +156,9 @@ pub fn answer(
     (felts, edit, out.watch, status)
 }
 
-/// `EditClass::edit`: `ops` in order, then the pebble of `launch`; the handles inserted.
-pub fn edit(world: World, ops: Span<Op>, launch: Option<Launch>) -> (World, Array<Handle>) {
-    let mut world = world;
-    crate::world::apply_ops(ref world, ops);
-    let mut added = array![];
-    if let Some(launch) = launch {
-        added.append(crate::world::insert_pebble(ref world, launch));
-    }
-    (world, added)
-}
-
 /// Layout (e), the game's layout: the world class. It keeps the world for the chunk, calls the
-/// rules once per tick and crosses the world to `EditClass` on the ticks that edit it.
+/// rules once per tick and crosses the world to rapier's `WorldEditClass` on the ticks that edit
+/// it.
 #[starknet::contract]
 pub mod WorldClass {
     use crate::hashes::{GameClasses, PinnedSplit};

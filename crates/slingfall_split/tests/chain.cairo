@@ -23,8 +23,14 @@ pub fn deploy_chain(layout: ByteArray) -> ContractAddress {
 pub fn deploy_chain_except(layout: ByteArray, skip: @ByteArray) -> ContractAddress {
     install_except(skip);
     let raw = raw(@layout);
+    // `init`'s edit class at its pinned hash, undeclared when it is the class left out.
+    let edit: felt252 = if skip == @"WorldEditClass" {
+        slingfall_split::hashes::WORLD_EDIT_HASH
+    } else {
+        declared("WorldEditClass").into()
+    };
     let calldata: Array<felt252> = array![
-        declared("BuildClass").into(), declared("SettleClass").into(), declared("EditClass").into(),
+        declared("BuildClass").into(), declared("SettleClass").into(), edit,
         declared(layout).into(), declared("OutputsClass").into(), raw.into(),
     ];
     let (address, _) = declare("SplitChain")
@@ -180,7 +186,7 @@ fn test_chain_bundle_has_no_class_setter() {
     let address = deploy_chain("WorldClass");
     let stored: Array<(felt252, ByteArray)> = array![
         (selector!("build"), "BuildClass"), (selector!("settle"), "SettleClass"),
-        (selector!("edit"), "EditClass"), (selector!("world"), "WorldClass"),
+        (selector!("edit"), "WorldEditClass"), (selector!("world"), "WorldClass"),
         (selector!("outputs"), "OutputsClass"),
     ];
     for (variable, name) in stored {

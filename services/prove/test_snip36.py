@@ -8,6 +8,7 @@ pipeline (resumable) and `POST /prove`'s `tier`. Python 3 standard library.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,10 @@ class MessagesAndFacts(unittest.TestCase):
         self.assertEqual(bundle, ps.encoding.poseidon_many([pins[n] for n in snip36.BUNDLE_CLASSES]))
         swapped = dict(pins, BuildClass=pins["SettleClass"], SettleClass=pins["BuildClass"])
         self.assertNotEqual(snip36.bundle_hash(swapped), bundle)  # the order is part of the bundle
+        # Cairo computes the same bundle (`hashes::bundle_hash()`, checked against `BUNDLE_HASH` by
+        # the crate's `test_pinned_class_hashes`, lot B6).
+        cairo = re.search(r"pub const BUNDLE_HASH: felt252 =\s*(0x[0-9a-fA-F]+);", snip36.HASHES.read_text())
+        self.assertEqual(bundle, int(cairo[1], 16))
 
     def test_one_list_of_classes(self):
         # Lot H3: `classes.json` is the one list; the build, the harness, the pins and the client's

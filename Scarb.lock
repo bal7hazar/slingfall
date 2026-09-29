@@ -3,27 +3,27 @@ version = 1
 
 [[package]]
 name = "fixed"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:2f5867291f4bc0660ee113c1cb5e3edac65515dc4fb8618283d26b30bd13a021"
+checksum = "sha256:a8f7ec541b8cc85894688ae9008cddb87cccc55a024b04b35f7fd3716d715064"
 
 [[package]]
-name = "glam"
-version = "0.3.0"
+name = "glam_core"
+version = "0.4.1"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:61e33108ce8e6936f4f336366a7a5e6fc75deedc3193d11ba10e9a40da767c8c"
+checksum = "sha256:86351a73e26bfd6bbdd7548775e9377b33ed08a9616a249117942ccb29b7c75f"
 dependencies = [
  "fixed",
 ]
 
 [[package]]
 name = "rapier2d"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:9e574d7e56dcdd79c853e9b20737f81cde80b12274954ab1588e1f21f7b79ce5"
+checksum = "sha256:57788cb7ba7cbfe15a66281c01e20d8822bebe127e6f03772292e99d30397a68"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "rapier_core",
  "rapier_dynamics2d",
  "rapier_geometry2d",
@@ -32,12 +32,12 @@ dependencies = [
 
 [[package]]
 name = "rapier2d_classes"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:422a15bc42f5a44277b11950cebc76c1c89cca8aeb0a0a2271b9bfaf9e666779"
+checksum = "sha256:6e2acc054ada5285e5944b4f3f1e6dc14b167188c4664f8f3c5962cc909d828d"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "rapier2d",
  "rapier_core",
  "rapier_dynamics2d",
@@ -46,21 +46,21 @@ dependencies = [
 
 [[package]]
 name = "rapier_core"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:e6d7b64c6c61d457ca8f17c0596212af26cf228e3e51eff738734150e665e133"
+checksum = "sha256:201e44d60502243e70fb37b8ac712084d751108ed909025b783e335ba47d125d"
 dependencies = [
  "fixed",
 ]
 
 [[package]]
 name = "rapier_dynamics2d"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:1e9fa8c252ed04940d87c5005825a7db76e26a51c696f8c8833ce457f35a512b"
+checksum = "sha256:7f29fc614195491009b964c27da882114cd92f59ab774a0e062b0cfb0039fff0"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "rapier_core",
  "rapier_geometry2d",
  "rapier_math",
@@ -68,24 +68,24 @@ dependencies = [
 
 [[package]]
 name = "rapier_geometry2d"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:98bce17002f166184ecf6556d28bd8b81cdaaa27ca95920b31429f9103161ced"
+checksum = "sha256:6f99e289557889cece15e9cfae6849088ebb045a2efa96e2de00f4e9bf0b4274"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "rapier_core",
  "rapier_math",
 ]
 
 [[package]]
 name = "rapier_math"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 source = "registry+https://scarbs.xyz/"
-checksum = "sha256:80ef54f3d1af6191c70e8428e175fd26aa6a298bd940d8987c40efb8ad62b8cc"
+checksum = "sha256:97bcbffa61e64d982629c7eda25c6a314c254a33087d70192225eb5f5dff4a78"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
 ]
 
 [[package]]
@@ -115,7 +115,7 @@ name = "slingfall_level"
 version = "0.1.0"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "rapier2d",
  "slingfall_testing",
  "snforge_std",
@@ -126,7 +126,7 @@ name = "slingfall_rules"
 version = "0.1.0"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "rapier2d",
  "slingfall_level",
  "slingfall_testing",
@@ -151,10 +151,12 @@ name = "slingfall_split"
 version = "0.1.0"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "rapier2d",
  "rapier2d_classes",
+ "rapier_core",
  "rapier_dynamics2d",
+ "rapier_geometry2d",
  "slingfall_game",
  "slingfall_level",
  "slingfall_rules",
@@ -166,7 +168,7 @@ name = "slingfall_testing"
 version = "0.1.0"
 dependencies = [
  "fixed",
- "glam",
+ "glam_core",
  "snforge_std",
 ]
 
