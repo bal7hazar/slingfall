@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { chainConfig, explorerLink } from './config';
 import { LEVEL_VALIDATED, SlingfallContract, VERIFIER, feltHex, playerValidations, shortFelt } from './slingfall';
 import { walletKinds } from './wallet';
@@ -103,6 +103,23 @@ describe('chainConfig', () => {
     expect(chainConfig({ ...base, VITE_RPC_URL: 'http://a' })!.rpcUrl).toBe('http://a');
     expect(chainConfig({ ...base, VITE_RPC_URL: 'http://a', VITE_STARKNET_RPC_URL: 'http://b' })!.rpcUrl).toBe('http://b');
     expect(chainConfig({ ...base, VITE_NETWORK: 'sepolia', VITE_STARKNET_RPC_URL: '' })!.rpcUrl).toBe('https://starknet-sepolia-rpc.publicnode.com');
+  });
+
+  it('local mode (scripts/play.sh): devnet only, service paths on the page origin', () => {
+    const env = { ...base, VITE_PLAY_LOCAL: '1', VITE_STARKNET_RPC_URL: '/rpc', VITE_ATTEST_URL: '/attest-service', VITE_PROVE_URL: '/prove-service' };
+    vi.stubGlobal('location', { origin: 'http://192.168.1.20:5173' });
+    try {
+      const config = chainConfig(env)!;
+      expect(config.local).toBe(true);
+      expect(config.rpcUrl).toBe('http://192.168.1.20:5173/rpc');
+      expect(config.attestUrl).toBe('http://192.168.1.20:5173/attest-service');
+      expect(config.proveUrl).toBe('http://192.168.1.20:5173/prove-service');
+      expect(chainConfig({ ...env, VITE_NETWORK: 'sepolia' })!.local).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(chainConfig(base)!.local).toBe(false);
+    expect(chainConfig({ ...base, VITE_PROVE_URL: 'http://127.0.0.1:8549' })!.proveUrl).toBe('http://127.0.0.1:8549');
   });
 });
 

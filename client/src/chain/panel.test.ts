@@ -26,6 +26,7 @@ const CONFIG: ChainConfig = {
   proveUrl: 'http://prove',
   devnetAccount: { address: PLAYER, privateKey: '0x1' },
   deployBlock: 0,
+  local: false,
 };
 const JOB = { id: 'bcbdf222b4585dc0821f5b88135a3026', state: 'submitted', level_hash: LEVEL, inputs: INPUTS(PLAYER), program_hash: PROGRAM };
 /** The SNIP-36 chain's bundle hash: the release of a proven record. */
@@ -44,6 +45,8 @@ interface Harness {
   requests: { url: string; body: unknown }[];
   /** Resolves the pending polls (`sleep`) one round. */
   tick(): Promise<void>;
+  /** The delays the panel slept for, in order. */
+  sleeps: number[];
   text(selector: string): string;
   button(label: RegExp): HTMLButtonElement;
 }
@@ -57,6 +60,7 @@ function setup({
   refuseSettle = null as string | null,
   proven = false,
   chainMismatch = false,
+  local = false,
 } = {}): Harness {
   const chain = { provisional: false, settled: false, proven: false };
   const release = () => (chain.proven ? BUNDLE : PROGRAM);
@@ -140,23 +144,28 @@ function setup({
     return json({ error: 'not found' }, 404);
   });
   const gates: (() => void)[] = [];
+  const sleeps: number[] = [];
   const deps: PanelDeps = {
     contract: new SlingfallContract(CONTRACT, reader),
     waitForReceipt: receipt,
     connect: async () => ({ address: PLAYER, execute: executeFn }),
     events: { getEvents: async () => ({ events: [] }) },
     fetchFn: fetchFn as unknown as typeof fetch,
-    sleep: () => new Promise<void>((r) => gates.push(r)),
+    sleep: (ms) => {
+      sleeps.push(ms);
+      return new Promise<void>((r) => gates.push(r));
+    },
   };
   const parent = document.createElement('div');
   document.body.replaceChildren(parent);
-  const panel = new SubmitPanel(parent, CONFIG, deps);
+  const panel = new SubmitPanel(parent, { ...CONFIG, local }, deps);
   const root = parent.querySelector<HTMLElement>('.submit')!;
   return {
     panel,
     root,
     execute: executeFn,
     requests,
+    sleeps,
     tick: async () => {
       gates.splice(0).forEach((open) => open());
       await flush();
@@ -264,6 +273,48 @@ describe('SubmitPanel', () => {
     h.button(/^Settle/).click();
     await flush();
     expect(h.text('.submit-tier')).toContain('Settle failed: the contract no longer accepts the engine release');
+  });
+
+  it('local mode (scripts/play.sh): the devnet account connects by itself, the player picks proven', async () => {
+    const done = { tier: 'proven', state: 'proven', proven: true, proofs: [{ state: 'submitted' }], finalize: { transaction_hash: '0xf1' } };
+    const h = setup({ local: true, proven: true, statuses: [{ tier: 'proven', state: 'planning' }, done] });
+    await flush();
+    expect(h.panel.player).toBe(PLAYER); // no Connect click
+    expect(h.root.querySelector('h3')!.textContent).toContain('proofs are simulated');
+    h.panel.offer(LEVEL, async (player) => OUTPUTS(player), INPUTS);
+    await flush();
+    h.button(/^Submit$/).click();
+    await flush();
+    // No proof requested before the player picks its tier.
+    expect(h.requests.some((r) => r.url.endsWith('/prove'))).toBe(false);
+    expect(h.text('.submit-tier')).toContain('ask for a proof');
+    const proven = h.button(/^Prove \(SNIP-36, simulated\)$/);
+    expect(proven.disabled).toBe(false);
+    proven.click();
+    await flush();
+    expect(h.root.querySelector<HTMLElement>('.submit-tiers')!.hidden).toBe(true);
+    expect(h.requests.filter((r) => r.url.endsWith('/prove')).map((r) => r.body)).toEqual([{ level: LEVEL, inputs: INPUTS(PLAYER), tier: 'proven' }]);
+    expect(h.text('.submit-tier')).toContain('simulated: the fake prover');
+    await h.tick();
+    expect(h.sleeps).toEqual([3_000]);
+    expect(h.text('.submit-tier')).toBe(`Proven by SNIP-36 (the prover service finalized it in 0xf1): your settled best 1650 (won, bundle ${BUNDLE})`);
+  });
+
+  it('local mode: the settled tier on request, the fact on the FakeSatellite, settled by the relay', async () => {
+    const relayed = { settleable: true, settleable_poseidon: true, relayed: true, relay: { state: 'relayed' }, relay_transaction_hash: '0x5e7' };
+    const h = setup({ local: true, proven: true, relay: '0xre1a7', statuses: [{ state: 'running', relay: { state: 'waiting' } }, relayed] });
+    await flush();
+    h.panel.offer(LEVEL, async (player) => OUTPUTS(player), INPUTS);
+    await flush();
+    h.button(/^Submit$/).click();
+    await flush();
+    h.button(/^Settle \(Atlantic, simulated\)$/).click();
+    await flush();
+    expect(h.requests.filter((r) => r.url.endsWith('/prove')).map((r) => r.body)).toEqual([{ level: LEVEL, inputs: INPUTS(PLAYER) }]);
+    expect(h.text('.submit-tier')).toContain("FakeSatellite");
+    await h.tick();
+    expect(h.text('.submit-tier')).toBe(`Settled by the relay in 0x5e7: your settled best 1650 (won, engine ${PROGRAM})`);
+    expect(h.execute).toHaveBeenCalledTimes(1); // the attested submit only
   });
 
   it('blocks proving up front when the service\'s program is no longer valid (M6)', async () => {

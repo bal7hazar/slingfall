@@ -6,6 +6,9 @@ a finished level can be validated on Starknet Sepolia. This page is the path fro
 [`DESIGN.md`](DESIGN.md) D8-D9, the two tiers: [`e2e.md`](e2e.md), the proving side:
 [`proving.md`](proving.md).
 
+To try all three tiers on your own machine first, without a wallet or a testnet (the proofs
+simulated on a local devnet): `scripts/play.sh`, see [`play-local.md`](play-local.md).
+
 Nothing here needs a private key in a file. Wallet keys stay in your wallet; the service keys
 (Atlantic, the attestation key) are environment variables of the machine that runs the service.
 

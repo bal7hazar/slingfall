@@ -10,7 +10,9 @@
 // settled (`leaderboard`: SHARP or SNIP-36) and live (`leaderboard_provisional`), each row with the
 // proof and the release of its record (a program hash, or a SNIP-36 bundle hash). On a
 // Satellite-only deployment (`verifier = Satellite`, the attested tier closed) "Submit" becomes
-// "Prove (settled)".
+// "Prove (settled)". In the local mode of `scripts/play.sh` (`config.local`: the proofs are
+// simulated) the devnet account connects by itself, and after the provisional record the player picks
+// the tier of the proof: proven (the fake SNIP-36 prover) or settled (the devnet's FakeSatellite).
 import type { RpcProvider } from 'starknet';
 import { requestAttestation } from './attest.ts';
 import { explorerLink, type ChainConfig } from './config.ts';
@@ -45,6 +47,9 @@ import {
 } from './slingfall.ts';
 import { submitLevel, type Receipt, type SubmissionStep } from './submission.ts';
 import { WALLET_LABELS, connectWallet, provider, walletKinds, type WalletKind } from './wallet.ts';
+
+/** `config.local`: the simulated proofs land in seconds, the panel polls the prover service this often. */
+const LOCAL_POLL_MS = 3_000;
 
 function make<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}): HTMLElementTagNameMap[K] {
   return Object.assign(document.createElement(tag), props);
@@ -90,6 +95,11 @@ export class SubmitPanel {
   private readonly outputsInfo = make('p', { className: 'submit-outputs' });
   private readonly tier = make('p', { className: 'submit-tier' });
   private readonly settle = make('button', { type: 'button', textContent: 'Settle', hidden: true });
+  /** `config.local`: the tier of the proof, picked by the player after the provisional record. */
+  private readonly tiers = make('div', { className: 'submit-row submit-tiers', hidden: true });
+  private readonly askProven = make('button', { type: 'button', textContent: 'Prove (SNIP-36, simulated)' });
+  private readonly askSettled = make('button', { type: 'button', textContent: 'Settle (Atlantic, simulated)' });
+  private choice: { levelHash: string; outputs: string[]; inputs: string[] } | null = null;
   private readonly boards = make('div', { className: 'submit-boards' });
   private readonly links = make('p', { className: 'submit-links' });
   private readonly config: ChainConfig;
@@ -121,8 +131,9 @@ export class SubmitPanel {
     for (const kind of walletKinds(config)) this.wallet.append(make('option', { value: kind, textContent: WALLET_LABELS[kind] }));
     const row = make('div', { className: 'submit-row' });
     row.append(this.wallet, this.connect);
+    this.tiers.append(this.askProven, this.askSettled);
     this.root.append(
-      make('h3', { textContent: 'Submit on Starknet' }),
+      make('h3', { textContent: config.local ? 'Submit on the local devnet (proofs are simulated)' : 'Submit on Starknet' }),
       row,
       this.proof,
       this.send,
@@ -130,6 +141,7 @@ export class SubmitPanel {
       this.outputsInfo,
       this.tier,
       this.settle,
+      this.tiers,
       this.boards,
       this.links,
     );
@@ -148,6 +160,18 @@ export class SubmitPanel {
     this.connect.addEventListener('click', () => void this.doConnect());
     this.send.addEventListener('click', () => void this.doSubmit());
     this.settle.addEventListener('click', () => void this.doSettle());
+    this.askProven.addEventListener('click', () => this.choose('proven'));
+    this.askSettled.addEventListener('click', () => this.choose('settled'));
+    // The local mode's player is the devnet account: no wallet, no Connect.
+    if (config.local && config.devnetAccount) {
+      this.wallet.value = 'devnet';
+      void this.doConnect();
+    }
+  }
+
+  /** The connected account (`null` before Connect). */
+  get player(): string | null {
+    return this.account?.address ?? null;
   }
 
   /** On a Satellite deployment the attested `submit` is refused: the one path is proof, then `submit_settled`. */
@@ -170,6 +194,8 @@ export class SubmitPanel {
       const health = await fetchHealth(url, this.deps.fetchFn);
       this.relay = health.relay;
       this.provenPath = health.proven?.available === true;
+      this.askProven.disabled = !this.provenPath;
+      if (!this.provenPath) this.askProven.title = 'the prover service has no SNIP-36 path for this contract';
       if (health.programMatch === false) {
         this.proveBlocked = true;
         this.tier.textContent =
@@ -233,6 +259,8 @@ export class SubmitPanel {
     this.outputsFor = outputsFor;
     this.inputsFor = inputsFor ?? null;
     this.pending = null;
+    this.choice = null;
+    this.tiers.hidden = true;
     this.tier.textContent = this.proveBlocked ? this.tier.textContent : '';
     this.outputsInfo.textContent = '';
     this.settle.hidden = true;
@@ -247,6 +275,8 @@ export class SubmitPanel {
     this.round += 1;
     this.outputsFor = null;
     this.pending = null;
+    this.choice = null;
+    this.tiers.hidden = true;
     this.outputsInfo.textContent = '';
     this.root.hidden = true;
   }
@@ -270,6 +300,7 @@ export class SubmitPanel {
     this.send.disabled = this.busy || this.account === null || this.outputsFor === null || (this.settledOnly && this.proveBlocked);
     this.settle.disabled = this.busy || this.account === null || this.pending === null;
     this.connect.disabled = this.busy;
+    this.askSettled.disabled = this.busy || this.proveBlocked;
   }
 
   private say(text: string): void {
@@ -363,7 +394,16 @@ export class SubmitPanel {
       void this.showValidations(account.address);
       this.outputsFor = null; // one attested submission per attempt (the nullifier refuses a second)
       this.tier.textContent = 'Provisional (attested)';
-      if (this.config.proveUrl && inputs) void this.settleInBackground(result.validated.levelHash, result.outputs, inputs);
+      if (this.config.proveUrl && inputs) {
+        if (this.config.local) {
+          // One proof per attempt: the contract records it proven or settled, not both.
+          this.choice = { levelHash: result.validated.levelHash, outputs: result.outputs, inputs };
+          this.tier.textContent = 'Provisional (attested) · ask for a proof: proven (SNIP-36) or settled (Atlantic), both simulated here';
+          this.tiers.hidden = false;
+        } else {
+          void this.settleInBackground(result.validated.levelHash, result.outputs, inputs);
+        }
+      }
     } catch (e) {
       console.error(e);
       this.say(`Submit failed: ${explainWalletError(e)}`);
@@ -395,9 +435,23 @@ export class SubmitPanel {
     this.refresh();
   }
 
+  /** `config.local`: the player asked for the proof of the provisional record at `tier`. */
+  private choose(tier: Tier): void {
+    const choice = this.choice;
+    if (choice === null) return;
+    this.choice = null;
+    this.tiers.hidden = true;
+    void this.settleInBackground(choice.levelHash, choice.outputs, choice.inputs, tier);
+  }
+
   /** What the player may do while the proof runs: nothing with a relay (or on the proven path, where
    * the service records the attempt itself), come back without one. */
   private waitNote(tier: Tier = 'settled'): string {
+    if (this.config.local) {
+      return tier === 'proven'
+        ? 'simulated: the fake prover proves the chain on the devnet, the service records it (about a minute)'
+        : "simulated: no Atlantic, the fact goes straight to the devnet's FakeSatellite and the relay settles it (seconds)";
+    }
     if (tier === 'proven') return 'you may close this page: the prover service proves the chain and records it for you (SNIP-36)';
     return this.relay
       ? 'you may close this page: the prover service settles it for you when the proof lands (about 1.5 h)'
@@ -405,8 +459,9 @@ export class SubmitPanel {
   }
 
   /** `POST /prove` at the proven tier when the service offers it, else (or when the contract's chain
-   * turns out not to be the service's) at the settled one. */
-  private async request(url: string, levelHash: string, inputs: string[]): Promise<ProofJob> {
+   * turns out not to be the service's) at the settled one; at `tier` when the player picked it. */
+  private async request(url: string, levelHash: string, inputs: string[], tier?: Tier): Promise<ProofJob> {
+    if (tier) return requestProof(url, levelHash, inputs, this.deps.fetchFn, tier);
     if (this.provenPath) {
       try {
         return await requestProof(url, levelHash, inputs, this.deps.fetchFn, 'proven');
@@ -421,7 +476,7 @@ export class SubmitPanel {
   /** Requests the attempt's proof and follows it until it is proven (SNIP-36: the service records it)
    * or settled: by the relay (nothing to do), or by the player ("Settle", offered as soon as the fact
    * is on the Satellite). */
-  private async settleInBackground(levelHash: string, outputs: string[], inputs: string[]): Promise<void> {
+  private async settleInBackground(levelHash: string, outputs: string[], inputs: string[], tier?: Tier): Promise<void> {
     const url = this.config.proveUrl;
     if (!url) return;
     const round = this.round;
@@ -430,9 +485,9 @@ export class SubmitPanel {
     const show = (text: string) => {
       if (!stale()) this.tier.textContent = `${prefix()} · ${text}`;
     };
-    const opts = { fetchFn: this.deps.fetchFn, sleep: this.deps.sleep, stop: stale };
+    const opts = { fetchFn: this.deps.fetchFn, sleep: this.deps.sleep, stop: stale, intervalMs: this.config.local ? LOCAL_POLL_MS : undefined };
     try {
-      const job = await this.request(url, levelHash, inputs);
+      const job = await this.request(url, levelHash, inputs, tier);
       const note = this.waitNote(job.tier);
       show(`${describeJob(job)}; ${note}`);
       const ready = await waitSettleable(url, job.id, (j) => show(`${describeJob(j)}; ${note}`), opts);
