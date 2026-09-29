@@ -114,7 +114,9 @@ async function main(): Promise<void> {
       ? Object.assign(document.createElement('a'), { href: contractUrl, target: '_blank', rel: 'noopener', textContent: shortFelt(config.address), title: config.address })
       : shortFelt(config.address);
     const hash = Object.assign(document.createElement('span'), { textContent: shortFelt(levelHash), title: levelHash });
-    ui.chainInfo.replaceChildren(`${config.network} · contract `, contract, ' · level hash ', hash);
+    // `scripts/play.sh` (docs/play-local.md): nothing here is proven for real.
+    const local = config.local ? [Object.assign(document.createElement('b'), { textContent: 'local devnet: proofs are simulated' }), ' · '] : [];
+    ui.chainInfo.replaceChildren(...local, `${config.network} · contract `, contract, ' · level hash ', hash);
     ui.chainInfo.hidden = false;
   };
   const playback = new Playback(() => view?.stage.buffer.frameCount ?? 0);
@@ -292,6 +294,8 @@ async function main(): Promise<void> {
       connected = player;
       void showOutputsFor(player);
     };
+    // The local mode connects the devnet account by itself, perhaps before this line.
+    if (submit.player !== null) submit.onAccount(submit.player);
   }
 
   const finish = async (s: LevelSession, gen: number) => {
