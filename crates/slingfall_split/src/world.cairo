@@ -4,11 +4,14 @@
 
 use rapier2d::prelude::{
     BasicStepConfig, BodyPose, CONTACT_FORCE_EVENTS, ColliderBuilderTrait, ContactForceEvent, Fixed,
-    Handle, Pose2, RigidBodyBuilderTrait, RigidBodySetTrait, RigidBodyTrait, Rot2, WorldTrait,
+    Handle, Pose2, RigidBodyBuilderTrait, RigidBodySetTrait, RigidBodyTrait, Rot2, Shape,
+    WorldTrait,
 };
 use rapier2d::world::World;
 use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
-use rapier2d_classes::{ClassHashes, SlimSplitStages};
+use rapier2d_classes::{BodyInsert, ClassHashes, SlimSplitStages, WorldEdit};
+use rapier_core::rigid_body::RigidBodyType;
+use rapier_geometry2d::shape::ball::BallTrait;
 use slingfall_rules::sling::{
     PEBBLE_DENSITY, PEBBLE_FRICTION, PEBBLE_RADIUS, PEBBLE_RESTITUTION, PEBBLE_USER_DATA,
 };
@@ -97,6 +100,46 @@ pub fn insert_pebble(ref world: World, launch: Launch) -> Handle {
         .build();
     let (handle, _) = world.insert(body, collider);
     handle
+}
+
+/// [`insert_pebble`]'s body and collider as rapier's `WorldEdit::Insert` (`WorldEditClass`): the
+/// same builders from the same values (`RigidBodyBuilderTrait::new(Dynamic)` is `dynamic()`,
+/// `ColliderBuilderTrait::new(Ball)` is `ball()`, `angvel` 0 is the default).
+pub fn pebble_insert(launch: Launch) -> BodyInsert {
+    BodyInsert {
+        body_type: RigidBodyType::Dynamic,
+        position: Pose2 {
+            translation: launch.translation,
+            rotation: Rot2 { re: Fixed { raw: 0x100000000 }, im: Fixed { raw: 0 } },
+        },
+        linvel: launch.linvel,
+        angvel: Fixed { raw: 0 },
+        shape: Shape::Ball(BallTrait::new(PEBBLE_RADIUS)),
+        density: PEBBLE_DENSITY,
+        friction: PEBBLE_FRICTION,
+        restitution: PEBBLE_RESTITUTION,
+        contact_force_event_threshold: Fixed { raw: 0 },
+        active_events: CONTACT_FORCE_EVENTS,
+        user_data: PEBBLE_USER_DATA,
+    }
+}
+
+/// The World edits of `ops` then the pebble of `launch`, as `WorldEditClass` applies them.
+pub fn world_edits(ops: Span<Op>, launch: Option<Launch>) -> Array<WorldEdit> {
+    let mut edits = array![];
+    for op in ops {
+        edits
+            .append(
+                match *op {
+                    Op::Remove(handle) => WorldEdit::Remove(handle),
+                    Op::Sleep(handle) => WorldEdit::Sleep(handle),
+                },
+            );
+    }
+    if let Some(launch) = launch {
+        edits.append(WorldEdit::Insert(pebble_insert(launch)));
+    }
+    edits
 }
 
 /// One engine step with its force events.

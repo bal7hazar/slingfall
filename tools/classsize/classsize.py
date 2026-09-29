@@ -21,11 +21,11 @@ usage:
       engine code the game never runs (`UNREACHABLE`, a cut of the call graph). H: `replay`
       (default, the real hook), `stub`, or a `slingfall_sizes::hooks` impl.
   tools/classsize/classsize.py split [--no-build] [--profile P] [--probes] [--github]
-      build `crates/slingfall_split` (the game's chunk on declared classes, rapier2d alpha.7; layout
+      build `crates/slingfall_split` (the game's chunk on declared classes, rapier2d alpha.8; layout
       (e) `WorldClass` and the fallback (b) `FallbackGame`) and print every declared class against
-      its gate, with the margin of each: `GATE` (73,728 Sierra and CASM felts) for every class but
-      the game's world class, `WORLD_GATE` (78,000, programme decision H2) for `WorldClass`;
-      Starknet's own limit is 81,920. Exit 1 when a class is over its gate. `--probes` builds with
+      its gate, with the margin of each: `GATE` (73,728 Sierra and CASM felts) for every class, the
+      game's world class included since lot B6 (`WORLD_GATE = GATE`; 78,000 by programme decision
+      H2 before); Starknet's own limit is 81,920. Exit 1 when a class is over its gate. `--probes` builds with
       the feature `probes` (the measured alternatives, `PROBE_CLASSES`: reported, never gated);
       `--github` also appends the table to `$GITHUB_STEP_SUMMARY`.
   tools/classsize/classsize.py strategies [--strategy S ...] [--cairo 'KEY = VALUE' ...]
@@ -82,17 +82,17 @@ SIM_CLASS = "SlingfallSim"
 
 # The programme's gate for a declared class of the SNIP-36 path (rapier-cairo CS6: 73,728 felts in
 # Sierra and in CASM, 8,192 under Starknet's 81,920), and the package that declares them
-# (docs/research/07-split-game-step.md). The game's world class (layout (e)) is over it by
-# 3,192 felts today: the programme accepts it up to WORLD_GATE (decision H2, 2026-09-28) until
-# rapier shrinks its slim caller, and the world class comes back under GATE.
+# (docs/research/07-split-game-step.md). The game's world class (layout (e)) was 3,192 felts over
+# it on alpha.7 and gated at 78,000 (decision H2, 2026-09-28); rapier alpha.8's smaller slim caller
+# brings it back under GATE (71,076 CASM, lot B6), so its gate is GATE again.
 GATE = 73728
-WORLD_GATE = 78000
+WORLD_GATE = GATE
 WORLD_CLASSES = {"WorldClass"}
 # The crate's classes outside the bundle (the fallback (b): `FallbackGame` with `StepClass`).
 SPLIT_ONLY = {"FallbackGame", "StepClass"}
 SPLIT_PACKAGE = "slingfall_split"
 # The measured alternatives (feature `probes`): reported, never gated.
-PROBE_CLASSES = re.compile(r"^(SlimCaller|Layout[ACDF]|TypedRulesClass|Plus\w+|Minus\w+|Stage\w+)$")
+PROBE_CLASSES = re.compile(r"^(SlimCaller|Layout[ACDF]|TypedRulesClass|EditClass|Plus\w+|Minus\w+|Stage\w+)$")
 
 HOOKS = {
     "replay": "slingfall_contract::simulate::replay_hook::ReplaySimulateHook",

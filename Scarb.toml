@@ -28,6 +28,10 @@ glam_core = "0.4.1"
 rapier2d = "=0.1.0-alpha.8"
 rapier2d_classes = "=0.1.0-alpha.8"
 rapier_dynamics2d = "=0.1.0-alpha.8"
+# `RigidBodyType` and `BallTrait` for `rapier2d_classes::BodyInsert` (not in `rapier2d::prelude`),
+# `crates/slingfall_split` only.
+rapier_core = "=0.1.0-alpha.8"
+rapier_geometry2d = "=0.1.0-alpha.8"
 starknet = "2.19.4"
 snforge_std = "0.61.0"
 assert_macros = "2.19.4"

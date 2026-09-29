@@ -8,7 +8,7 @@
 
 Derived: `Scarb.toml`'s `build-external-contracts`, `tests/harness.cairo`'s `classes()`,
 `src/hashes.cairo`'s `pinned()` entries of the rapier classes (a new class gets a placeholder
-constant: run `pin.py` next), `client/src/chain/slingfall.ts`'s `SPLIT_BUNDLE_CLASSES`. Run
+constant: run `pin.py` next) and `bundle()` (the bundle order, whose Poseidon is `BUNDLE_HASH`), `client/src/chain/slingfall.ts`'s `SPLIT_BUNDLE_CLASSES`. Run
 `scarb fmt --workspace` after a rewrite (`--check` ignores the formatter's layout).
 `services/prove/snip36.py` reads the JSON itself. Python 3 standard library only.
 """
@@ -51,7 +51,10 @@ def hashes(text: str) -> str:
     for name in RAPIER:
         if not re.search(rf"pub const {constant(name)}: felt252", head):
             head = head.replace("\n/// The stage classes", f"\npub const {constant(name)}: felt252 = 0x0;\n\n/// The stage classes", 1)
-    return head + "pub fn pinned()" + tail
+    text = head + "pub fn pinned()" + tail
+    order = ", ".join(constant(n) for n in BUNDLE)
+    return re.sub(r"(pub fn bundle\(\) -> Array<felt252> \{\n    array!\[)[^\]]*(\])",
+                  lambda m: f"{m[1]}\n        {order},\n    {m[2]}", text, count=1)
 
 
 def typescript(text: str) -> str:
@@ -98,7 +101,7 @@ def measure() -> int:
             called[m[2]].add("".join(w.capitalize() for w in m[3].split("_")) + "Class")
     print(f"layout (e) calls {sorted(called['e'])}\nfallback (b) calls {sorted(called['b'])}")
     want = set(RAPIER)
-    ok = seen == 2 * 10 and called["e"] | called["b"] == want
+    ok = seen == 2 * 11 and called["e"] | called["b"] == want
     print("measured list == classes.json" if ok else f"MISMATCH ({seen} runs), classes.json: {sorted(want)}")
     return 0 if ok else 1
 

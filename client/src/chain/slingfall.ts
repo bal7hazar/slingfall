@@ -167,21 +167,22 @@ export function finalizeCall(contract: string, chain: string, levelHash: string,
 }
 
 /**
- * The classes of a layout (e) chain in bundle order (docs/contract-v3.md "Wiring"): the deployed
- * `SplitChain`'s class, its five constructor classes in constructor order, then the classes the
- * world class compiles in as constants (`slingfall_split::hashes`: `RulesClass`, then rapier's
- * stage classes in `GameClasses` order).
+ * The classes of a layout (e) chain in bundle order (docs/contract-v3.md "Wiring"), one list with
+ * `crates/slingfall_split/classes.json` (`chain`, then `rapier`): the deployed `SplitChain`'s class
+ * and the four constructor classes of this crate in constructor order, `RulesClass`, then rapier's
+ * classes: `WorldEditClass` (the constructor's `edit`, lot B6) and the stage classes the world class
+ * compiles in as constants (`slingfall_split::hashes`). `slingfall_split::hashes::BUNDLE_HASH` is
+ * their Poseidon at the pinned hashes.
  */
 export const SPLIT_BUNDLE_CLASSES = [
   'SplitChain',
   'BuildClass',
   'SettleClass',
-  'EditClass',
   'WorldClass',
   'OutputsClass',
   'RulesClass',
+  'WorldEditClass',
   'ContactBallClass',
-  'ContactPolygonClass',
   'SolveAdvanceClass',
   'IslandsClass',
   'BroadPhaseClass',

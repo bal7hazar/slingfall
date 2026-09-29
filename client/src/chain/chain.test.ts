@@ -405,6 +405,12 @@ describe('proven tier (v3)', () => {
     expect(bundleHash(classes)).toBe(feltHex(hash.computePoseidonHashOnElements(classes.map(BigInt))));
     expect(bundleHash([...classes].reverse())).not.toBe(bundleHash(classes));
     expect(() => bundleHash(classes.slice(1))).toThrow(`${classes.length - 1} class hashes`);
+    // Lot B6: the bundle of the pinned hashes is the Cairo crate's `BUNDLE_HASH` (and the prover
+    // service's `own_bundle()`, `services/prove/test_snip36.py`).
+    const hashes = readFileSync(root('crates/slingfall_split/src/hashes.cairo'), 'utf8');
+    const constants = new Map([...hashes.matchAll(/pub const (\w+): felt252 =\s*(0x[0-9a-fA-F]+);/g)].map((m) => [m[1], m[2]]));
+    const pinned = new Map([...hashes.slice(hashes.indexOf('pub fn pinned()')).matchAll(/\("(\w+)", (\w+)\)/g)].map((m) => [m[1], constants.get(m[2])!]));
+    expect(bundleHash(SPLIT_BUNDLE_CLASSES.map((name) => pinned.get(name)!))).toBe(feltHex(constants.get('BUNDLE_HASH')!));
   });
 
   it('reads the chain and virtual-OS sets', async () => {

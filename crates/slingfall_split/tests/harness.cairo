@@ -9,23 +9,25 @@ use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
 use starknet::syscalls::call_contract_syscall;
 use starknet::{ClassHash, ContractAddress, SyscallResultTrait};
 
-/// The classes the world classes library-call: rapier2d_classes' stages, then this crate's.
+/// The classes the world classes library-call: rapier2d_classes' (`classes.json`), then this
+/// crate's.
 #[cfg(not(feature: 'probes'))]
 pub fn classes() -> Array<ByteArray> {
     array![
-        "ContactBallClass", "ContactPolygonClass", "SolveAdvanceClass", "IslandsClass",
+        "WorldEditClass", "ContactBallClass", "SolveAdvanceClass", "IslandsClass",
         "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass", "RulesClass",
-        "EditClass", "StepClass",
+        "StepClass",
     ]
 }
 
-/// As without the feature, plus the alternatives' rules class (layouts (c) and (d)).
+/// As without the feature, plus the alternatives' rules class (layouts (c) and (d)) and the game's
+/// own edit class (layout (d)).
 #[cfg(feature: 'probes')]
 pub fn classes() -> Array<ByteArray> {
     array![
-        "ContactBallClass", "ContactPolygonClass", "SolveAdvanceClass", "IslandsClass",
+        "WorldEditClass", "ContactBallClass", "SolveAdvanceClass", "IslandsClass",
         "BroadPhaseClass", "MassClass", "NarrowPhaseClass", "ActiveSetClass", "RulesClass",
-        "EditClass", "StepClass", "TypedRulesClass",
+        "StepClass", "TypedRulesClass", "EditClass",
     ]
 }
 

@@ -16,6 +16,9 @@ rapier2d.workspace = true
 rapier2d_classes.workspace = true
 # The `ForceEventStage` signature's `NarrowPhase` (the tick-hook emulation, `src/probes/stages.cairo`).
 rapier_dynamics2d.workspace = true
+# The pebble as a `rapier2d_classes::BodyInsert` (`crate::world::pebble_insert`).
+rapier_core.workspace = true
+rapier_geometry2d.workspace = true
 slingfall_level = { path = "../slingfall_level" }
 slingfall_rules = { path = "../slingfall_rules" }
 slingfall_game.workspace = true
@@ -39,8 +42,8 @@ sierra = true
 sierra = true
 casm = true
 build-external-contracts = [
+    "rapier2d_classes::edits::WorldEditClass",
     "rapier2d_classes::contact::ContactBallClass",
-    "rapier2d_classes::contact::ContactPolygonClass",
     "rapier2d_classes::advance::SolveAdvanceClass",
     "rapier2d_classes::islands::IslandsClass",
     "rapier2d_classes::broad_phase::BroadPhaseClass",

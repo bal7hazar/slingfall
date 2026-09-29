@@ -96,17 +96,27 @@ pub mod BuildClass {
     #[storage]
     struct Storage {}
 
+    /// The world, the rules state's felts, and the felts of `sleep_all`'s `Span<WorldEdit>` (every
+    /// dynamic entity, `crate::init::settle_sleeps`) for `WorldEditClass` after the settle step.
     #[external(v0)]
-    fn build(self: @ContractState, level: Level) -> (BasicWorldState, Array<felt252>) {
+    fn build(
+        self: @ContractState, level: Level,
+    ) -> (BasicWorldState, Array<felt252>, Array<felt252>) {
         let (world, rules) = crate::init::build(@level);
         let mut felts = array![];
         rules.serialize(ref felts);
-        (into_basic_state(world), felts)
+        let mut sleeps = array![];
+        crate::world::world_edits(crate::init::settle_sleeps(@rules).span(), None)
+            .span()
+            .serialize(ref sleeps);
+        (into_basic_state(world), felts, sleeps)
     }
 }
 
-/// `init`'s settle step (`dt = 0`, no force events) with `SlimSplitStages`; the rules pass
-/// through. The sleeps that follow it are `EditClass::sleep_all`'s.
+/// `init`'s settle step (`dt = 0`, no force events) with `SlimSplitStages`. The sleeps that follow
+/// it are `WorldEditClass::edit`'s: the class returns the rules state's felts (length-prefixed),
+/// then `edit`'s calldata as it is (the world, then the sleeps), which `SplitChain::init` splits
+/// without decoding anything.
 #[starknet::contract]
 pub mod SettleClass {
     use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
@@ -115,12 +125,17 @@ pub mod SettleClass {
     #[storage]
     struct Storage {}
 
+    /// `rules ++ world ++ sleeps` (`rules` length-prefixed, `sleeps` as `BuildClass` wrote them).
     #[external(v0)]
     fn settle(
-        self: @ContractState, world: BasicWorldState, rules: Array<felt252>,
-    ) -> (BasicWorldState, Array<felt252>) {
+        self: @ContractState, world: BasicWorldState, rules: Array<felt252>, sleeps: Array<felt252>,
+    ) -> Array<felt252> {
         let world = crate::init::settle::<GameClasses>(from_basic_state(world));
-        (into_basic_state(world), rules)
+        let mut out = array![];
+        rules.serialize(ref out);
+        into_basic_state(world).serialize(ref out);
+        out.append_span(sleeps.span());
+        out
     }
 }
 
@@ -193,13 +208,22 @@ pub mod SplitChain {
     fn init(ref self: ContractState, level: Span<felt252>) -> Span<felt252> {
         let built = library_call_syscall(self.build.read(), selector!("build"), level)
             .unwrap_syscall();
-        let settled = library_call_syscall(self.settle.read(), selector!("settle"), built)
+        let mut settled = library_call_syscall(self.settle.read(), selector!("settle"), built)
             .unwrap_syscall();
-        let state = library_call_syscall(self.edit.read(), selector!("sleep_all"), settled)
+        let _ = settled.pop_front();
+        // `rules` (length-prefixed), then `WorldEditClass::edit`'s calldata (world, sleeps).
+        let rules_len: u32 = (*settled[0]).try_into().unwrap();
+        let rules = settled.slice(0, rules_len + 1);
+        let edit = settled.slice(rules_len + 1, settled.len() - rules_len - 1);
+        let edited = library_call_syscall(self.edit.read(), selector!("edit"), edit)
             .unwrap_syscall();
-        let payload = array![hash_felts(level), hash_felts(state)];
+        // The edited world, without the (empty) inserted handles, then the rules.
+        let mut state = array![];
+        state.append_span(edited.slice(0, edited.len() - 1));
+        state.append_span(rules);
+        let payload = array![hash_felts(level), hash_felts(state.span())];
         send_message_to_l1_syscall(MARKER, payload.span()).unwrap_syscall();
-        state
+        state.span()
     }
 
     /// `step_chunk(state, inputs, shot, k)`: at most `k` ticks of shot `shot`; message

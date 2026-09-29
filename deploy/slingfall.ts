@@ -125,7 +125,7 @@ const root = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.u
 const ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_Slingfall';
 const FAKE_ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_FakeSatellite';
 // `docs/proving.md` "Program hash history": the pinned `c1main` (rapier2d alpha.6, lot B4; unchanged by alpha.7, lot B5,
-// `fixtures/proofs/atlantic/child-hash-alpha7.json`), Atlantic's bootloader, Integrity's SHARP
+// and alpha.8, lot B6: `fixtures/proofs/atlantic/child-hash-alpha8.json`), Atlantic's bootloader, Integrity's SHARP
 // bootloader, Herodotus's Satellite on Sepolia.
 const CHILD_PROGRAM_HASH = '0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a';
 const ATLANTIC_BOOTLOADER_HASH = '0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09';
@@ -656,7 +656,7 @@ async function cmdDeploySplit(): Promise<void> {
   for (const name of [...order.slice(1).reverse(), 'SplitChain']) {
     classes[name] = await declare(admin, `${SPLIT_ARTIFACTS}${name}`, name, gas, txs, pins[name]);
   }
-  const constructor = [classes.BuildClass, classes.SettleClass, classes.EditClass, classes.WorldClass, classes.OutputsClass, '0x1'];
+  const constructor = [classes.BuildClass, classes.SettleClass, classes.WorldEditClass, classes.WorldClass, classes.OutputsClass, '0x1'];
   const salt = feltHex(opt.salt ?? '0x0');
   let chain = feltHex(hash.calculateContractAddressFromHash(salt, classes.SplitChain, constructor, 0));
   const existing = await rpc.getClassHashAt(chain).catch(() => null);

@@ -211,38 +211,38 @@ fn steps_txe_owner_000_060() {
 
 #[test]
 #[ignore]
-fn steps_txe_owner_060_080() {
-    tx_chunk("WorldClass", "owner", 60, 80, false);
+fn steps_txsetup_owner_060_090() {
+    tx_setup("owner", 60, 90);
 }
 
 #[test]
 #[ignore]
-fn steps_txsetup_owner_080_110() {
-    tx_setup("owner", 80, 110);
+fn steps_txe_owner_060_090() {
+    tx_chunk("WorldClass", "owner", 60, 90, false);
 }
 
 #[test]
 #[ignore]
-fn steps_txe_owner_080_110() {
-    tx_chunk("WorldClass", "owner", 80, 110, false);
+fn steps_txsetup_owner_090_120() {
+    tx_setup("owner", 90, 120);
 }
 
 #[test]
 #[ignore]
-fn steps_txsetup_owner_110_140() {
-    tx_setup("owner", 110, 140);
+fn steps_txe_owner_090_120() {
+    tx_chunk("WorldClass", "owner", 90, 120, false);
 }
 
 #[test]
 #[ignore]
-fn steps_txe_owner_110_140() {
-    tx_chunk("WorldClass", "owner", 110, 140, false);
+fn steps_txsetup_owner_120_151() {
+    tx_setup("owner", 120, 151);
 }
 
 #[test]
 #[ignore]
-fn steps_txe_owner_140_151() {
-    tx_chunk("WorldClass", "owner", 140, 151, true);
+fn steps_txe_owner_120_151() {
+    tx_chunk("WorldClass", "owner", 120, 151, true);
 }
 
 #[test]

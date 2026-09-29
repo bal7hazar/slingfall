@@ -136,7 +136,8 @@ pub mod PlusRulesCall {
 #[starknet::contract]
 pub mod PlusEditCrossing {
     use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic_state};
-    use crate::hashes::{GameClasses, PinnedSplit};
+    use crate::hashes::GameClasses;
+    use crate::probes::hashes::PinnedProbes;
     use crate::probes::world::CrossingEdits;
     use crate::world::SlimStep;
     use super::NoRules;
@@ -155,7 +156,7 @@ pub mod PlusEditCrossing {
     ) -> (BasicWorldState, Array<felt252>, u32, bool) {
         let mut rules = rules;
         let (world, stepped, over) = crate::chunk::run::<
-            Array<felt252>, SlimStep<GameClasses>, NoRules, CrossingEdits<PinnedSplit>,
+            Array<felt252>, SlimStep<GameClasses>, NoRules, CrossingEdits<PinnedProbes>,
         >(from_basic_state(world), ref rules, inputs.span(), shot, k);
         (into_basic_state(world), rules, stepped, over)
     }

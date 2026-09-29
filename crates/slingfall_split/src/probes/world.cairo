@@ -8,7 +8,6 @@ use rapier2d::world::basic_state::{BasicWorldState, from_basic_state, into_basic
 use rapier2d_classes::ClassHashes;
 use starknet::SyscallResultTrait;
 use starknet::syscalls::library_call_syscall;
-use crate::hashes::SplitHashes;
 use crate::probes::hashes::ProbeHashes;
 use crate::rules::{Launch, Op, TickOut, View};
 use crate::world::{EditStage, RulesStage, Stepper, errors};
@@ -84,10 +83,10 @@ fn call<impl G: ProbeHashes>(
     out
 }
 
-/// The edits in `crate::classes::EditClass`: on the ticks that edit the world (a removal, a
-/// sleep, a launch), the world crosses there and back with the basic codec, which this class
-/// already compiles for its own calldata. No edit, no crossing.
-pub impl CrossingEdits<impl G: SplitHashes> of EditStage {
+/// The edits in `crate::probes::layouts::EditClass` (the game's own, layout (d)): on the ticks that
+/// edit the world (a removal, a sleep, a launch), the world crosses there and back with the basic
+/// codec, which this class already compiles for its own calldata. No edit, no crossing.
+pub impl CrossingEdits<impl G: ProbeHashes> of EditStage {
     fn apply(world: World, ops: Span<Op>) -> World {
         if ops.is_empty() {
             return world;

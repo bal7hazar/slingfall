@@ -79,8 +79,8 @@ pub fn build(level: @Level) -> (World, Rules) {
 }
 
 /// Main's settle step with `SlimSplitStages<H>`: `dt = 0`, one step without force events, `dt`
-/// restored. `sleep_all` follows (the sleeps of [`settle_sleeps`], `EditClass::sleep_all`: the
-/// World edits do not fit next to the step).
+/// restored. `sleep_all` follows (the sleeps of [`settle_sleeps`] in rapier's `WorldEditClass`:
+/// the World edits do not fit next to the step).
 pub fn settle<impl H: ClassHashes>(world: World) -> World {
     let mut world = world;
     let dt = world.integration_parameters.dt;
