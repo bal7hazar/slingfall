@@ -326,7 +326,12 @@ def account_env() -> dict[str, str] | None:
     """The environment `deploy/slingfall.ts` reads (RPC, account address, key) from `STARKNET_*` or
     `SLINGFALL_*`; `None` when there is no account to send a transaction from."""
     pick = lambda *names: next((os.environ[n] for n in names if os.environ.get(n)), "")  # noqa: E731
-    env = {"STARKNET_RPC": pick("STARKNET_RPC", "STARKNET_RPC_URL"),
+    # One resolution order for every tool (`rpc()` reads STARKNET_RPC_URL): STARKNET_RPC_URL first, and refuse
+    # two different networks rather than send to the wrong one (lots B6 / L1).
+    url, legacy = os.environ.get("STARKNET_RPC_URL", ""), os.environ.get("STARKNET_RPC", "")
+    if url and legacy and url.rstrip("/") != legacy.rstrip("/"):
+        raise SystemExit("atlantic: STARKNET_RPC_URL and STARKNET_RPC name different nodes; unset one of them")
+    env = {"STARKNET_RPC": pick("STARKNET_RPC_URL", "STARKNET_RPC"),
            "SLINGFALL_ACCOUNT_ADDRESS": pick("SLINGFALL_ACCOUNT_ADDRESS", "STARKNET_ACCOUNT_ADDRESS"),
            "SLINGFALL_PRIVATE_KEY": pick("SLINGFALL_PRIVATE_KEY", "STARKNET_PRIVATE_KEY")}
     return env if all(env.values()) else None
