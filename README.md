@@ -35,6 +35,20 @@ Connect Braavos / Argent X (on Sepolia) or Cartridge, finish a level, then prove
 still needs a browser check: [`docs/testers.md`](docs/testers.md). Nothing has been run in a browser
 by the executors yet.
 
+## Play locally
+
+Everything on your machine (macOS on Apple silicon, or Linux x86_64), no wallet, no testnet, no key:
+
+```sh
+scripts/play.sh doctor   # prerequisites: Node 24, scarb (asdf), Python 3.10+, Rust once
+scripts/play.sh          # builds once, starts a devnet, both services and the client; prints the URL
+scripts/play.sh down     # (status, reset)
+```
+
+Open http://127.0.0.1:5173/, play, **Submit**: a provisional record in seconds, then ask for the
+proven tier (SNIP-36) or the settled one (Atlantic): both are **simulated** locally (a fake prover, a
+fake Satellite). Details, other devices on your network, troubleshooting: [`docs/play-local.md`](docs/play-local.md).
+
 ## Commands
 
 Toolchain: scarb 2.19.4 and snforge 0.61.0 (`.tool-versions`, asdf), Python 3, Node 24. On the
