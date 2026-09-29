@@ -324,6 +324,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: software-mansion/setup-scarb@v1
+      # The replay is a nested workspace: its target is not in setup-scarb's cache.
+      - uses: actions/cache@v4
+        with:
+          path: crates/slingfall_replay/target
+          key: replay-target-${{ hashFiles('Scarb.lock', 'crates/**/Scarb.toml', 'crates/**/*.cairo') }}
       - uses: actions/setup-node@v5
         with:
           node-version: 24

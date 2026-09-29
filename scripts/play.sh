@@ -182,21 +182,17 @@ build() {
       "$ROOT/client/vm/scripts/build.sh" >"$PLAY/vm-build.log" 2>&1 || { tail -n 20 "$PLAY/vm-build.log" >&2; die "wasm runner build failed"; }
     fi
   fi
-  # The split classes of the proven tier (deploy/devnet.sh would build them later, alone) beside the
-  # replay: two builds at a time at most. The contract: deploy/devnet.sh builds it (scarb caches).
-  local split=""
-  if [ ! -f "$SPLIT_BUILT" ]; then
-    say "the split classes (scarb build -p slingfall_split, once: a minute or two)"
-    scarb --manifest-path "$ROOT/Scarb.toml" build -p slingfall_split >"$PLAY/split-build.log" 2>&1 &
-    split=$!
-  fi
+  # One scarb build at a time: two in parallel stalled for over 10 minutes on a 4-core CI runner
+  # (both wait on scarb's shared caches). The contract: deploy/devnet.sh builds it (scarb caches).
   if [ ! -f "$REPLAY_BUILT" ]; then
     say "the replay executables (scarb build of crates/slingfall_replay, once: a few minutes)"
     scarb --manifest-path "$ROOT/crates/slingfall_replay/Scarb.toml" build >"$PLAY/replay-build.log" 2>&1 ||
       { tail -n 20 "$PLAY/replay-build.log" >&2; die "replay build failed"; }
   fi
-  if [ -n "$split" ]; then
-    wait "$split" || { tail -n 20 "$PLAY/split-build.log" >&2; die "split classes build failed"; }
+  if [ ! -f "$SPLIT_BUILT" ]; then
+    say "the proven tier's classes (scarb build -p slingfall_split, once: a minute or two)"
+    scarb --manifest-path "$ROOT/Scarb.toml" build -p slingfall_split >"$PLAY/split-build.log" 2>&1 ||
+      { tail -n 20 "$PLAY/split-build.log" >&2; die "split classes build failed"; }
   fi
 }
 

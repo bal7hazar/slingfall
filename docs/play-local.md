@@ -38,7 +38,7 @@ release binary for your platform into `deploy/.devnet/bin/`.
 
 1. **Builds, once**: the client's dependencies (`npm ci`), the wasm runner (`client/vm/scripts/build.sh`,
    Rust), the replay executables (`crates/slingfall_replay`) and the proven tier's classes
-   (`slingfall_split`), the last two side by side. Each is skipped when it exists.
+   (`slingfall_split`), one after the other. Each is skipped when it exists.
 2. **The devnet** (`deploy/devnet.sh`, port 5050): starknet-devnet `--seed 0`, contract v3 deployed with the
    public devnet attestation key ('slingfall-devnet', never a real one), the six levels, the devnet's
    `FakeSatellite`, and the proven tier opened (`SplitChain`, marker, virtual OS, `pin_chain`). This takes
