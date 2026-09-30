@@ -95,6 +95,12 @@ marker() {
 }
 # The contract a running service was started for (second line of its PID file).
 started_for() { sed -n 2p "$(pid_file "$1")" 2>/dev/null || true; }
+# The devnet instance (a token written at each fresh deployment, kept while its state is loaded again):
+# the seed is fixed, so a redeployed devnet has the same contract address, and a service started for
+# the old chain must not be mistaken for one of this chain. Third line of a service's PID file.
+instance() { cat "$PLAY/devnet.instance" 2>/dev/null || true; }
+started_on() { sed -n 3p "$(pid_file "$1")" 2>/dev/null || true; }
+new_instance() { printf '%s-%s\n' "$(date +%s)" "$$" >"$PLAY/devnet.instance"; }
 
 port_free() {
   python3 - "$1" <<'EOF'
@@ -208,13 +214,20 @@ up_devnet() {
   devnet_env "$ROOT/deploy/devnet.sh" up
   if deployed; then
     say "devnet: state loaded from $DUMP"
+    [ -n "$(instance)" ] || new_instance
     return
   fi
   say "devnet: fresh state; deploying contract v3 and opening the proven tier (about a minute; log $PLAY/deploy.log)"
   # The prover service's jobs belong to the chain they ran on: a fresh devnet has the same seed, hence the
   # same contract address and job ids, so a job left by an earlier chain (a restored `target/`, a lost
   # dump) would be answered as done (H4: CI run 36740770202).
+  # A prover still running for the old chain could write its job back into the cleared store: stop the
+  # services first (`up` starts them again, after the deployment), then clear, then a new instance.
+  stop client
+  stop prove
+  stop attest
   rm -rf "$PLAY/prove"
+  new_instance
   rm -f "$CONFIG" "$PLAY/devnet-split.json" "$PLAY/accounts.txt"
   devnet_env "$ROOT/deploy/devnet.sh" deploy >"$PLAY/deploy.log" 2>&1 || { tail -n 20 "$PLAY/deploy.log" >&2; die "deploy failed"; }
   devnet_env "$ROOT/deploy/devnet.sh" proven >>"$PLAY/deploy.log" 2>&1 || { tail -n 20 "$PLAY/deploy.log" >&2; die "opening the proven tier failed"; }
@@ -225,14 +238,14 @@ start() {
   local name="$1" contract="$2" log="$3"
   shift 3
   nohup "$@" >"$log" 2>&1 </dev/null &
-  printf '%s\n%s\n' "$!" "$contract" >"$(pid_file "$name")"
+  printf '%s\n%s\n%s\n' "$!" "$contract" "$(instance)" >"$(pid_file "$name")"
 }
 
 # A service is reused when it runs for this contract; restarted when the devnet was redeployed.
 fresh() {
   local name="$1" port="$2" contract="$3"
   if running "$name" "$(marker "$name")"; then
-    if [ "$(started_for "$name")" = "$contract" ]; then
+    if [ "$(started_for "$name")" = "$contract" ] && [ "$(started_on "$name")" = "$(instance)" ]; then
       say "$name: reused on :$port"
       return 1
     fi
@@ -328,7 +341,7 @@ down() {
 
 reset() {
   down nosave
-  rm -rf "$DUMP" "$CONFIG" "$PLAY/devnet-split.json" "$PLAY/devnet.env" "$PLAY/accounts.txt" "$PLAY/prove"
+  rm -rf "$DUMP" "$CONFIG" "$PLAY/devnet-split.json" "$PLAY/devnet.env" "$PLAY/accounts.txt" "$PLAY/prove" "$PLAY/devnet.instance"
   say "devnet state forgotten: the next scripts/play.sh up deploys afresh"
 }
 
@@ -364,6 +377,9 @@ print(f"  tiers: provisional (attest), proven (SNIP-36 fake prover, available {a
   [ "$any" = 1 ] && [ -f "$PLAY/accounts.txt" ] && echo "  player (devnet account #1) $(account 1 2); page http://$HOST:$PORT/"
   return 0
 }
+
+# PLAY_SOURCED=1: only the functions (scripts/play/test_play_instance.sh).
+[ "${PLAY_SOURCED:-}" = 1 ] && return 0
 
 case "${1:-up}" in
   up)

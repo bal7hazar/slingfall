@@ -89,7 +89,8 @@ async function included(name: string, what: string, hash: string | null | undefi
   try {
     await Promise.race([rpc.waitForTransaction(hash, { retryInterval: poll.intervalMs }), timeout]);
   } catch (e) {
-    await diagnose(hash);
+    // The dump is best effort (each request is bounded): the original error is what is thrown.
+    await diagnose(hash).catch((d) => log(`diagnose failed: ${d}`));
     throw e;
   } finally {
     clearTimeout(timer);
@@ -110,7 +111,7 @@ async function diagnose(hash: string): Promise<void> {
   for (const [label, url] of [['proxy', config.rpcUrl], ['devnet', devnetUrl]] as const) {
     for (const [method, params] of [['starknet_blockNumber', {}], ['starknet_getTransactionStatus', { transaction_hash: hash }], ['starknet_getTransactionReceipt', { transaction_hash: hash }]] as const) {
       try {
-        const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+        const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(5_000) });
         log(`diagnose ${label} ${method}: ${(await res.text()).slice(0, 600)}`);
       } catch (e) {
         log(`diagnose ${label} ${method}: ${e}`);
