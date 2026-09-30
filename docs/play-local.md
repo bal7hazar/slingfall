@@ -116,8 +116,11 @@ first (a second `up` reuses the running dev server as it is).
   `deploy/e2e.sh` uses 5055), another Vite, another service. Stop it, or move ours: `PLAY_PORT`,
   `PLAY_DEVNET_PORT`, `PLAY_ATTEST_PORT`, `PLAY_PROVE_PORT`. Keep the devnet's port off the WHATWG
   "bad ports" list (5060, 5061, 6000, ...): Node's `fetch` (the deploy tool) refuses them.
-* **Node version**: Vite 8 and starknet.js 10 need Node 24 (`doctor` says which one runs). With asdf,
-  `asdf install nodejs 24.21.0` at the repository root; with nvm, `nvm install 24`.
+* **Node version**: Vite 8 and starknet.js 10 need Node 24 (`doctor` says which one runs). `doctor` and
+  `play.sh` accept any Node 24.x: if the shell's `node` is another major (a Node 22 first on `PATH`) but
+  asdf has a 24.x installed, they use it for every command they run and say so (`note  node`); run
+  `node scripts/play/check.ts` from a shell whose `node` is 24 (`asdf shell nodejs 24.21.0`). With none
+  installed: `asdf install nodejs 24.21.0` at the repository root; with nvm, `nvm install 24`.
 * **"VM not built"** on the page: the wasm runner was not built (Rust missing, or `PLAY_NO_VM=1`); the page
   only replays a recorded trace. Install Rust and run `scripts/play.sh` again.
 * **Safari**: the page and the services share one origin (the dev server's proxy), so Safari's refusal of

@@ -96,6 +96,40 @@ class FakeAtlantic:
                 "stages": [{"job": "FAKE_SATELLITE", "status": "DONE"}]}
 
 
+def confirmed(send, rpc: str, what: str, timeout: float = 60.0, fail=snip36.Snip36Error):
+    """`send(...)` (a `deploy/slingfall.ts` transaction, which returns `{transaction_hash, ...}`) checked
+    against the devnet the service talks to: the transaction must have a receipt there (bounded wait),
+    else `fail` (the error the caller handles: `Snip36Error` for the proven path, `relay.RelayError` for
+    the relay, whose `relay_job` records only that one and so backs off and gives up) is raised with a
+    clear message instead of reporting a transaction nobody can find. The
+    devnet closes a block per transaction; one `devnet_createBlock` is asked for if it has not (a
+    devnet on demand), as `FakeProver.ripen` asks for its own."""
+    node = snip36.Rpc(rpc, 30)
+
+    def run(*args):
+        result = send(*args)
+        tx = result.get("transaction_hash")
+        if not tx:
+            return result
+        deadline, asked = time.time() + timeout, False
+        while True:
+            try:
+                node("starknet_getTransactionReceipt", {"transaction_hash": tx})
+                return result
+            except snip36.Snip36Error as e:
+                if time.time() > deadline:
+                    raise fail(f"{what} {tx}: no receipt on {rpc} after {timeout:.0f} s ({e})") from None
+            if not asked:
+                asked = True
+                print(f"prove_local: {what} {tx}: no receipt yet, closing a block", file=sys.stderr, flush=True)
+                try:
+                    node("devnet_createBlock", {})
+                except snip36.Snip36Error as e:
+                    raise fail(f"{what} {tx}: {e}") from None
+            time.sleep(0.5)
+    return run
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--config", required=True, help="deploy/devnet.sh's DEVNET_OUT (address, program)")
@@ -113,6 +147,9 @@ def main(argv: list[str]) -> int:
                               no_translate=True, translate_grace=None, relay=False)
     service = ps.make_service(opts)
     atlantic = FakeAtlantic(Path(args.config), rpc)
+    chain = service.proven.chain
+    chain.submit_proof = confirmed(chain.submit_proof, rpc, "submit-proof")
+    chain.finalize = confirmed(chain.finalize, rpc, "finalize")
     service.runner = LocalRunner(int(config["program"]["current"], 16))
     service.submitter, service.status_of = atlantic.submit, atlantic.status
     # The relay from its own account: the SNIP-36 path's transactions never race its nonce.
@@ -120,6 +157,7 @@ def main(argv: list[str]) -> int:
         "STARKNET_RPC": rpc, "SLINGFALL_ACCOUNT_ADDRESS": os.environ["RELAY_ACCOUNT_ADDRESS"],
         "SLINGFALL_PRIVATE_KEY": os.environ["RELAY_PRIVATE_KEY"]})
 
+    service.relayer.send = confirmed(service.relayer.send, rpc, "settle", fail=relaying.RelayError)
     resumed = service.resume()
     threading.Thread(target=service.worker, daemon=True).start()
     threading.Thread(target=service.proven_worker, daemon=True).start()

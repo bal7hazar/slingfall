@@ -95,6 +95,41 @@ marker() {
 }
 # The contract a running service was started for (second line of its PID file).
 started_for() { sed -n 2p "$(pid_file "$1")" 2>/dev/null || true; }
+# The devnet instance (a token written at each fresh deployment, kept while its state is loaded again):
+# the seed is fixed, so a redeployed devnet has the same contract address, and a service started for
+# the old chain must not be mistaken for one of this chain. Third line of a service's PID file.
+instance() { cat "$PLAY/devnet.instance" 2>/dev/null || true; }
+started_on() { sed -n 3p "$(pid_file "$1")" 2>/dev/null || true; }
+new_instance() { printf '%s-%s\n' "$(date +%s)" "$$" >"$PLAY/devnet.instance"; }
+
+# The chain height (latest block number) of the devnet; empty when it does not answer.
+block_number() {
+  python3 - "$RPC" <<'EOF' 2>/dev/null || true
+import json, sys, urllib.request
+body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "starknet_blockNumber"}).encode()
+print(json.load(urllib.request.urlopen(urllib.request.Request(sys.argv[1], body, {"Content-Type": "application/json"}), timeout=10))["result"])
+EOF
+}
+
+# A clean `down` leaves "<instance> <height>" in the prover store (saved state and store agree at
+# that height). `up` consumes it: a state loaded at any other height, another instance, or no note
+# at all (the devnet was lost unsaved, an older dump was put back) is a rollback, and the jobs the
+# store holds may belong to a chain that no longer exists.
+mark_chain_clean() {
+  local height
+  height="$(block_number)"
+  [ -n "$height" ] || return 0
+  mkdir -p "$PLAY/prove"
+  printf '%s %s\n' "$(instance)" "$height" >"$PLAY/prove/.chain"
+}
+# 0 when the loaded state is the one the last clean `down` saved; consumes the note either way.
+chain_intact() {
+  local note height
+  note="$(cat "$PLAY/prove/.chain" 2>/dev/null || true)"
+  rm -f "$PLAY/prove/.chain"
+  height="$(block_number)"
+  [ -n "$note" ] && [ -n "$height" ] && [ "$note" = "$(instance) $height" ]
+}
 
 port_free() {
   python3 - "$1" <<'EOF'
@@ -208,9 +243,28 @@ up_devnet() {
   devnet_env "$ROOT/deploy/devnet.sh" up
   if deployed; then
     say "devnet: state loaded from $DUMP"
+    if ! chain_intact; then
+      say "devnet: this state is not the one the last clean 'down' saved (a rollback): dropping the prover's jobs"
+      stop client
+      stop prove
+      stop attest
+      rm -rf "$PLAY/prove"
+      new_instance
+    fi
+    [ -n "$(instance)" ] || new_instance
     return
   fi
   say "devnet: fresh state; deploying contract v3 and opening the proven tier (about a minute; log $PLAY/deploy.log)"
+  # The prover service's jobs belong to the chain they ran on: a fresh devnet has the same seed, hence the
+  # same contract address and job ids, so a job left by an earlier chain (a restored `target/`, a lost
+  # dump) would be answered as done (H4: CI run 36740770202).
+  # A prover still running for the old chain could write its job back into the cleared store: stop the
+  # services first (`up` starts them again, after the deployment), then clear, then a new instance.
+  stop client
+  stop prove
+  stop attest
+  rm -rf "$PLAY/prove"
+  new_instance
   rm -f "$CONFIG" "$PLAY/devnet-split.json" "$PLAY/accounts.txt"
   devnet_env "$ROOT/deploy/devnet.sh" deploy >"$PLAY/deploy.log" 2>&1 || { tail -n 20 "$PLAY/deploy.log" >&2; die "deploy failed"; }
   devnet_env "$ROOT/deploy/devnet.sh" proven >>"$PLAY/deploy.log" 2>&1 || { tail -n 20 "$PLAY/deploy.log" >&2; die "opening the proven tier failed"; }
@@ -221,14 +275,14 @@ start() {
   local name="$1" contract="$2" log="$3"
   shift 3
   nohup "$@" >"$log" 2>&1 </dev/null &
-  printf '%s\n%s\n' "$!" "$contract" >"$(pid_file "$name")"
+  printf '%s\n%s\n%s\n' "$!" "$contract" "$(instance)" >"$(pid_file "$name")"
 }
 
 # A service is reused when it runs for this contract; restarted when the devnet was redeployed.
 fresh() {
   local name="$1" port="$2" contract="$3"
   if running "$name" "$(marker "$name")"; then
-    if [ "$(started_for "$name")" = "$contract" ]; then
+    if [ "$(started_for "$name")" = "$contract" ] && [ "$(started_on "$name")" = "$(instance)" ]; then
       say "$name: reused on :$port"
       return 1
     fi
@@ -292,7 +346,13 @@ lan_ip() {
 
 # The minimum `up` needs; `doctor` says more.
 preflight() {
-  local tool
+  local tool want
+  # Any Node of the pinned major: the shell's, else asdf's (scripts/play/node24.sh).
+  want="$(awk '$1 == "nodejs" { print $2 }' "$ROOT/.tool-versions")"
+  # shellcheck source=play/node24.sh
+  . "$ROOT/scripts/play/node24.sh"
+  use_asdf_node_major "${want%%.*}"
+  [ -n "$NODE_NOTE" ] && say "$NODE_NOTE"
   for tool in node npm scarb python3 curl; do
     command -v "$tool" >/dev/null || die "$tool is missing: scripts/play.sh doctor"
   done
@@ -306,6 +366,7 @@ down() {
   stop prove
   stop attest
   if running devnet starknet-devnet; then
+    [ "${1:-}" = nosave ] || mark_chain_clean
     if [ "${1:-}" = nosave ]; then
       devnet_env DEVNET_DUMP= "$ROOT/deploy/devnet.sh" down
     else
@@ -318,7 +379,7 @@ down() {
 
 reset() {
   down nosave
-  rm -rf "$DUMP" "$CONFIG" "$PLAY/devnet-split.json" "$PLAY/devnet.env" "$PLAY/accounts.txt" "$PLAY/prove"
+  rm -rf "$DUMP" "$CONFIG" "$PLAY/devnet-split.json" "$PLAY/devnet.env" "$PLAY/accounts.txt" "$PLAY/prove" "$PLAY/devnet.instance"
   say "devnet state forgotten: the next scripts/play.sh up deploys afresh"
 }
 
@@ -354,6 +415,9 @@ print(f"  tiers: provisional (attest), proven (SNIP-36 fake prover, available {a
   [ "$any" = 1 ] && [ -f "$PLAY/accounts.txt" ] && echo "  player (devnet account #1) $(account 1 2); page http://$HOST:$PORT/"
   return 0
 }
+
+# PLAY_SOURCED=1: only the functions (scripts/play/test_play_instance.sh).
+[ "${PLAY_SOURCED:-}" = 1 ] && return 0
 
 case "${1:-up}" in
   up)
