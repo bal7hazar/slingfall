@@ -102,6 +102,35 @@ instance() { cat "$PLAY/devnet.instance" 2>/dev/null || true; }
 started_on() { sed -n 3p "$(pid_file "$1")" 2>/dev/null || true; }
 new_instance() { printf '%s-%s\n' "$(date +%s)" "$$" >"$PLAY/devnet.instance"; }
 
+# The chain height (latest block number) of the devnet; empty when it does not answer.
+block_number() {
+  python3 - "$RPC" <<'EOF' 2>/dev/null || true
+import json, sys, urllib.request
+body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "starknet_blockNumber"}).encode()
+print(json.load(urllib.request.urlopen(urllib.request.Request(sys.argv[1], body, {"Content-Type": "application/json"}), timeout=10))["result"])
+EOF
+}
+
+# A clean `down` leaves "<instance> <height>" in the prover store (saved state and store agree at
+# that height). `up` consumes it: a state loaded at any other height, another instance, or no note
+# at all (the devnet was lost unsaved, an older dump was put back) is a rollback, and the jobs the
+# store holds may belong to a chain that no longer exists.
+mark_chain_clean() {
+  local height
+  height="$(block_number)"
+  [ -n "$height" ] || return 0
+  mkdir -p "$PLAY/prove"
+  printf '%s %s\n' "$(instance)" "$height" >"$PLAY/prove/.chain"
+}
+# 0 when the loaded state is the one the last clean `down` saved; consumes the note either way.
+chain_intact() {
+  local note height
+  note="$(cat "$PLAY/prove/.chain" 2>/dev/null || true)"
+  rm -f "$PLAY/prove/.chain"
+  height="$(block_number)"
+  [ -n "$note" ] && [ -n "$height" ] && [ "$note" = "$(instance) $height" ]
+}
+
 port_free() {
   python3 - "$1" <<'EOF'
 import socket, sys
@@ -214,6 +243,14 @@ up_devnet() {
   devnet_env "$ROOT/deploy/devnet.sh" up
   if deployed; then
     say "devnet: state loaded from $DUMP"
+    if ! chain_intact; then
+      say "devnet: this state is not the one the last clean 'down' saved (a rollback): dropping the prover's jobs"
+      stop client
+      stop prove
+      stop attest
+      rm -rf "$PLAY/prove"
+      new_instance
+    fi
     [ -n "$(instance)" ] || new_instance
     return
   fi
@@ -329,6 +366,7 @@ down() {
   stop prove
   stop attest
   if running devnet starknet-devnet; then
+    [ "${1:-}" = nosave ] || mark_chain_clean
     if [ "${1:-}" = nosave ]; then
       devnet_env DEVNET_DUMP= "$ROOT/deploy/devnet.sh" down
     else

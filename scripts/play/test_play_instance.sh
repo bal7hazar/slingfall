@@ -37,5 +37,35 @@ check "other contract: started again" "$rc" 0
 check "that service was stopped too" "$(alive)" stopped
 
 kill "$SPID" 2>/dev/null || true
+
+# The prover store's chain note (fake devnet height, fake files): fresh, clean reload, rollback.
+HEIGHT=30
+block_number() { echo "$HEIGHT"; }
+intact() { chain_intact && echo intact || echo rollback; }
+mkdir -p "$PLAY/prove/0xabc"
+new_instance
+
+check "fresh (no note, nothing saved): a rollback, so the store is dropped" "$(intact)" rollback
+
+mark_chain_clean # a clean `down` at height 30
+check "the note is '<instance> <height>'" "$(cat "$PLAY/prove/.chain")" "$(instance) 30"
+check "clean reload (same instance, same height): everything kept" "$(intact)" intact
+check "the note is consumed by the reload" "$([ -f "$PLAY/prove/.chain" ] && echo there || echo gone)" gone
+check "a second reload without a clean down in between: rollback (the devnet was lost unsaved)" "$(intact)" rollback
+
+mark_chain_clean
+HEIGHT=12 # an older dump put back
+check "older dump (height lower than the note): rollback" "$(intact)" rollback
+
+HEIGHT=30
+mark_chain_clean
+echo "$(instance)-other" >"$PLAY/devnet.instance"
+check "another instance: rollback" "$(intact)" rollback
+
+HEIGHT=30
+new_instance
+mark_chain_clean
+HEIGHT=""
+check "a devnet that does not answer: rollback, never 'intact'" "$(intact)" rollback
 rm -rf "$PLAY"
 exit "$failed"
