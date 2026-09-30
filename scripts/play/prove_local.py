@@ -96,10 +96,12 @@ class FakeAtlantic:
                 "stages": [{"job": "FAKE_SATELLITE", "status": "DONE"}]}
 
 
-def confirmed(send, rpc: str, what: str, timeout: float = 60.0):
+def confirmed(send, rpc: str, what: str, timeout: float = 60.0, fail=snip36.Snip36Error):
     """`send(...)` (a `deploy/slingfall.ts` transaction, which returns `{transaction_hash, ...}`) checked
     against the devnet the service talks to: the transaction must have a receipt there (bounded wait),
-    else the job fails with a clear message instead of reporting a transaction nobody can find. The
+    else `fail` (the error the caller handles: `Snip36Error` for the proven path, `relay.RelayError` for
+    the relay, whose `relay_job` records only that one and so backs off and gives up) is raised with a
+    clear message instead of reporting a transaction nobody can find. The
     devnet closes a block per transaction; one `devnet_createBlock` is asked for if it has not (a
     devnet on demand), as `FakeProver.ripen` asks for its own."""
     node = snip36.Rpc(rpc, 30)
@@ -116,11 +118,14 @@ def confirmed(send, rpc: str, what: str, timeout: float = 60.0):
                 return result
             except snip36.Snip36Error as e:
                 if time.time() > deadline:
-                    raise snip36.Snip36Error(f"{what} {tx}: no receipt on {rpc} after {timeout:.0f} s ({e})") from None
+                    raise fail(f"{what} {tx}: no receipt on {rpc} after {timeout:.0f} s ({e})") from None
             if not asked:
                 asked = True
                 print(f"prove_local: {what} {tx}: no receipt yet, closing a block", file=sys.stderr, flush=True)
-                node("devnet_createBlock", {})
+                try:
+                    node("devnet_createBlock", {})
+                except snip36.Snip36Error as e:
+                    raise fail(f"{what} {tx}: {e}") from None
             time.sleep(0.5)
     return run
 
@@ -152,7 +157,7 @@ def main(argv: list[str]) -> int:
         "STARKNET_RPC": rpc, "SLINGFALL_ACCOUNT_ADDRESS": os.environ["RELAY_ACCOUNT_ADDRESS"],
         "SLINGFALL_PRIVATE_KEY": os.environ["RELAY_PRIVATE_KEY"]})
 
-    service.relayer.send = confirmed(service.relayer.send, rpc, "settle")
+    service.relayer.send = confirmed(service.relayer.send, rpc, "settle", fail=relaying.RelayError)
     resumed = service.resume()
     threading.Thread(target=service.worker, daemon=True).start()
     threading.Thread(target=service.proven_worker, daemon=True).start()
