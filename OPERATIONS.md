@@ -10,13 +10,21 @@ scalar `fixed::Fixed`; numeric results are API (a last-bit change is a MINOR bum
 
 | Track | Repositories | Orchestrator session | Its documents |
 |---|---|---|---|
-| glam | fixed-cairo, glam-cairo, glamx-cairo | "Accès et lancement de sub-agents CLI (fork)" | glam-cairo `docs/PLAN.md`, `HANDOFF.md` |
-| nalgebra | simba-cairo, nalgebra-cairo | "Orchestrateur nalgebra.cairo (fork)" | nalgebra-cairo `docs/PLAN.md`, `docs/SPLIT.md` |
-| rapier | rapier-cairo | "Orchestrateur rapier.cairo (fork)" | rapier-cairo `docs/PLAN.md`, `AGENTS.md`, `docs/ORCHESTRATOR.md` |
+| glam | fixed-cairo, glam-cairo, glamx-cairo | opened on need (the former session is retired) | glam-cairo `docs/PLAN.md`, `HANDOFF.md` |
+| nalgebra | simba-cairo, nalgebra-cairo | "[Opus 5.5] Orchestrateur nalgebra — slingfall" | nalgebra-cairo `docs/PLAN.md`, `docs/SPLIT.md` |
+| rapier | rapier-cairo | "[Opus 5.5] Orchestrateur rapier — slingfall" | rapier-cairo `docs/PLAN.md`, `AGENTS.md`, `docs/ORCHESTRATOR.md` |
 | game | slingfall | the project manager, as interim orchestrator | `docs/PLAN.md`, `docs/DESIGN.md`, `docs/ORCHESTRATOR.md`, `AGENTS.md` |
 
 The programme's plan, decisions, research and status live in the project manager's notebook
 (`/home/claude/projects/pm` on the VPS: `PLAN.md`, `STATUS.md`, `RESUME.md`, `decisions/`, `research/`, `reports/`).
+
+### Sessions
+
+A new session (an orchestrator, a successor) is proposed to the owner with the Desktop suggestion chip
+(`mcp__ccd_session__spawn_task`: title with the role and the project, a tldr, `prompt` = the first message printed by
+`nexus session orchestrator --project slingfall --track <track> --context <committed file>`, `cwd` = the repository the
+session lives in); the owner clicks, nothing is pasted (owner's rule, 2026-09-30). A retired session keeps the prefix
+`[Retired]` and stands by.
 
 ## 2. Models by kind of task
 
@@ -55,7 +63,7 @@ for the Mac go through `nexus`.
 |---|---|---|---|
 | glam | glam-cairo `scripts/agent.sh <task> claude <model> new "<prompt>"` | glam-cairo `docs/briefs/<ID>-<slug>.md` (+ `COMMON.md`) | `.claude/worktrees/cli-<task>`, log `.claude/worktrees/logs/<task>.log` |
 | nalgebra | nalgebra-cairo `scripts/agent.sh` as a `systemd-run --user` unit `nalgebra-<wp>` (see its `docs/ORCHESTRATOR.md`) | `~/orchestrator/nalgebra-cairo/briefs/wp-<n>.md` | `~/orchestrator/nalgebra-cairo/wt/<wp>`, logs and reports under `~/orchestrator/nalgebra-cairo/` |
-| rapier | `scripts/executor-unit.sh <id> claude:<model> docs/briefs/<id>.md` | `docs/briefs/<id>-<slug>.md` | `.claude/worktrees/exec-<id>`, unit `rapier-exec-<id>`, `.executor-logs/<id>.log` |
+| rapier | `scripts/executor-unit.sh <id> claude:<model> docs/briefs/<id>.md` | `docs/briefs/<id>-<slug>.md` | `.claude/worktrees/exec-<id>`, unit `rapier-exec-<id>`, log `~/orchestrator/logs/rapier-cairo/<id>.log` |
 | game | `/home/claude/projects/pm/scripts/agent.sh game-<Short> <model> bootstrap` with `PM_WORKDIR`, `PM_MEMMAX`, `PM_SECRETS=1` when the brief lists a transaction | `docs/briefs/<id>.md` on `main` before the launch | `.claude/worktrees/exec-<Short>`, unit `pm-game-<Short>`, log `pm/logs/` |
 
 Common contract: a committed brief, a fresh worktree on a branch cut from `origin/main`, `REPORT.md` at the worktree
