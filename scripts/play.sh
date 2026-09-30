@@ -211,6 +211,10 @@ up_devnet() {
     return
   fi
   say "devnet: fresh state; deploying contract v3 and opening the proven tier (about a minute; log $PLAY/deploy.log)"
+  # The prover service's jobs belong to the chain they ran on: a fresh devnet has the same seed, hence the
+  # same contract address and job ids, so a job left by an earlier chain (a restored `target/`, a lost
+  # dump) would be answered as done (H4: CI run 36740770202).
+  rm -rf "$PLAY/prove"
   rm -f "$CONFIG" "$PLAY/devnet-split.json" "$PLAY/accounts.txt"
   devnet_env "$ROOT/deploy/devnet.sh" deploy >"$PLAY/deploy.log" 2>&1 || { tail -n 20 "$PLAY/deploy.log" >&2; die "deploy failed"; }
   devnet_env "$ROOT/deploy/devnet.sh" proven >>"$PLAY/deploy.log" 2>&1 || { tail -n 20 "$PLAY/deploy.log" >&2; die "opening the proven tier failed"; }
