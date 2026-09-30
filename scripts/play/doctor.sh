@@ -29,6 +29,10 @@ fi
 
 # Node: the major version of .tool-versions (Vite 8, starknet.js 10, `node deploy/slingfall.ts`).
 node_want="$(want nodejs)"
+# shellcheck source=node24.sh
+. "$ROOT/scripts/play/node24.sh"
+use_asdf_node_major "${node_want%%.*}"
+[ -n "$NODE_NOTE" ] && warn node "$NODE_NOTE (play.sh does the same)"
 if command -v node >/dev/null; then
   node_have="$(node --version | sed 's/^v//')"
   if [ "${node_have%%.*}" = "${node_want%%.*}" ]; then

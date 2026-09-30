@@ -292,7 +292,13 @@ lan_ip() {
 
 # The minimum `up` needs; `doctor` says more.
 preflight() {
-  local tool
+  local tool want
+  # Any Node of the pinned major: the shell's, else asdf's (scripts/play/node24.sh).
+  want="$(awk '$1 == "nodejs" { print $2 }' "$ROOT/.tool-versions")"
+  # shellcheck source=play/node24.sh
+  . "$ROOT/scripts/play/node24.sh"
+  use_asdf_node_major "${want%%.*}"
+  [ -n "$NODE_NOTE" ] && say "$NODE_NOTE"
   for tool in node npm scarb python3 curl; do
     command -v "$tool" >/dev/null || die "$tool is missing: scripts/play.sh doctor"
   done

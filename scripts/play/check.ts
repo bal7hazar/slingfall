@@ -78,6 +78,21 @@ async function provisional(name: string): Promise<{ levelHash: string; inputs: s
   return { levelHash, ...run };
 }
 
+/** Waits, bounded, for the receipt of a transaction the service sent (nothing to wait for without a hash). */
+async function included(name: string, what: string, hash: string | null | undefined, timeoutMs = 120_000): Promise<void> {
+  if (!hash) return;
+  log(`${name}: waiting for the ${what} transaction ${hash}`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${name}: the ${what} transaction ${hash} has no receipt after ${timeoutMs / 1000} s`)), timeoutMs);
+  });
+  try {
+    await Promise.race([rpc.waitForTransaction(hash, { retryInterval: poll.intervalMs }), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function prove(name: string, attempt: { levelHash: string; inputs: string[]; outputs: string[] }, tier: Tier): Promise<void> {
   const want = tier === 'proven' ? ATTEMPT.proven : ATTEMPT.settled;
   if ((await contract.attempt(attempt.levelHash, player, attempt.outputs[4])) === want) {
@@ -94,6 +109,12 @@ async function prove(name: string, attempt: { levelHash: string; inputs: string[
   };
   let done = await waitSettleable(url, job.id, show, poll);
   if (done && tier === 'settled' && !done.relayed && done.relayState === 'waiting') done = await waitRelayed(url, job.id, show, poll);
+  // `proven` is reported when the job holds the finalize hash, not when the transaction is included
+  // (CI run 36732025089): wait for the receipts of the transactions that write the tier, then read.
+  if (done) {
+    await included(name, 'finalize', done.finalizeTransactionHash);
+    if (tier === 'settled') await included(name, 'relay settle', done.relayTransactionHash);
+  }
   const got = await contract.attempt(attempt.levelHash, player, attempt.outputs[4]);
   if (got !== want) throw new Error(`${name}: attempt() = ${got} after the ${tier} job (${JSON.stringify(done)})`);
   log(`${name}: ${tier} (attempt() = ${got})`);
