@@ -30,13 +30,15 @@ Starknet contract and the web client.
 |---|---|---|
 | **Orchestrator** (the `slingfall` Claude Desktop session) | owns `docs/PLAN.md`, `docs/DESIGN.md`, root and crate `Scarb.toml`, every `lib.cairo`, `.tool-versions`, `scripts/**`, `.github/**`, `client/package.json`; pre-declares stubs; writes briefs; reviews `REPORT.md` + CI; merges; updates status after each merge | large implementation work |
 | **Executor** (headless `claude -p`, account claude-b7r, own worktree and branch `feat/<id>`) | implements exactly one brief inside its file allowlist, with tests and step probes; opens its PR, drives CI to green, writes `REPORT.md` | edit shared files (needs go under "Escalations"), merge, ask questions |
-| **Reviewer** (the orchestrator, or an `audit-<id>` lot on `codex exec`) | parity with the design, determinism, step tables | first implementation |
+| **Reviewer** (codex on every pull request before its merge, read-only; the orchestrator; or an `audit-<id>` lot on `codex exec`) | what would hurt once merged; parity with the design, determinism, step tables | first implementation |
 
 Launch: `scripts/executor-unit.sh <id> claude:<sonnet|opus|fable> docs/briefs/<id>.md` (systemd
 user unit, survives the session); resume with `scripts/executor-unit.sh resume <id> claude:<model>
 "<follow-up>"`. Model by difficulty: Sonnet for mechanical, well-framed lots (converters, fixtures,
 renderer on recorded traces); Opus for rules, replay, contract, worker integration; Fable
-sparingly. **codex only for audits** (lot id `audit-*`). Programme rules: `docs/ORCHESTRATOR.md`.
+sparingly. **codex only for audits** (lot id `audit-*`) and for the review of every pull request
+before its merge; an executor may be resumed with the findings of that review, and fixes those it
+is given and nothing else. Programme rules: `docs/ORCHESTRATOR.md`.
 
 ## 4. Brief (mandatory sections, in this order)
 
