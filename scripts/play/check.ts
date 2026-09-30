@@ -98,6 +98,14 @@ async function included(name: string, what: string, hash: string | null | undefi
 
 /** What the dev server's proxy and the devnet itself answer for a transaction that has no receipt (CI log). */
 async function diagnose(hash: string): Promise<void> {
+  for (const file of ['prove.log', `devnet-${process.env.PLAY_DEVNET_PORT ?? 5050}.log`]) {
+    try {
+      const tail = readFileSync(join(PLAY, file), 'utf8').replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter(Boolean).slice(-40);
+      log(`diagnose tail of ${file}:\n${tail.join('\n')}`);
+    } catch (e) {
+      log(`diagnose ${file}: ${e}`);
+    }
+  }
   const devnetUrl = `http://127.0.0.1:${process.env.PLAY_DEVNET_PORT ?? 5050}/rpc`;
   for (const [label, url] of [['proxy', config.rpcUrl], ['devnet', devnetUrl]] as const) {
     for (const [method, params] of [['starknet_blockNumber', {}], ['starknet_getTransactionStatus', { transaction_hash: hash }], ['starknet_getTransactionReceipt', { transaction_hash: hash }]] as const) {
