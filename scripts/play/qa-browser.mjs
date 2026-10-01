@@ -1,6 +1,7 @@
 // Drives the page of `scripts/play.sh up` in a real browser (lot L2): the start, one shot on pile10 with the
 // pull (-1022, -63) by keyboard, the provisional record, the proven path, the settled path, both boards.
-//   node scripts/play/qa-browser.mjs <baseUrl> <outDir> [--headed] [--fixture]
+//   node scripts/play/qa-browser.mjs <baseUrl> <outDir> [--headed] [--second-only] [--fixture]
+// --second-only: the first attempt is already recorded on this devnet (a re-run after a failure).
 // --fixture (lot L3, a machine without the wasm VM and the devnet: no full run): the real page and its real
 // stylesheet from the dev server, the real `SubmitPanel` over fakes of the contract and of the services; prints
 // the banner, the share of the viewport the end-of-level panel covers, and the state of the tier buttons.
@@ -11,7 +12,7 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const load = () => {
-  for (const m of [process.env.PLAYWRIGHT_MODULE, 'playwright', path.join(process.env.HOME, '.npm/_npx/420ff84f11983ee5/node_modules/playwright')]) {
+  for (const m of [process.env.PLAYWRIGHT_MODULE, 'playwright']) {
     try {
       if (m) return require(m);
     } catch {}
@@ -19,7 +20,11 @@ const load = () => {
   throw new Error('playwright not found: set PLAYWRIGHT_MODULE');
 };
 const pw = load();
-const [base, outDir] = process.argv.slice(2);
+const [base, outDir] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+if (!base || !outDir) {
+  console.error('usage: node scripts/play/qa-browser.mjs <baseUrl> <outDir> [--headed] [--second-only] [--fixture]');
+  process.exit(2);
+}
 const headed = process.argv.includes('--headed');
 fs.mkdirSync(outDir, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

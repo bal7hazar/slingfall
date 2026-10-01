@@ -62,7 +62,8 @@ EOF
 }
 
 install_devnet() {
-  if command -v starknet-devnet >/dev/null; then return; fi
+  # A binary that does not run (an asdf shim with no version it accepts) does not count: install ours.
+  if starknet-devnet --version >/dev/null 2>&1; then return; fi
   # The release binary (seconds) when the platform has one, else cargo (minutes, 2 jobs).
   local target=""
   case "$(uname -sm)" in
@@ -79,7 +80,7 @@ install_devnet() {
     echo "devnet: no release binary; cargo install starknet-devnet $DEVNET_VERSION" >&2
     cargo install -j 2 --locked starknet-devnet --version "$DEVNET_VERSION"
   fi
-  command -v starknet-devnet >/dev/null
+  starknet-devnet --version >/dev/null 2>&1
 }
 
 up() {

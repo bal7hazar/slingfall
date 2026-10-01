@@ -62,6 +62,9 @@ admin (and the `FakeSatellite`'s facts); #2 the prover service's SNIP-36 transac
 Measured on the development machine (Linux x86_64, 8 cores): first `up` 314 s (wasm runner, replay and
 deployment; the split classes, built beforehand, take 48 s more alone), a second `up` while everything
 runs 1 s, an `up` after `down` 21 s (the devnet reloading its saved state). See the lot's `REPORT.md`.
+On a Mac (Apple silicon, lot L2, `docs/qa/2026-09-30-mac-play.md`): the builds took 6 m 46 s (wasm runner),
+8 min (replay) and 3 min (split classes); `up` with them cached 63 to 87 s on a fresh devnet and 29 s after
+`down`; in the browser, Prove (SNIP-36) took 275 s and Settle 52 s.
 
 ## Playing: the three tiers here and on Sepolia
 
@@ -131,8 +134,10 @@ first (a second `up` reuses the running dev server as it is).
   Safari on iOS or macOS cannot open the address of another machine, check that both are on the same
   network, and that the Mac's firewall lets Node accept incoming connections (System Settings > Network >
   Firewall). If macOS asks whether Node or your terminal may accept connections or access the local
-  network, allow it (System Settings > Privacy & Security > Local Network). Not verified on a Mac by the
-  lot that wrote this page.
+  network, allow it (System Settings > Privacy & Security > Local Network). Playing on the Mac itself, in
+  Chromium, is verified (lot L2); the LAN address (`PLAY_HOST=0.0.0.0`), Safari and the firewall dialog are not.
+* **`No version is set for command starknet-devnet`** (asdf's shim): `deploy/devnet.sh` ignores a
+  `starknet-devnet` that does not run and downloads its own release binary into `deploy/.devnet/bin/`.
 * **Something failed during `up`**: its last lines are printed; the whole log is in `target/play/`
   (`deploy.log`, `vm-build.log`, `replay-build.log`, `split-build.log`, `attest.log`, `prove.log`,
   `client.log`, `devnet-5050.log`). After a contract change, `scripts/play.sh reset`.
