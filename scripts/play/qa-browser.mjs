@@ -8,7 +8,7 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const load = () => {
-  for (const m of [process.env.PLAYWRIGHT_MODULE, 'playwright', path.join(process.env.HOME, '.npm/_npx/420ff84f11983ee5/node_modules/playwright')]) {
+  for (const m of [process.env.PLAYWRIGHT_MODULE, 'playwright']) {
     try {
       if (m) return require(m);
     } catch {}
