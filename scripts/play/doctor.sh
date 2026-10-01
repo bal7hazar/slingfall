@@ -72,10 +72,11 @@ for tool in curl tar; do
 done
 
 # starknet-devnet 0.10.0: installed by deploy/devnet.sh on first `up` (a release binary for both platforms).
-if command -v starknet-devnet >/dev/null || [ -x "$ROOT/deploy/.devnet/bin/starknet-devnet" ]; then
+# Same test as deploy/devnet.sh: a binary counts only if it runs (an asdf shim with no version it accepts does not).
+if (PATH="$ROOT/deploy/.devnet/bin:$PATH" starknet-devnet --version >/dev/null 2>&1); then
   ok starknet-devnet "present (deploy/devnet.sh pins 0.10.0)"
 else
-  warn starknet-devnet "not installed yet: the first 'up' downloads the 0.10.0 release binary into deploy/.devnet/bin/"
+  warn starknet-devnet "not installed, or the one on PATH does not run: the first 'up' downloads the 0.10.0 release binary into deploy/.devnet/bin/"
 fi
 
 # Rust: only while the wasm runner is not built (client/vm/pkg/, once).
