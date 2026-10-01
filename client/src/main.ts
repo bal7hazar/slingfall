@@ -9,6 +9,7 @@ import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
 import { Hud, hudAt } from './render/hud';
 import { Playback } from './render/playback';
+import { foldResult, toggleResult } from './render/result';
 import { RecordedTraceSource } from './trace/source';
 import type { TraceEvent } from './trace/types';
 import { OUTPUT_FIELDS, decodeOutputs, type Outputs } from './vm/program';
@@ -22,7 +23,7 @@ const CONTROLS_HEIGHT = 44;
 const INSETS = { top: 0, bottom: CONTROLS_HEIGHT };
 /** The outputs a proof binds the player to (highlighted). */
 const PROOF_FIELDS = new Set(['inputs_hash', 'final_state_hash']);
-/** Phones, portrait or landscape: short hints, a collapsed result panel (style.css has the same query). */
+/** Phones, portrait or landscape: short hints, a compact layout (style.css has the same query). */
 const NARROW = window.matchMedia('(max-width: 600px), (max-height: 500px)');
 
 /** Hints of the controls bar: [wide screen, narrow screen]. */
@@ -69,13 +70,15 @@ const setHint = (next: readonly [string, string]) => {
 };
 NARROW.addEventListener('change', () => setHint(hint));
 
-/** The result panel folds to its title and summary (always folded at first on a narrow screen). */
-const foldResult = (folded: boolean) => {
-  ui.result.classList.toggle('folded', folded);
-  ui.resultToggle.textContent = folded ? 'Details' : 'Hide';
-  ui.resultToggle.setAttribute('aria-expanded', String(!folded));
+ui.resultToggle.addEventListener('click', () => toggleResult(ui.result, ui.resultToggle));
+
+/** The banner: the local mode's standing notice, replaced by a failure's message (`error`). */
+const LOCAL_BANNER = 'local devnet: proofs are simulated';
+const showBanner = (text: string, error: boolean) => {
+  ui.banner.textContent = error && chainConfig()?.local ? `${LOCAL_BANNER} · ${text}` : text; // the notice stands beside a failure
+  ui.banner.classList.toggle('notice', !error);
+  ui.banner.hidden = false;
 };
-ui.resultToggle.addEventListener('click', () => foldResult(!ui.result.classList.contains('folded')));
 
 /** The page's playback of one stage: live (a `ShotLoop` over the worker) or recorded. */
 interface View {
@@ -101,6 +104,7 @@ async function main(): Promise<void> {
   const hud = ui.hud();
   // The Submit step (lot G9) when a deployed contract is configured (docs/e2e.md).
   const config = chainConfig();
+  if (config?.local) showBanner(LOCAL_BANNER, false); // `scripts/play.sh`: nothing is proven for real (docs/play-local.md)
   const submit = config ? new SubmitPanel(ui.result, config) : null;
   /** m11: the connected account; the outputs table shows the outputs a proof will carry for it. */
   let connected: string | null = null;
@@ -184,8 +188,7 @@ async function main(): Promise<void> {
     console.log(`vm: loaded in ${loaded.ms.toFixed(0)} ms, wasm ${(loaded.wasmBytes / 2 ** 20).toFixed(0)} MB`);
   } catch (e) {
     // The app builds and runs without the wasm (client/vm/scripts/build.sh): recorded mode.
-    ui.banner.textContent = `VM not built (${e instanceof Error ? e.message : e}): run client/vm/scripts/build.sh. Playing the recorded pile10 trace.`;
-    ui.banner.hidden = false;
+    showBanner(`VM not built (${e instanceof Error ? e.message : e}): run client/vm/scripts/build.sh. Playing the recorded pile10 trace.`, true);
     ui.level.disabled = ui.retry.disabled = true;
     setHint(HINTS.recorded);
     const source = new RecordedTraceSource(TRACE_URL);
@@ -252,8 +255,7 @@ async function main(): Promise<void> {
       },
       failed: (e) => {
         console.error(e);
-        ui.banner.textContent = `shot failed: ${e instanceof Error ? e.message : e}`;
-        ui.banner.hidden = false;
+        showBanner(`shot failed: ${e instanceof Error ? e.message : e}`, true);
         setLeaving(true);
         stage.armed = true;
         setHint(HINTS.aim);
@@ -304,7 +306,7 @@ async function main(): Promise<void> {
     ui.resultTitle.textContent = r.won ? 'Level won' : 'Level lost';
     ui.resultSummary.textContent = `Score ${r.score} · shots ${r.shotsUsed} · ${r.ticks} ticks · outputs: computing…`;
     ui.resultOutputs.replaceChildren();
-    foldResult(NARROW.matches);
+    foldResult(ui.result, ui.resultToggle, true);
     ui.result.hidden = false;
     try {
       const t = performance.now();
