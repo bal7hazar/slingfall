@@ -105,10 +105,9 @@ that needs a file from the notebook stages it in the repository first.
 
 ## 6. What gates a merge, and the few kinds of task that need an audit
 
-An audit is the exception (owner, 2026-10-01): a large feature or refactoring, or a change whose confidence the
-tests alone cannot give (value, access control, a published interface, a cost or a determinism that only a
-measurement proves). One lens per reason; the pull request says why, or that none was needed. Parity and gas / step
-tables are measurements of the task itself, made by the executor, not audits.
+When an audit is run, and how, is the standard's (skill `nexus-agents`, "Start an auditor"): the exception, not the
+routine. Specific to this project: parity and gas / step tables are measurements of the task itself, made by the
+executor, never audits; the kinds of task below name the one lens they need.
 
 
 Every pull request: CI green (per repository: fmt, lint, build, crate test groups, gas / steps snapshots, goldens,
