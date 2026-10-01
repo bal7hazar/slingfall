@@ -65,10 +65,13 @@ runs 1 s, an `up` after `down` 21 s (the devnet reloading its saved state). See 
 
 ## Playing: the three tiers here and on Sepolia
 
-Pick a level, drag the pebble, release. At the end of the level the panel **Submit on the local devnet
+Pick a level, drag the pebble, release. A strip at the top says "local devnet: proofs are simulated". At the end
+of the level the panel (folded to its title and summary so that the board stays visible: **Details** opens it)
+**Submit on the local devnet
 (proofs are simulated)** is already connected with account #1 (no wallet to pick). **Submit** gives the
 provisional record in seconds; the panel then offers the proof of that attempt, at one tier of your choice
-(the contract records an attempt proven *or* settled, not both: play again for the other):
+(the contract records an attempt proven *or* settled, not both: play again for the other; once you pick a
+tier, both buttons go away):
 
 | tier | here (local) | on Sepolia |
 |---|---|---|
