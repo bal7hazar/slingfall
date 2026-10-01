@@ -24,15 +24,19 @@ A new session (an orchestrator, a successor) is proposed with the Desktop sugges
 `nexus-organisation` ("Create a session") says; its context is a committed file of the notebook
 (`pm/messages/orchestrators/<track>-<date>.md`). A retired session keeps the prefix `[Retired]` and stands by.
 
-## 2. Models by kind of task
+## 2. Models by kind of session and of task
+
+Sessions: the project manager runs on Fable 5.1; every orchestrator on Opus 5.5 (owner, 2026-10-01, to save Fable
+quota); a session's title carries the model actually used.
+
 
 | Kind of task | Model | Notes |
 |---|---|---|
 | Mechanical, well-framed lot (fixtures, converters, bumps with no numeric change, doc tables, copying a script) | Sonnet 5.5 | the tighter the brief, the smaller the model |
 | Standard port or feature with numerics (kernels, tests, golden vectors, benches; game rules, replay, contract, worker) | Opus 5.5 | default for anything that touches results |
 | Genuinely hard problem (novel numerics, hard debugging, cross-module or cross-class design, research spikes) | Opus 5.5, Fable 5.1 sparingly | say why in the brief when Fable is chosen |
-| Review of a pull request | Codex, the model the project names for reviews | `nexus review`, read-only |
-| Audit (lenses of §6) | Codex `gpt-6-sol`; `gpt-6-astra` for security and hard numeric cross-checks | `nexus audit`, read-only, never implementation |
+| Review of a pull request | Codex, the model the project names for reviews; **while Codex has no quota, Claude Sonnet** (owner, 2026-10-01; Nexus falls back by itself) | `nexus review`, read-only; the routine gate of every pull request |
+| Audit (the few kinds of §6) | Codex `gpt-6-sol`; `gpt-6-astra` for security and hard numeric cross-checks; **while Codex has no quota, Claude Opus 5.5** | `nexus audit`, read-only, never implementation; the exception, not the routine |
 
 Implementation never runs on Codex. The in-session Agent tool is used only for short read-only research.
 
@@ -99,7 +103,12 @@ that needs a file from the notebook stages it in the repository first.
   `PM_SECRETS=1`; a brief lists every transaction an agent may send, and the agent sends no other; the registry token
   stays in the owner's settings.
 
-## 6. What gates a merge, and the audit lenses by kind of task
+## 6. What gates a merge, and the few kinds of task that need an audit
+
+When an audit is run, and how, is the standard's (skill `nexus-agents`, "Start an auditor"): the exception, not the
+routine. Specific to this project: parity and gas / step tables are measurements of the task itself, made by the
+executor, never audits; the kinds of task below name the one lens they need.
+
 
 Every pull request: CI green (per repository: fmt, lint, build, crate test groups, gas / steps snapshots, goldens,
 API parity, bytecode sizes, consumer cost), the orchestrator's review of `REPORT.md` (scope = allowlist, deviations,
