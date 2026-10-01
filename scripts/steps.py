@@ -32,11 +32,15 @@ Only the Python standard library is used so the script runs anywhere CI does.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds"):
+# every build of this script runs on one.
+os.environ["RAYON_NUM_THREADS"] = "1"
 ROOT = Path(__file__).resolve().parent.parent
 STEPS_DIR = ROOT / "steps"
 PASS_RE = re.compile(r"^\[PASS\]\s+(\S+)\s+\(")

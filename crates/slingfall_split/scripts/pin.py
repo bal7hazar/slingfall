@@ -13,11 +13,15 @@ one class changes the classes that compile it, hence the loop: `RulesClass`, `Ed
 `StepClass` first, then `WorldClass` and `FallbackGame`, which compile them. CI runs the test:
 a class changed without this script fails it. Python 3 standard library only.
 """
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds"):
+# every build of this script runs on one.
+os.environ["RAYON_NUM_THREADS"] = "1"
 PACKAGE = Path(__file__).resolve().parents[1]
 PIN = re.compile(r"^pin (\w+) ([0-9a-f]+)$", re.M)
 MAX_ROUNDS = 5

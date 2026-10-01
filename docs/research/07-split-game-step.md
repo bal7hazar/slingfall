@@ -557,3 +557,12 @@ python3 crates/slingfall_split/scripts/heavy.py snforge test          # the defa
 ```
 
 Peak RSS: at most 4.4 GiB per run (one thread). No run was killed.
+
+## Status after D1
+
+Lot D1 (deterministic builds, SPK-13): the compiler's multi-threaded Sierra is not reproducible, so every
+build whose output is hashed, sized or measured now runs on one thread (`docs/proving.md` "Deterministic
+builds"). Measured on `main` with `RAYON_NUM_THREADS=1`: the 16 split classes' pinned hashes
+(`hashes.cairo`) did not move (`pin.py --check`: up to date), a four-thread build gave byte-identical classes
+to the one-thread build (no drift showed in that one sample), and a clean build costs 105 s on one thread
+against 44 s on four. The numbers of this report (class sizes, steps) are unchanged.

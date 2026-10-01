@@ -10,6 +10,8 @@
 #
 #   --build   run `scarb build` on the replay package first (~3 min cold)
 set -euo pipefail
+# Sierra is not deterministic across compiler threads: every build here runs on one (docs/proving.md "Deterministic builds").
+export RAYON_NUM_THREADS=1
 
 VM="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$(cd "$VM/../.." && pwd)"

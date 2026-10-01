@@ -244,6 +244,22 @@ has two options:
   is ~7 GiB. A whole pile10 or cores3 shot with it killed the 16 GB CI runner, so the whole levels
   need more than 16 GB.
 
+## Deterministic builds
+
+The Cairo compiler's Sierra output is not deterministic when it runs on several threads (measured by the
+Grim World project, Scarb 2.19.4 and 2.20.1: 20 clean builds of a minimal case gave 20 different Sierra
+files, a `withdraw_gas` check landing 12 times in one function and 8 in another; with
+`RAYON_NUM_THREADS=1`, 6 of 6 builds were identical). Everything this repository hashes, sizes, declares,
+snapshots or measures depends on the exact output, so **every such build runs with `RAYON_NUM_THREADS=1`,
+set by the script itself**, never left to the caller (the machine's shims set 4): `tools/classsize`,
+`crates/slingfall_split/scripts/{pin,heavy}.py`, `scripts/steps.py`, `tools/golden`,
+`client/vm/scripts/fetch-executables.sh`, `deploy/devnet.sh`, `scripts/play.sh`, and the whole CI
+workflow (`env:` of `.github/workflows/ci.yml`). A build typed by hand for a hash (`c1main`, a pin check)
+needs the variable too: `RAYON_NUM_THREADS=1 scarb build ...`. Builds that only run tests may keep more
+threads. CI's `build` job builds the split classes twice from clean and fails if their bytes (hence class
+hashes) differ. Cost: the clean split build takes 105 s on one thread against 44 s on four (VPS, Scarb 2.19.4).
+`c1main`'s program hash on one thread is the pinned Sepolia one, `0x580ef5d1...edf75a`.
+
 ## Memory model
 
 Research 05, `canonical_small`: **RSS ≈ 2.6 GiB + 1.5 GiB per million Cairo steps**. It is
