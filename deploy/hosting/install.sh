@@ -35,7 +35,7 @@ ETC=/etc/slingfall
 KEY="$ETC/attest.key"
 UNIT=/etc/systemd/system/slingfall-attest.service
 BUILD_USER=nobody
-MEMORY_MAX=2G # docs/hosting.md "Resources": one pile10 replay measured at 0.3 GB peak
+MEMORY_MAX=3G # docs/hosting.md "Resources": one pile10 replay measured at 1.9 GB peak
 # What the release holds (paths of this commit): the service, the modules it imports, the replay's
 # sources and level fixtures, the note.
 RELEASE_PATHS=(services/attest tools crates fixtures Scarb.toml Scarb.lock .tool-versions docs/hosting.md

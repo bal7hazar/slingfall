@@ -20,10 +20,10 @@ attestation key must be out of that user's reach, both for reading and for runni
 | `/etc/slingfall/attest.key` | `<user>` | 0600 | the attestation key (hex), written by the owner only |
 | `/etc/slingfall/attest.env` | `root:<user>` | 0640 | contract address, RPC URL, the key file's path |
 | `/etc/systemd/system/slingfall-attest.service` | root | 0644 | the unit |
-| `/opt/slingfall/releases/<sha>/` | root | read-only | one installed revision (`REVISION` holds the sha) |
+| `/opt/slingfall/releases/<sha>/` | root | read-only | one installed revision: code, prebuilt replay, offline scarb cache, `REVISION` |
 | `/opt/slingfall/current` | root | link | the running release |
 | `/opt/slingfall/scarb/scarb-v2.19.4-x86_64-unknown-linux-gnu/` | root | read-only | scarb, the official tarball |
-| `/var/lib/slingfall-attest/` | `<user>` | 0700 | scratch: `HOME`, scarb's cache and config |
+| `/var/lib/slingfall-attest/` | `<user>` | 0700 | scratch: `HOME`, the replay's working copy, scarb's cache and config |
 
 `<user>` is a name the owner chooses; `slingfall-attest` by default (`install.sh --user` otherwise).
 
@@ -68,15 +68,26 @@ The service re-executes each request's replay with `scarb execute --no-build`: n
 replay (`crates/slingfall_replay/target/dev/*.executable.json`) is prebuilt by `install.sh` as the unprivileged
 user `nobody`, in a scratch copy under `/var/tmp` with its own `HOME` and scarb cache, never as root and never as
 the service user (the build downloads registry packages and compiles them; neither root nor the key's owner
-runs that). The script then replays the pile10 reference shot with that build and refuses to install unless it
-gives the committed golden outputs, copies the `target/` into the release and makes the release root-owned and
-read-only.
+runs that). The script copies the five `*.executable.json` and that build's scarb cache into the release, makes
+the release root-owned and read-only, then runs it as the service will (`prepare.sh`, then the replay offline),
+still as `nobody`, and refuses to install unless the pile10 reference shot gives its committed golden outputs.
+A process running as `nobody` during those minutes could alter the scratch copy; nothing on this VPS is known
+to run as `nobody`, and agents cannot become it.
 
 scarb is the official release tarball of the version `.tool-versions` pins (2.19.4), checked against the
 release's sha256 (pinned in `install.sh`), extracted by root into `/opt/slingfall/scarb`. The unit's
 environment names everything `scarb execute --no-build` reads, nothing under `/home`: `PATH` (scarb's `bin`
 first, then `/usr/bin:/bin`), `HOME`, `SCARB_CACHE` and `SCARB_CONFIG` (both in the state directory),
-`SCARB_OFFLINE=true`. @RUNTIME_WRITES@
+`SCARB_OFFLINE=true`.
+
+scarb opens the replay's `Scarb.lock` for writing on every run, even `scarb execute --no-build` (measured: it
+fails with `failed to open lockfile: Permission denied` in a read-only tree), and its cache takes a
+`.package-cache.lock`. So at every start the unit's `ExecStartPre` (`deploy/hosting/prepare.sh`, as the service
+user) copies from the release into the state directory the replay's workspace (`Scarb.toml`, `Scarb.lock`,
+`crates/` with the prebuilt executables, about 25 MB) and the offline cache the release was built with (38 MB), and
+`attest.py --replay-dir` runs scarb there. Nothing is compiled: `target/` holds only the prebuilt
+`*.executable.json`, and `scarb execute --output none` writes no execution output. The Python code still runs
+from the release. The copy takes 0.2 s.
 
 ### What to re-install after a merge
 
@@ -115,7 +126,7 @@ from outside. The limits are in memory (one process: a restart resets them) and 
 | --- | --- | --- | --- |
 | `--rate` / `--rate-window` | 20 / 3600 s | 20 / 3600 s | per player; the player is chosen by the caller, so this alone does not stop a flood |
 | `--client-rate` / `--client-window` | 120 / 3600 s | 120 / 3600 s | per client address: a few players behind one NAT, each under `--rate` |
-| `--max-concurrent` | 1 | 1 | replays at once: one replay holds @REPLAY_MEMORY@ and a CPU for @REPLAY_TIME@ |
+| `--max-concurrent` | 1 | 1 | replays at once: one pile10 replay holds 1.9 GB and a CPU for 14 s |
 | `--max-queue` | 4 | 4 | replays waiting beyond the running one; the next is refused at once rather than queued for minutes |
 
 The client is the last entry of `X-Forwarded-For` when the peer is 127.0.0.1 (the proxy; Caddy sets the header
@@ -128,7 +139,22 @@ the per-player limit or the queue. Idle keys are pruned after a window, and at m
 
 ## Resources
 
-@RESOURCES@
+One `POST /attest` with `--execute` on the pile10 reference shot, measured on the VPS (2026-10-02, scarb 2.19.4,
+`RAYON_NUM_THREADS=1`, a throwaway key, the release laid out as above and made read-only, under the heavy-build
+lock), `/usr/bin/time -v` of the service process and its scarb child:
+
+```
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:14.57      (the request: 14.05 s)
+User time (seconds): 5.68
+System time (seconds): 8.00
+Percent of CPU this job got: 93%
+Maximum resident set size (kbytes): 1890224
+```
+
+So `MemoryMax=3G` (one replay at 1.9 GB plus the Python process, with headroom; raise it with
+`--max-concurrent`, about 2 GB per extra replay) and `TasksMax=64` (the HTTP threads and scarb's). The heaviest
+reference shots (tower, bridge) were not measured. The service does not take the agents' heavy-build lock: a
+replay can coincide with an agent's build, within the VPS's 31 GB.
 
 ## Rotating the key
 
