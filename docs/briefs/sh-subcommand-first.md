@@ -17,6 +17,10 @@ Other lots carry the rest of the same rewrite, and their files are not in this o
 - `deploy/devnet.sh` and `scripts/play.sh`: lot L4;
 - `tools/golden/golden.py`: lot HS;
 - `scripts/prepush.sh`: lot PP.
+- Deferred to a documents lot after TC merges (entry in `docs/PLAN.md`, row SH): the message at
+  `deploy/slingfall.ts:290` (TC edits that file), and the docs people copy commands from: `README.md`,
+  `client/vm/README.md`, `docs/e2e.md`, `docs/levels.md`, `docs/proving.md`, `docs/testers.md`,
+  `scripts/executor/system-prompt.md`, `tools/settle/README.md`, `tools/tracec/README.md`.
 
 ## 2. Transactions
 
@@ -33,7 +37,8 @@ Everything else is forbidden; needs go to "Escalations".
   - `deploy/v2.sh:27`
   - `crates/slingfall_replay/scripts/measure.py:54`
   - `tools/prove/prove.py:92`, `:205`
-- Text that shows the old form, for consistency: the docstrings or messages of `tools/levelc/rules.py:4`,
+- Text that shows the old form, for consistency: the docstrings or messages of `tools/prove/prove.py:4`,
+  `tools/levelc/rules.py:4`,
   `tools/settle/settle.py:4`, `tools/prove/verify.py:214` and `services/prove/prove_service.py:89`, `:327`.
 - Any other call with a global option before the subcommand that your own grep finds outside the files of §1's list
   (`--manifest-path`, `--profile`, `-P`, `--offline`, `--target-dir` ...). List each one in the report.
@@ -47,8 +52,12 @@ Everything else is forbidden; needs go to "Escalations".
 2. `bash -n` on each shell script; `python3 -m py_compile` on each Python file; the Python unit tests of the
    directories touched (`python3 -m unittest discover -s services/prove`, `python3 tools/prove/test_prove.py` without
    `PROVE_RUN`).
-3. A final `git grep` showing that no `scarb --<option> ... <sub>` call is left in executable code outside the
-   files other lots hold (§1).
+3. A final grep with both forms, showing that no call with an option before the subcommand is left in the files
+   this lot holds: `git grep -nE 'scarb (--|-[A-Za-z])'` (shell and text) and `git grep -nE '"scarb", *"-'` (Python
+   lists). Quote what remains and which lot holds it.
+4. Quote the `scarb build --help` and `scarb execute --help` lines for every option used after the subcommand, and
+   run one real `scarb execute --manifest-path crates/slingfall_replay/Scarb.toml --no-build ...` on a small case
+   (`one_block`), through the shim (it waits for the heavy lock; foreground).
 
 ## 5. Machine
 
