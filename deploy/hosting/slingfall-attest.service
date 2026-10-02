@@ -1,0 +1,70 @@
+# slingfall-attest: the attestation service of the provisional tier (services/attest/attest.py),
+# installed by deploy/hosting/install.sh (docs/hosting.md). @ATTEST_USER@ is the dedicated system
+# user the owner creates (install.sh --user, default slingfall-attest).
+#
+# Everything it runs is root-owned and read-only: the code and the prebuilt replay under
+# /opt/slingfall/current, scarb under /opt/slingfall/scarb, /usr/bin/python3. It writes only its
+# state directory. Nothing under /home is used (ProtectHome).
+
+[Unit]
+Description=Slingfall attestation service (provisional tier)
+Documentation=file:///opt/slingfall/current/docs/hosting.md
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@ATTEST_USER@
+Group=@ATTEST_USER@
+EnvironmentFile=/etc/slingfall/attest.env
+WorkingDirectory=/opt/slingfall/current
+# What `scarb execute --no-build` needs, nothing under /home: scarb's directory first on PATH, HOME,
+# the cache and the config in the state directory.
+Environment=PATH=/opt/slingfall/scarb/current/bin:/usr/bin:/bin
+Environment=HOME=/var/lib/slingfall-attest
+Environment=SCARB_CACHE=/var/lib/slingfall-attest/scarb-cache
+Environment=SCARB_CONFIG=/var/lib/slingfall-attest/scarb-config
+Environment=SCARB_OFFLINE=true
+Environment=RAYON_NUM_THREADS=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Port 8547 on 127.0.0.1 (the reverse proxy in front); the limits are docs/hosting.md's.
+ExecStart=/usr/bin/python3 /opt/slingfall/current/services/attest/attest.py serve --execute --no-build \
+    --contract ${ATTEST_CONTRACT} --host 127.0.0.1 --port 8547 \
+    --rate 20 --rate-window 3600 --client-rate 120 --client-window 3600 \
+    --max-concurrent 1 --max-queue 4 --ttl 600
+Restart=always
+RestartSec=5
+
+# Resources: sized from one pile10 /attest --execute measured on the VPS (docs/hosting.md).
+MemoryMax=@MEMORY_MAX@
+TasksMax=64
+
+# Hardening.
+StateDirectory=slingfall-attest
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/slingfall-attest
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
