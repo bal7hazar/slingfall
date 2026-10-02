@@ -88,6 +88,15 @@ jobs:
           else
             snforge test -p "$CRATE" "${args[@]}" | tee "snforge-$CRATE.log"
           fi
+      # The pinned class hashes are CI's (docs/proving.md "Deterministic builds": they depend on the build
+      # root): `Run tests` prints the stale default pins, this step the stale probe pins, each as
+      # `pin <class> <hash>` (`crates/slingfall_split/scripts/pin.py --from-log`).
+      - name: Probe class hashes (feature probes) and the build root
+        if: matrix.crate == 'slingfall_split'
+        working-directory: crates/slingfall_split
+        run: |
+          echo "build root: $GITHUB_WORKSPACE"
+          snforge test test_pinned_probe_hashes --features probes
       - uses: actions/upload-artifact@v4
         if: always()
         with:

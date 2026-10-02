@@ -6,12 +6,21 @@ rewrites the constants it reports as stale, and repeats until nothing is stale.
     python3 crates/slingfall_split/scripts/pin.py            # the default build's classes
     python3 crates/slingfall_split/scripts/pin.py --probes   # the alternatives' class (`src/probes/hashes.cairo`)
     python3 crates/slingfall_split/scripts/pin.py --check    # print the stale pins, change nothing
+    python3 crates/slingfall_split/scripts/pin.py [--probes] --from-log CI.log --root CI_ROOT
+                                                             # CI's stale pins, recorded with CI's root
 
 A class's hash changes with its code; the classes that library-call others compile their hashes as
 constants (as a game would after declaring), so a stale pin makes their library calls fail. Pinning
 one class changes the classes that compile it, hence the loop: `RulesClass`, `EditClass`,
 `StepClass` first, then `WorldClass` and `FallbackGame`, which compile them. CI runs the test:
-a class changed without this script fails it. Python 3 standard library only.
+a class changed without this script fails it.
+
+A class holding a closure has a class hash that depends on the absolute build root (closure type names
+carry it; docs/proving.md "Deterministic builds"): the committed pins are CI's, and the comment
+`// Build root of these class hashes: <root>` above the constants names the root they were computed
+in. A local run records this checkout's root; `--from-log` takes the `pin <class> <hash>` lines of a
+CI log (the failing `test_pinned_class_hashes` / `test_pinned_probe_hashes`) instead of running
+snforge, and records `--root`, CI's checkout root. Python 3 standard library only.
 """
 import os
 import re
@@ -24,6 +33,7 @@ from pathlib import Path
 os.environ["RAYON_NUM_THREADS"] = "1"
 PACKAGE = Path(__file__).resolve().parents[1]
 PIN = re.compile(r"^pin (\w+) ([0-9a-f]+)$", re.M)
+ROOT_COMMENT = "// Build root of these class hashes: "
 MAX_ROUNDS = 5
 
 
@@ -42,8 +52,19 @@ def stale(probes: bool) -> tuple[int, list[tuple[str, str]], str]:
     return run.returncode, PIN.findall(run.stdout), run.stdout
 
 
-def rewrite(path: Path, pins: list[tuple[str, str]]) -> None:
-    text = path.read_text()
+def with_root(text: str, root: str) -> str:
+    """`text` with the build-root comment set to `root`, added above the first constant if missing."""
+    line = f"{ROOT_COMMENT}{root}"
+    text, n = re.subn(rf"^{re.escape(ROOT_COMMENT)}.*$", line, text, count=1, flags=re.M)
+    if n == 0:
+        text, n = re.subn(r"^pub const ", f"{line}\npub const ", text, count=1, flags=re.M)
+    if n != 1:
+        sys.exit("no constant to put the build-root comment above")
+    return text
+
+
+def rewrite(path: Path, pins: list[tuple[str, str]], root: str) -> None:
+    text = with_root(path.read_text(), root)
     for name, value in pins:
         const = constant(name)
         text, n = re.subn(rf"(pub const {const}: felt252 =\s*)0x[0-9a-fA-F]+;", rf"\g<1>0x{value};",
@@ -58,6 +79,18 @@ def rewrite(path: Path, pins: list[tuple[str, str]]) -> None:
 def main() -> int:
     probes = "--probes" in sys.argv
     path = PACKAGE / "src" / ("probes/hashes.cairo" if probes else "hashes.cairo")
+    if "--from-log" in sys.argv:
+        if "--root" not in sys.argv:
+            sys.exit("--from-log needs --root (CI's checkout root)")
+        log = Path(sys.argv[sys.argv.index("--from-log") + 1]).read_text()
+        # `gh run view --log` prefixes each line with the job, the step and a timestamp.
+        found = re.findall(r"(?:^|\s)pin (\w+) ([0-9a-f]+)\s*$", log, re.M)
+        pins = {n: v for n, v in found if f"pub const {constant(n)}:" in path.read_text()}
+        if not pins:
+            sys.exit(f"no `pin <class> <hash>` line of {path.name} in the log")
+        rewrite(path, sorted(pins.items()), sys.argv[sys.argv.index("--root") + 1])
+        return 0
+    root = str(PACKAGE.parents[1])
     for _ in range(MAX_ROUNDS):
         code, pins, out = stale(probes)
         if not pins:
@@ -70,7 +103,7 @@ def main() -> int:
             for name, value in pins:
                 print(f"stale: {constant(name)} = 0x{value}", file=sys.stderr)
             return 1
-        rewrite(path, pins)
+        rewrite(path, pins, root)
     print(f"pins still stale after {MAX_ROUNDS} rounds", file=sys.stderr)
     return 1
 
