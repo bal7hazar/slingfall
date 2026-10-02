@@ -630,11 +630,12 @@ def make_handler(attester: Attester, log=sys.stdout):
                 self.send_header("Retry-After", str(max(1, math.ceil(retry_after))))
             self.cors()
             self.end_headers()
-            self.wfile.write(data)
+            # Logged before the body goes out: once the caller has its answer, the line is written.
             fields = " ".join(f"{k}={v}" for k, v in self.info.items())
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {self.command} {self.path} {status} "
                   f"{time.monotonic() - self.started:.3f}s client={self.client() or 'local'} {fields}".rstrip(),
                   file=log, flush=True)
+            self.wfile.write(data)
 
         def cors(self) -> None:
             # The client runs on another origin (the Vite dev server).
@@ -645,9 +646,9 @@ def make_handler(attester: Attester, log=sys.stdout):
         def do_OPTIONS(self):  # noqa: N802
             self.send_response(204)
             self.cors()
-            self.end_headers()
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} OPTIONS {self.path} 204 "
                   f"{time.monotonic() - self.started:.3f}s client={self.client() or 'local'}", file=log, flush=True)
+            self.end_headers()
 
         def do_GET(self):  # noqa: N802
             if self.path != "/health":
