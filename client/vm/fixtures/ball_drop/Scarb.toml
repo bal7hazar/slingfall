@@ -7,7 +7,7 @@ cairo-version = "2.20.0"
 license = "MIT"
 
 # Standalone package, outside the root workspace (an executable needs `enable-gas = false`).
-# Build: `scarb --manifest-path client/vm/fixtures/ball_drop/Scarb.toml build`, then copy
+# Build: `scarb build --manifest-path client/vm/fixtures/ball_drop/Scarb.toml`, then copy
 # `target/dev/ball_drop.executable.json` to `client/vm/fixtures/` (client/vm/README.md).
 [workspace]
 

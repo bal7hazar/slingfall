@@ -287,7 +287,7 @@ function classFiles(artifacts = ARTIFACTS): { contract: unknown; casm: unknown }
   try {
     return { contract: readJson(path('.contract_class.json')), casm: readJson(path('.compiled_contract_class.json')) };
   } catch {
-    throw new Error(`no class artifacts at ${artifacts}: scarb --manifest-path deploy/contract/Scarb.toml build (scarb build -p slingfall_split for the chain)`);
+    throw new Error(`no class artifacts at ${artifacts}: scarb build --manifest-path deploy/contract/Scarb.toml (scarb build -p slingfall_split for the chain)`);
   }
 }
 

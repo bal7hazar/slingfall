@@ -8,7 +8,7 @@ license = "MIT"
 
 # Outside the root workspace, as crates/slingfall_replay: `cairo1-run` runs a gas-free Sierra program
 # whose `main` takes one `Array<felt252>`. `sierra-replace-ids` keeps the debug names `cairo1-run`
-# uses to find `::main`. Build: `scarb --manifest-path tools/atlantic/c1main/Scarb.toml build`.
+# uses to find `::main`. Build: `scarb build --manifest-path tools/atlantic/c1main/Scarb.toml`.
 [workspace]
 
 [dependencies]

@@ -1,7 +1,7 @@
 [workspace]
 # `crates/slingfall_replay` is an executable (`enable-gas = false`) and is kept out of this
 # snforge-tested workspace: it is a nested package with its own `[workspace]` (as
-# rapier-cairo/examples/ball_drop). Build it with `scarb --manifest-path crates/slingfall_replay/Scarb.toml`.
+# rapier-cairo/examples/ball_drop). Build it with `scarb build --manifest-path crates/slingfall_replay/Scarb.toml`.
 members = [
     "crates/slingfall_testing",
     "crates/slingfall_level",
