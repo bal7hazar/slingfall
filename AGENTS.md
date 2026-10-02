@@ -74,6 +74,13 @@ push, `gh pr create` from the template, `gh pr checks --watch` until green, neve
 (git-ignored) at the worktree root. Never run `snforge test --workspace` locally, never background
 a command and end the turn, never switch branches, stash or reset, never touch other worktrees.
 
+## 6b. Before every push
+
+`scripts/install-hooks.sh` is run once per main clone by its owner, never by a thread (it refuses in a
+worktree); the pre-push hook then runs `scripts/prepush.sh` (fmt, syntax,
+Python tests, the touched crates' build, golden and class-size gates; `--full` adds the slow checks). Never push
+red and never skip the hook (`--no-verify`): fix what it reports.
+
 ## 7. Cairo rules (from the ports; measured there)
 
 - Scalars are `fixed::Fixed` (Q32.32 in `i64`); sums of products go through `fixed::wide` kernels;
