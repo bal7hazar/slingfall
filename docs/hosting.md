@@ -34,12 +34,13 @@ attestation key must be out of that user's reach, both for reading and for runni
 
 ## Trust: what to review before an install
 
-**A merged commit is not trusted because it is merged.** The agents' Unix user holds GitHub credentials that
-can merge to `main` (the threads merge their own pull requests). Whatever a commit puts in the release runs as
-the service user, which reads the key, and `install.sh` and its check run as root. Anything on that user's side
-(an agent, or a compromised dependency an agent ran) could land such a commit. So before each install the owner
-reviews, in the root-owned checkout, everything the release runs or installs that changed since the running
-revision:
+**The trust model, as the owner accepts it: the agents can merge to `main`.** The agents' Unix user holds
+GitHub credentials that merge to `main` (the threads merge their own pull requests), so a merged commit is not
+trusted because it is merged. Whatever a commit puts in the release runs as the service user, which reads the
+key, and `install.sh` and its check run as root. Anything on that user's side (an agent, or a compromised
+dependency an agent ran) could land such a commit. What stands between a merge and the key is the owner's review
+of the release paths before each install, in the root-owned checkout: everything the release runs or installs
+that changed since the running revision:
 
 ```sh
 cd /root/src/slingfall-$SHA
@@ -72,21 +73,10 @@ package's version against the programme's publishing records. The third command'
 crates and the fixtures: they run inside the Cairo VM and decide what gets signed, not what runs natively; the
 pile10 golden check of `install.sh` catches a change that reaches that shot, not every change.
 
-Better still, install only a commit that carries a tag signed with a key the agents do not hold (an OpenPGP key
-kept on the owner's own machine, never on the VPS): the owner reviews, tags and signs on their machine
-(`git tag -s attest-<date> <sha>`, then `git push origin attest-<date>`), imports the public key into root's
-keyring on the VPS once (`gpg --import`), and installs with `--signed-tag`, which refuses unless the tag points at
-the checked-out commit and `git verify-tag` finds a good signature by that fingerprint:
-
-```sh
-git -C /root/src/slingfall-$SHA verify-tag attest-<date>                    # by hand: "Good signature from ..."
-/root/src/slingfall-$SHA/deploy/hosting/install.sh --signed-tag attest-<date> --signer <40-hex fingerprint>
-```
-
-The fingerprint and the public key come from the owner's own machine (`gpg --fingerprint` and
-`gpg --export --armor <fingerprint>` there, carried to the VPS by the owner), never from the VPS or from GitHub:
-the agents hold the GitHub account's token, which may be able to add a key to it. The agents cannot forge the
-signature, but the review is still the owner's: a signature says only that the owner vouched for the commit.
+`install.sh` also takes an optional `--signed-tag TAG --signer FINGERPRINT`: it then refuses unless `TAG` points
+at the checked-out commit and `git verify-tag` finds a good OpenPGP signature by that key in root's keyring.
+It adds nothing to the review above and is not required; used, the fingerprint and the public key come from the
+owner's own machine, never from the VPS or from GitHub (the agents hold the GitHub account's token).
 
 ## Create (once, as root)
 
@@ -314,8 +304,8 @@ attest.<domain> {
 Caddy replaces any `X-Forwarded-For` from an untrusted client with the address it saw, which is what the
 per-client limit reads; the read timeouts keep slow clients at Caddy. **The per-client limit is only as
 trustworthy as Caddy's admin access.** By default Caddy's admin API listens on `127.0.0.1:2019` without
-authentication (it does on this VPS today), so any local user, the agents' included, can replace Caddy's
-configuration: set any `X-Forwarded-For`, lift the body cap, or send the subdomain to another process. Hence
-`admin off` in the global options (reload by restarting Caddy), or `admin unix//run/caddy/admin.sock` with that
-socket readable by root only. The web client then points `VITE_ATTEST_URL` at `https://attest.<domain>`, and
+authentication, so any local user, the agents' included, could replace Caddy's configuration: set any
+`X-Forwarded-For`, lift the body cap, or send the subdomain to another process. On this VPS Caddy's admin API is
+off (`admin off`, the live state since 2026-10-02), and the example keeps it so. With the API off, `caddy reload`
+cannot apply a change: any change to Caddy's configuration, this site included, takes `systemctl restart caddy`. The web client then points `VITE_ATTEST_URL` at `https://attest.<domain>`, and
 `ATTEST_CORS_ORIGIN` is that client's origin.

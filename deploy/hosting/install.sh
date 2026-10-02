@@ -9,7 +9,7 @@
 #   --user NAME          the dedicated system user the owner created (default slingfall-attest)
 #   --proxy-group GROUP  the reverse proxy's group, the only one that may open the service's Unix
 #                        socket (default caddy)
-#   --signed-tag TAG     refuse unless TAG points at this checkout's commit and `git verify-tag`
+#   --signed-tag TAG     optional: refuse unless TAG points at this checkout's commit and `git verify-tag`
 #   --signer FPR         finds a good signature by the OpenPGP key FPR (root's keyring holds the
 #                        owner's public key, imported from the owner's own machine; the agents do
 #                        not hold the secret one)
@@ -128,7 +128,6 @@ REL="$PREFIX/releases/$SHA"
 
 # ------------------------------------------------------------------ plan
 say "installing slingfall-attest at revision $SHA from $SRC"
-[ -n "$TAG" ] || say "  WARNING: no --signed-tag: you vouch for $SHA by your own review (docs/hosting.md \"Trust\")"
 say "  service user: $ATTEST_USER; build user: $BUILD_USER; key file: $KEY (not read)"
 if [ -x "$PREFIX/scarb/$SCARB_NAME/bin/scarb" ]; then
   say "  scarb: $PREFIX/scarb/$SCARB_NAME present, kept"
