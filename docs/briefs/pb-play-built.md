@@ -27,7 +27,9 @@ read, so its substance is given here. Apply it by hand on current main. If L4 (#
   - The build runs in the foreground before `start` (the background start waits at most 30 s for HTTP).
   - Build into `target/play/dist` with `--outDir … --emptyOutDir` (the folder is outside the client root).
   - Give the build the same `VITE_*` values as `start`: they are baked in.
-  - Keep `--config scripts/play/vite.config.mts` on `preview` (`running client` matches it).
+  - Keep `--config scripts/play/vite.config.mts` on `preview` (`running client` matches it), and give `preview` the
+    same `--outDir "$PLAY/dist"` (it defaults to `client/dist`, which would serve nothing or a stale build). Setting
+    `build.outDir` once in `scripts/play/vite.config.mts` is an alternative.
   - Adjust the header range that `help` prints, so the new header line shows.
 - A running client is reused whatever its mode (`fresh client`). Record the mode with the client's PID, or make `up`
   restart a client of the other mode. At the least, `docs/play-local.md` says to run `down` before switching modes.
@@ -37,7 +39,8 @@ Read first: `scripts/play.sh` (`up`, `start client`, the `VITE_*` variables), `s
 
 ## 2. Transactions
 
-None on any public network; only the local devnet's own deploy transactions through `play.sh up`.
+None on any public network. On the local devnet: the deploy that `play.sh up` runs, and the shot's own transactions
+if a harness plays one.
 
 ## 3. Scope (allowlist)
 
@@ -55,9 +58,10 @@ Everything else is forbidden; needs go to "Escalations".
 2. **The wasm is compressed too, if you can do it within the allowlist.** `vite preview` gzips JS and JSON but sends
    the 1.53 MB `.wasm` uncompressed: its compression MIME regex leaves it out (research Finding 1). If `vite.config.mts`
    cannot fix that without a new dependency, leave it and say so.
-3. Run `PLAY_BUILT=1 scripts/play.sh up`, load the page in headless Chromium, and play the reference shot once
-   (`scripts/play/qa-browser.mjs` is the harness; Playwright comes from `PLAYWRIGHT_MODULE`). Then run `down`, and run
-   once more without `PLAY_BUILT` to show the default still works.
+3. Run `PLAYWRIGHT_MODULE=… PLAY_BUILT=1 scripts/play.sh up`, load the page in headless Chromium and fire one shot
+   (the reference pull). Use your own short harness (§4.4), not the whole `qa-browser.mjs` flow, which also submits,
+   proves and settles (about 6 minutes per run). Then run `down`, run `up` again without `PLAY_BUILT`, and show the
+   page reaches its first playable frame.
 4. **Measure on desktop** (no throttling, and also the Fast 4G profile), as real output: bytes transferred, request
    count, and time to the first playable frame, for dev against built.
    - Write a small harness in your scratch directory from `scripts/play/qa-browser.mjs`. Count bytes with CDP
