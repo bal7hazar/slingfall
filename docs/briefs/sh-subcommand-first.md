@@ -31,7 +31,8 @@ Other lots carry the rest of the same rewrite, and their files are not in this o
 - Deferred to a documents lot after TC merges (entry in `docs/PLAN.md`, row SH): the message at
   `deploy/slingfall.ts:290` (TC edits that file), and the docs people copy commands from: `README.md`,
   `client/vm/README.md`, `docs/e2e.md`, `docs/levels.md`, `docs/proving.md`, `docs/testers.md`,
-  `scripts/executor/system-prompt.md`, `tools/settle/README.md`, `tools/tracec/README.md`.
+  `scripts/executor/system-prompt.md` (the old Nexus executor's prompt, unused by herdr threads),
+  `tools/settle/README.md`, `tools/tracec/README.md`.
 
 ## 2. Transactions
 
@@ -60,7 +61,10 @@ Everything else is forbidden; needs go to "Escalations".
 1. Rewrite each call to the directory form: `scarb --manifest-path X/Scarb.toml execute --executable-name ...`
    becomes `(cd X && scarb execute --executable-name ...)`, or `cwd=X` in Python. Paths given to scarb relative to the
    old working directory (for example `--arguments-file`) are made absolute or adjusted for the new one.
-2. The artefact comparison of §1 for each call. The old-form build runs on the VPS under
+2. The artefact comparison of §1 for each call, done so it cannot be empty: build with the old form, copy `target/`
+   aside (or record each file's sha256), `rm -rf target`, build with the new form, then compare. For an `execute`,
+   compare the program output and the resource-usage lines, not the `target/execute/<pkg>/executionN` listing (its
+   counter differs). The old-form build runs on the VPS under
    `flock -w <s> ~/orchestrator/heavy-build.lock env HEAVY_BUILD_LOCK_HELD=1 …`, never bare; or both run on the Mac.
 3. `bash -n` on each shell script; `python3 -m py_compile` on each Python file; the Python unit tests of the
    directories touched (`python3 -m unittest discover -s services/prove`, `python3 tools/prove/test_prove.py` without
@@ -69,8 +73,9 @@ Everything else is forbidden; needs go to "Escalations".
    this lot holds: `git grep -nE 'scarb (--|-[A-Za-z])'` (shell and text) and `git grep -nE '"scarb", *"-'` (Python
    lists). Quote what remains and which lot holds it.
 5. Quote the `scarb build --help` and `scarb execute --help` lines for every option kept after the subcommand, and
-   run one real `(cd crates/slingfall_replay && scarb execute --no-build ...)` on a small case (`one_block`)
-   through the shim, showing that the shim took the heavy lock (foreground).
+   run one real `(cd crates/slingfall_replay && scarb execute --no-build ...)` on a small case (`one_block`). The heavy
+   lock is the VPS shim's and the Mac has none: the lot does not have to show it; the form (subcommand as `$1`) is
+   what the VPS shim matches.
 
 ## 5. Machine
 
