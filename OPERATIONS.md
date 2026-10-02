@@ -159,3 +159,6 @@ gas or step table), then a review thread (§2). Squash merge; conventional commi
   transactions listed one by one; mainnet is reserved to the owner.
 - The hosted client (GitHub Pages) is redeployed by a manual dispatch of the CI workflow after a merge that changes
   what it serves, and only when it matches the contract it talks to.
+- Relayer (owner, 2026-10-02): on Starknet Sepolia the relayer is the admin account, with no dedicated account ("on
+  Sepolia there is no real risk"). The question reopens before mainnet, where fees and admin rights are real. This
+  authorises no new act: the admin key, its placement on a machine and every deployment remain the owner's.
