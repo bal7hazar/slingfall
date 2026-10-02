@@ -134,7 +134,7 @@ OUTPUT_NAMES = ["version", "level_hash", "seed", "player", "inputs_hash", "score
 DEFAULT_TTL = 600.0
 DEFAULT_RATE = 20
 DEFAULT_RATE_WINDOW = 3600.0
-# One replay holds the only slot for about 14 s (pile10, docs/hosting.md): about 250 an hour in
+# One replay holds the only slot for about 12 s (pile10, docs/hosting.md): about 300 an hour in
 # all. 20 per address is under a tenth of that; a few players behind one NAT share it.
 DEFAULT_CLIENT_RATE = 20
 DEFAULT_LOCAL_RATE = 60  # every local caller together (agents on the machine, health checks)
@@ -146,7 +146,9 @@ IPV6_PREFIX = 64  # an IPv6 client is its /64: one subscriber gets a whole /64
 SD_LISTEN_FDS_START = 3
 CONNECTION_TIMEOUT = 10.0  # seconds a connection may stay idle (headers, body) before it is closed
 REQUEST_DEADLINE = 20.0  # seconds for the whole request line, headers and body, however they trickle
-MAX_CONNECTIONS = 32  # open at once; each holds a thread (the unit's TasksMax is 64)
+# Open at once; each holds a thread. With the main thread and one replay's 17 (scarb 16 and
+# scarb-execute 1 at most, measured: docs/hosting.md "Resources"), 50 of the unit's TasksMax=64.
+MAX_CONNECTIONS = 32
 CHAIN_TTL = 30.0
 
 

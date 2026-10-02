@@ -152,13 +152,16 @@ left a symbolic link, a device or a socket among the executables or in the scarb
 resolves (`realpath`) outside the build directory, the install is refused. It also refuses any shared object or
 ELF file there: the service user runs no native code from the build.
 
-That is why `install.sh` makes one deliberate change to the exported files: before the build, it strips the
-replay's `Scarb.toml` of what only its tests use (`[dev-dependencies]`, `allow-prebuilt-plugins`, the snforge
-profile and tool sections). With them, `scarb execute --no-build` loads the prebuilt
-`snforge_scarb_plugin_v0.64.0_x86_64-unknown-linux-gnu.so` from the scarb cache on every replay (measured with
-`strace -f -e trace=openat`, scarb 2.20.1): native code fetched from the registry, run as the key's owner.
-Without them, scarb fetches no plugin, and the replay opens no shared object outside the system's libraries
-(`/lib/x86_64-linux-gnu`) and scarb's own directory (measured the same way: "Resources" below).
+That is why `install.sh` makes one deliberate change to the exported files: before the build, it strips every
+crate's `Scarb.toml` of what only the tests use (`[dev-dependencies]`, `allow-prebuilt-plugins`, the snforge
+profile and tool settings), and the release keeps the `Scarb.lock` the build then settles. With those parts,
+`scarb execute --no-build` loads the prebuilt `snforge_scarb_plugin_v0.64.0_x86_64-unknown-linux-gnu.so` from the
+scarb cache on every replay (measured with `strace -f -e trace=openat`, scarb 2.20.1): native code fetched from the
+registry, run as the key's owner. Without them, scarb fetches no plugin, and the replay opens no shared object
+outside the system's libraries (`/lib/x86_64-linux-gnu`) and scarb's own directory (measured the same way:
+"Resources" below). The replay's path dependencies have `snforge_std` dev-dependencies too, so stripping the
+replay's manifest alone is not enough: the first replay then rewrote the lock and the next one failed offline
+(measured), which is also why `install.sh`'s check replays pile10 twice.
 The script copies the five `*.executable.json` and that build's scarb cache into the release, makes the release
 root-owned and read-only, then runs it as the service will (`prepare.sh`, then the replay offline), again as
 `nobody` in a confined unit, and refuses to install unless the pile10 reference shot gives its committed golden
@@ -227,8 +230,8 @@ the service at all, and nothing else can take the path while the service is down
 header: a loopback caller counts as `local` whatever it sends, any other peer by its own address.
 
 A connection idle for 10 s (headers or body not arriving), or still sending its request 20 s after it opened
-(however slowly it trickles), is closed, a late body with 408; at most @MAX_CONNECTIONS@ connections are open at
-once and the next is closed at once, so slow connections cannot exhaust the unit's `TasksMax=@TASKS_MAX@`. A request body above 16 KiB answers 413 (an `--execute` request is under 1 KiB). Browsers may call
+(however slowly it trickles), is closed, a late body with 408; at most 32 connections are open at
+once and the next is closed at once, so slow connections cannot exhaust the unit's `TasksMax=64`. A request body above 16 KiB answers 413 (an `--execute` request is under 1 KiB). Browsers may call
 only from `ATTEST_CORS_ORIGIN` (the env file: the web client's origin, `https://<subdomain>`).
 
 The limits are in memory (one process: a restart resets them) and answer 429 with `Retry-After`. They are charged
@@ -239,7 +242,7 @@ in this order, so a refused request costs nothing further:
 | 1 | `--client-rate` / `--client-window` | 20 / 3600 s | per client address (an IPv6 client is its /64), charged on every `POST /attest` before its body is read, malformed ones included; sized against the one replay slot below |
 | 1 | `--local-rate` | 60 / 3600 s | every local caller together: on the socket, a request without a valid IP literal in `X-Forwarded-For` (root's own checks) |
 | 2 | (the request is read and parsed) | | a malformed request (400) charges nothing further |
-| 3 | `--max-concurrent` | 1 | replays at once: one replay holds 4.2 GB (tower) and a CPU for 14 to 23 s |
+| 3 | `--max-concurrent` | 1 | replays at once: one replay holds 4.6 GB (tower) and a CPU for 12 to 19 s |
 | 3 | `--max-queue` | 4 | replays waiting beyond the running one; the next is refused at once (busy) rather than queued for minutes |
 | 4 | `--rate` / `--rate-window` | 20 / 3600 s | per player, charged only once the gate admits the request; the player is chosen by the caller |
 
@@ -249,9 +252,9 @@ Idle keys are pruned after a window, and at most 100,000 are kept. The player is
 address is public: twenty well-formed requests naming a player lock that player out for an hour, at the cost of
 twenty of the caller's own replays and client budget.
 
-**One service on one slot can be saturated.** A replay holds the only slot for 14 s (pile10) to 23 s
-(tower), so the service attests at most about 250 pile10 replays an hour (about 150 tower ones). With the defaults, one address gets at
-most 20 an hour (under a tenth of that). About 13 addresses (13 IPv6 /64s, a handful of
+**One service on one slot can be saturated.** A replay holds the only slot for 12 s (pile10) to 19 s
+(tower), so the service attests at most about 300 pile10 replays an hour (about 190 tower ones). With the
+defaults, one address gets at most 20 an hour (under a tenth of that). About 15 addresses (15 IPv6 /64s, a handful of
 cloud machines) attesting continuously keep the slot busy and the queue full, and every other player then gets
 429 busy until they stop. The limits bound the cost of a flood (memory, CPU), not its reach; for the MVP on
 Sepolia that is accepted, and the numbers can be tuned in the unit's `ExecStart`.
@@ -261,32 +264,44 @@ Sepolia that is accepted, and the numbers can be tuned in the unit's `ExecStart`
 
 ## Resources
 
-One `POST /attest` with `--execute`, measured on the VPS (2026-10-02, scarb 2.19.4, `RAYON_NUM_THREADS=1`, a
-throwaway key, the release laid out as above and made read-only, under the heavy-build lock), `/usr/bin/time -v`
-of the service process and its scarb child. pile10, the reference shot (8.7M Cairo steps):
+One `POST /attest` with `--execute`, measured on the VPS (2026-10-02, scarb 2.20.1 from the official tarball,
+`RAYON_NUM_THREADS=1`, a throwaway key, the release built as `install.sh` builds it (stripped manifests, a fresh
+scarb cache) and made read-only, under the heavy-build lock): `/usr/bin/time -v` of the service process and its
+scarb child, and the peak thread count of each process (`Threads:` of `/proc/<pid>/status`, sampled every 20 ms).
+pile10, the reference shot:
 
 ```
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:14.57      (the request: 14.05 s)
-User time (seconds): 5.68
-System time (seconds): 8.00
-Percent of CPU this job got: 93%
-Maximum resident set size (kbytes): 1890224
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:12.19      (the request: 11.56 s)
+User time (seconds): 5.16
+System time (seconds): 6.56
+Percent of CPU this job got: 96%
+Maximum resident set size (kbytes): 1776004
+peak threads: python3 2, scarb 12, scarb-execute 1 (the whole tree 16)
 ```
 
 tower, the reference shot, the largest of the golden cases (22.3M Cairo steps):
 
 ```
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:23.36      (the request: 22.89 s)
-User time (seconds): 8.92
-System time (seconds): 11.34
-Percent of CPU this job got: 86%
-Maximum resident set size (kbytes): 4170540
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:21.77      (the request: 18.92 s)
+User time (seconds): 10.02
+System time (seconds): 9.91
+Percent of CPU this job got: 91%
+Maximum resident set size (kbytes): 4559116
+peak threads: python3 2, scarb 16, scarb-execute 1 (the whole tree 20)
 ```
 
-So `MemoryMax=6G` (the tower replay plus the Python process, with headroom; raise it with
-`--max-concurrent`, by the same again per extra replay), `OOMPolicy=continue` (an OOM kill fails that replay,
-not the unit) and `TasksMax=64` (the HTTP threads and scarb's). The service does not take the agents'
-heavy-build lock: a replay can coincide with an agent's build, within the VPS's 31 GB.
+Both answers carried the golden outputs, and a third replay on the same working copy (the `strace` run) worked
+too. `strace -f -e trace=openat` of that `scarb execute --no-build` lists the shared objects it opens:
+`libc.so.6`, `libdl.so.2`, `libgcc_s.so.1`, `libm.so.6`, `libpthread.so.0` and `librt.so.1`, all in
+`/lib/x86_64-linux-gnu`; none from the scarb cache or the release (the cache holds no ELF file: `install.sh`
+refuses one).
+
+So `MemoryMax=7G` (the tower replay, 4.6 GB, plus the Python process, with headroom; raise it with
+`--max-concurrent`, by about 5 GB per extra replay), `OOMPolicy=continue` (an OOM kill fails that replay, not
+the unit) and `TasksMax=64`: the main thread, at most 32 connection threads (`MAX_CONNECTIONS`) and one replay's
+17 (scarb 16, scarb-execute 1) make 50, leaving 14 spare. Raise `TasksMax` by about 17 per extra
+`--max-concurrent`. The service does not take the agents' heavy-build lock: a replay can coincide with an
+agent's build, within the VPS's 31 GB.
 
 ## Rotating the key
 
