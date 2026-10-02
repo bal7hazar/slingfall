@@ -127,6 +127,23 @@ check_archive() {
 }
 # --- archive checks: end
 
+# --- replay manifest: begin
+# strip_test_parts MANIFEST: the replay's Scarb.toml without what only its tests use ([dev-dependencies],
+# allow-prebuilt-plugins, the snforge profile and tool sections). With them, scarb loads the prebuilt
+# snforge_scarb_plugin shared object from its cache on every `scarb execute --no-build` (measured with
+# strace): native code fetched from the registry, run as the key's owner. Without them, scarb fetches no
+# plugin and loads no shared object outside its own directory and the system.
+strip_test_parts() {
+  local m="$1"
+  awk '
+    /^\[/ { skip = ($0 ~ /^\[dev-dependencies\]/ || $0 ~ /^\[profile\.snforge/ || $0 ~ /^\[tool\.snforge\]/) }
+    /^allow-prebuilt-plugins/ { next }
+    !skip
+  ' "$m" >"$m.stripped" && mv "$m.stripped" "$m"
+  ! grep -v '^[[:space:]]*#' "$m" | grep -q snforge || die "$m still names snforge once stripped: update install.sh"
+}
+# --- replay manifest: end
+
 # ------------------------------------------------------------------ 1. checks (nothing changes)
 [ "$(id -u)" = 0 ] || die "run as root (the tree it installs must be root-owned)"
 [[ "$ATTEST_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "--user: a name of [a-z_][a-z0-9_-]*"
@@ -236,6 +253,8 @@ if [ ! -d "$REL" ]; then
   for d in "${PYTHON_DIRS[@]}"; do
     [ -d "$stage/$d" ] || die "$d (PYTHON_DIRS) is not in the revision: update install.sh"
   done
+  # The one deliberate difference from the reviewed bytes: the replay's manifest loses its test-only parts.
+  strip_test_parts "$stage/crates/slingfall_replay/Scarb.toml"
   # No compiled Python anywhere, and nothing importable on the service's sys.path but PYTHON_FILES.
   odd="$(find "$stage" \( -name __pycache__ -o -name '*.pyc' -o -name '*.pyo' \) -print -quit)"
   [ -z "$odd" ] || die "the revision holds compiled Python: ${odd#"$stage"/}: refused"
@@ -261,6 +280,11 @@ if [ ! -d "$REL" ]; then
   done
   odd="$(find "$built" "$build/home/scarb-cache" ! -type f ! -type d -print -quit)"
   [ -z "$odd" ] || die "the build left $odd, not a regular file or directory: refused"
+  # No native code for the service user: no shared object, no ELF file, in what it will run from.
+  while IFS= read -r -d '' f; do
+    case "$f" in *.so|*.so.*) die "the build left a shared object, ${f#"$build"/}: refused" ;; esac
+    [ "$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')" != 7f454c46 ] || die "the build left an ELF file, ${f#"$build"/}: refused"
+  done < <(find "$built" "$build/home/scarb-cache" -type f -print0)
   install -d "$stage/crates/slingfall_replay/target/dev"
   for f in "$built"/*.executable.json; do
     [ -f "$f" ] && [ ! -L "$f" ] || die "$f: not a regular file"
