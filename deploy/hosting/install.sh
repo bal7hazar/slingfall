@@ -4,12 +4,15 @@
 # runs this AS ROOT from a root-owned checkout fetched by hash from GitHub, never from an agent's
 # clone:
 #
-#   deploy/hosting/install.sh [--user NAME] [--signed-tag TAG --signer FINGERPRINT] [--yes]
+#   deploy/hosting/install.sh [--user NAME] [--proxy-group GROUP] [--signed-tag TAG --signer FPR] [--yes]
 #
 #   --user NAME          the dedicated system user the owner created (default slingfall-attest)
+#   --proxy-group GROUP  the reverse proxy's group, the only one that may open the service's Unix
+#                        socket (default caddy)
 #   --signed-tag TAG     refuse unless TAG points at this checkout's commit and `git verify-tag`
 #   --signer FPR         finds a good signature by the OpenPGP key FPR (root's keyring holds the
-#                        owner's public key; the agents do not hold the secret one)
+#                        owner's public key, imported from the owner's own machine; the agents do
+#                        not hold the secret one)
 #   --yes                do not ask before acting (the plan is printed either way)
 #
 # What it does, in order (each step is skipped when already done, so it can be run again):
@@ -21,7 +24,9 @@
 #      /opt/slingfall/scarb (root-owned);
 #   3. the release /opt/slingfall/releases/<sha>: the files the service runs (git archive of this
 #      commit), the prebuilt replay (crates/slingfall_replay/target/dev/*.executable.json) and the
-#      scarb cache it was built with (scarb-cache/, offline at runtime). The compile runs as the
+#      scarb cache it was built with (scarb-cache/, offline at runtime). The archive is refused if it
+#      holds compiled Python (__pycache__, *.pyc) or, in the six directories the service puts on
+#      sys.path, any importable file outside PYTHON_FILES below. The compile runs as the
 #      unprivileged user `nobody` (never root) in a transient systemd unit (no terminal, private
 #      /tmp, no /home, no /etc/slingfall, its processes killed at the end), in a scratch directory
 #      under the root-owned /opt/slingfall/.build. Only regular files are taken from what it built,
@@ -45,23 +50,33 @@ KEY="$ETC/attest.key"
 UNITS=/etc/systemd/system
 BUILD_USER=nobody
 MEMORY_MAX=6G # docs/hosting.md "Resources": the tower replay measured at 4.2 GB peak
-PORT=8557 # slingfall-attest.socket
+SOCKET=/run/slingfall-attest/attest.sock # slingfall-attest.socket
 # What the release holds (paths of this commit): the service, the modules it imports, the replay's
 # sources and level fixtures, the note, these files.
 RELEASE_PATHS=(services/attest tools crates fixtures Scarb.toml Scarb.lock .tool-versions docs/hosting.md
   deploy/hosting)
+# The directories the service puts on sys.path (attest.py, vectors.py, encoding.py, golden.py) and the
+# only importable files they may hold: whatever else sits there could be imported by the service
+# user, which reads the key. A new module is added here, in the same reviewed commit.
+PYTHON_DIRS=(services/attest crates/slingfall_contract/tools tools/atlantic tools/golden tools/levelc tools/tracec)
+PYTHON_FILES=(services/attest/attest.py services/attest/test_attest.py crates/slingfall_contract/tools/vectors.py
+  tools/atlantic/atlantic.py tools/atlantic/encoding.py tools/atlantic/test_atlantic.py tools/golden/golden.py
+  tools/golden/matrix.py tools/levelc/levelc.py tools/levelc/poseidon.py tools/levelc/rules.py
+  tools/levelc/test_levelc.py tools/tracec/tracec.py)
 
 ATTEST_USER=slingfall-attest
+PROXY_GROUP=caddy
 YES=0
 TAG=""
 SIGNER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) ATTEST_USER="$2"; shift 2 ;;
+    --proxy-group) PROXY_GROUP="$2"; shift 2 ;;
     --signed-tag) TAG="$2"; shift 2 ;;
     --signer) SIGNER="$2"; shift 2 ;;
     --yes) YES=1; shift ;;
-    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -72,6 +87,8 @@ say() { echo "install.sh: $*"; }
 # ------------------------------------------------------------------ 1. checks (nothing changes)
 [ "$(id -u)" = 0 ] || die "run as root (the tree it installs must be root-owned)"
 [[ "$ATTEST_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "--user: a name of [a-z_][a-z0-9_-]*"
+[[ "$PROXY_GROUP" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "--proxy-group: a name of [a-z_][a-z0-9_-]*"
+getent group "$PROXY_GROUP" >/dev/null || die "no group $PROXY_GROUP (the reverse proxy's): --proxy-group"
 SRC="$(cd "$(dirname "$0")/../.." && pwd -P)"
 case "$SRC" in /home/*) die "$SRC is under /home: fetch the revision as root elsewhere (docs/hosting.md)" ;; esac
 dir="$SRC"
@@ -131,7 +148,7 @@ if [ -e "$ETC/attest.env" ]; then
 else
   say "  env: $ETC/attest.env from deploy/hosting/attest.env.example (root:$ATTEST_USER 0640): edit it before the start"
 fi
-say "  units: $UNITS/slingfall-attest.socket (127.0.0.1:$PORT) and .service (User=$ATTEST_USER, MemoryMax=$MEMORY_MAX),"
+say "  units: $UNITS/slingfall-attest.socket ($SOCKET, group $PROXY_GROUP) and .service (User=$ATTEST_USER, MemoryMax=$MEMORY_MAX),"
 say "         daemon-reload, enable both (no start, no restart)"
 if [ "$YES" != 1 ]; then
   read -r -p "install.sh: proceed? [y/N] " answer
@@ -172,6 +189,14 @@ if [ ! -d "$REL" ]; then
   build="$(mktemp -d "$PREFIX/.build/run.XXXXXX")"
   trap 'rm -rf "$stage" "$build"' EXIT
   git -C "$SRC" archive "$SHA" "${RELEASE_PATHS[@]}" | tar -x -C "$stage"
+  # No compiled Python anywhere, and nothing importable on the service's sys.path but PYTHON_FILES.
+  odd="$(find "$stage" \( -name __pycache__ -o -name '*.pyc' -o -name '*.pyo' \) -print -quit)"
+  [ -z "$odd" ] || die "the revision holds compiled Python: ${odd#"$stage"/}: refused"
+  while IFS= read -r f; do
+    rel="${f#"$stage"/}"
+    case " ${PYTHON_FILES[*]} " in *" $rel "*) ;; *) die "$rel: not in install.sh's PYTHON_FILES: refused" ;; esac
+  done < <(cd "$stage" && find "${PYTHON_DIRS[@]/#/$stage/}" -type f \( -name '*.py' -o -name '*.pyw' -o -name '*.so' \
+    -o -name '*.pyd' -o -name '*.pth' \) -print)
   # The compile runs as the build user in a scratch copy, its HOME and scarb cache there too.
   mkdir "$build/src" "$build/home"
   cp -a "$stage/." "$build/src/"
@@ -183,6 +208,10 @@ if [ ! -d "$REL" ]; then
   # Only regular files and directories are taken from what the build user wrote, copied without
   # following links: a link to the key (or anywhere) refuses the build.
   built="$build/src/crates/slingfall_replay/target/dev"
+  # The paths root copies from must still lie inside the build directory (no swapped-in link above them).
+  for d in "$built" "$build/home/scarb-cache"; do
+    case "$(realpath -e "$d")/" in "$build"/*) ;; *) die "$d resolves outside $build: refused" ;; esac
+  done
   odd="$(find "$built" "$build/home/scarb-cache" ! -type f ! -type d -print -quit)"
   [ -z "$odd" ] || die "the build left $odd, not a regular file or directory: refused"
   install -d "$stage/crates/slingfall_replay/target/dev"
@@ -233,7 +262,8 @@ fi
 # ------------------------------------------------------------------ 5. the units
 sed -e "s/@ATTEST_USER@/$ATTEST_USER/g" -e "s/@MEMORY_MAX@/$MEMORY_MAX/g" \
   "$SRC/deploy/hosting/slingfall-attest.service" >"$UNITS/slingfall-attest.service.new"
-cp "$SRC/deploy/hosting/slingfall-attest.socket" "$UNITS/slingfall-attest.socket.new"
+sed -e "s/@PROXY_GROUP@/$PROXY_GROUP/g" \
+  "$SRC/deploy/hosting/slingfall-attest.socket" >"$UNITS/slingfall-attest.socket.new"
 for u in socket service; do
   chmod 0644 "$UNITS/slingfall-attest.$u.new" && mv -T "$UNITS/slingfall-attest.$u.new" "$UNITS/slingfall-attest.$u"
 done
@@ -243,4 +273,4 @@ systemctl enable slingfall-attest.socket slingfall-attest.service
 say "done: revision $SHA"
 [ "$NEW_ENV" = 1 ] && say "edit $ETC/attest.env (ATTEST_CONTRACT, STARKNET_RPC_URL, ATTEST_CORS_ORIGIN) before the start"
 say "then: systemctl start slingfall-attest.socket && systemctl restart slingfall-attest"
-say "and check: curl -s http://127.0.0.1:$PORT/health; systemctl show -p MainPID slingfall-attest; ss -ltnp 'sport = :$PORT'"
+say "and check: curl -s --unix-socket $SOCKET http://localhost/health; systemctl show -p MainPID slingfall-attest; ss -lxp | grep $SOCKET"

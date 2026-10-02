@@ -14,14 +14,16 @@ attestation key must be out of that user's reach, both for reading and for runni
   (the service, the modules it imports, the prebuilt replay) and scarb under `/opt/slingfall/scarb`;
 - it writes only its state directory `/var/lib/slingfall-attest` (`ReadWritePaths`); `ProtectHome=true`:
   nothing under `/home` is used;
-- its port is held by systemd from boot (`slingfall-attest.socket`), so no other process can take it while the
-  service is down.
+- it listens on a Unix socket held by systemd from boot (`slingfall-attest.socket`,
+  `/run/slingfall-attest/attest.sock`) that only root and the reverse proxy's group can open: the agents' user
+  cannot reach the service, and no other process can take the socket while the service is down.
 
 | path | owner | mode | holds |
 | --- | --- | --- | --- |
 | `/etc/slingfall/attest.key` | `<user>` | 0600 | the attestation key (hex), written by the owner only |
 | `/etc/slingfall/attest.env` | `root:<user>` | 0640 | contract address, RPC URL, CORS origin, the key file's path |
 | `/etc/systemd/system/slingfall-attest.{socket,service}` | root | 0644 | the units |
+| `/run/slingfall-attest/attest.sock` | `root:caddy` | 0660 | the service's socket (systemd's; its directory root 0755) |
 | `/opt/slingfall/releases/<sha>/` | root | read-only | one installed revision: code, prebuilt replay, offline scarb cache, `REVISION` |
 | `/opt/slingfall/current` | root | link | the running release |
 | `/opt/slingfall/scarb/scarb-v2.19.4-x86_64-unknown-linux-gnu/` | root | read-only | scarb, the official tarball |
@@ -41,19 +43,34 @@ revision:
 
 ```sh
 cd /root/src/slingfall-$SHA
-git diff "$(cat /opt/slingfall/current/REVISION)" "$SHA" -- \
-    services/attest/attest.py crates/slingfall_contract/tools/vectors.py tools/levelc/poseidon.py \
-    tools/atlantic/encoding.py tools/golden/golden.py tools/tracec/tracec.py \
-    deploy/hosting/install.sh deploy/hosting/prepare.sh \
-    deploy/hosting/slingfall-attest.service deploy/hosting/slingfall-attest.socket
-git diff --stat "$(cat /opt/slingfall/current/REVISION)" "$SHA" -- \
-    services tools crates fixtures Scarb.toml Scarb.lock .tool-versions deploy/hosting
+OLD="$(cat /opt/slingfall/current/REVISION)"
+# 1. All the Python the service runs with the key (the six directories it puts on sys.path, every file in
+#    them), and what root runs or installs: read in full.
+git diff "$OLD" "$SHA" -- services/attest crates/slingfall_contract/tools tools/atlantic tools/golden \
+    tools/levelc tools/tracec deploy/hosting
+# 2. The Cairo dependencies: read in full.
+git diff "$OLD" "$SHA" -- Scarb.lock crates/slingfall_replay/Scarb.lock
+# 3. The rest of the release: the Cairo crates and the fixtures.
+git diff --stat "$OLD" "$SHA" -- crates fixtures Scarb.toml .tool-versions
 ```
 
-The first command is the code that runs with the key or as root (`attest.py` and the modules it imports, the
-golden check `install.sh` runs, the start script, the units, the installer itself). The second lists every other
-change in the release: the Cairo replay and its fixtures, which decide what gets signed, run inside the Cairo VM.
-On the first install there is no previous revision: the owner reads all of the first list.
+The first command covers every file of the six directories the service imports from (`services/attest`,
+`crates/slingfall_contract/tools`, `tools/atlantic`, `tools/golden`, `tools/levelc`, `tools/tracec`), not only
+the modules it imports today: anything placed there could be imported by the service user. It also covers
+`deploy/hosting` (`install.sh`, `prepare.sh`, the units), which root runs or installs. `install.sh` backs this
+up: it refuses a revision that holds compiled Python (`__pycache__`, `*.pyc`) anywhere, or any importable file
+(`*.py`, `*.so`, ...) in those six directories that is not in its own `PYTHON_FILES` list, so a new module shows
+up in the `install.sh` diff too.
+
+On the first install there is no previous revision: the owner reads all of those directories in full, for
+example `ls -R services/attest crates/slingfall_contract/tools tools/atlantic tools/golden tools/levelc
+tools/tracec deploy/hosting`, then each file (`less`, or `git show $SHA:<path>`).
+
+The second command shows the Cairo dependencies: registry packages the programme's orchestrators publish. A bump
+there changes what the replay computes, so what gets signed. The owner reads it in full and checks each changed
+package's version against the programme's publishing records. The third command's `--stat` covers only the Cairo
+crates and the fixtures: they run inside the Cairo VM and decide what gets signed, not what runs natively; the
+pile10 golden check of `install.sh` catches a change that reaches that shot, not every change.
 
 Better still, install only a commit that carries a tag signed with a key the agents do not hold (an OpenPGP key
 kept on the owner's own machine, never on the VPS): the owner reviews, tags and signs on their machine
@@ -66,8 +83,10 @@ git -C /root/src/slingfall-$SHA verify-tag attest-<date>                    # by
 /root/src/slingfall-$SHA/deploy/hosting/install.sh --signed-tag attest-<date> --signer <40-hex fingerprint>
 ```
 
-The agents cannot forge that signature, but the review is still the owner's: a signature says only that the
-owner vouched for the commit.
+The fingerprint and the public key come from the owner's own machine (`gpg --fingerprint` and
+`gpg --export --armor <fingerprint>` there, carried to the VPS by the owner), never from the VPS or from GitHub:
+the agents hold the GitHub account's token, which may be able to add a key to it. The agents cannot forge the
+signature, but the review is still the owner's: a signature says only that the owner vouched for the commit.
 
 ## Create (once, as root)
 
@@ -97,17 +116,18 @@ git -C /root/src/slingfall-$SHA checkout --detach $SHA
 /root/src/slingfall-$SHA/deploy/hosting/install.sh [--signed-tag T --signer F]   # prints its plan, asks first
 $EDITOR /etc/slingfall/attest.env               # first time: ATTEST_CONTRACT, STARKNET_RPC_URL, ATTEST_CORS_ORIGIN
 systemctl start slingfall-attest.socket && systemctl restart slingfall-attest
-curl -s http://127.0.0.1:8557/health            # "revision" is $SHA
+curl -s --unix-socket /run/slingfall-attest/attest.sock http://localhost/health    # "revision" is $SHA
 systemctl show -p MainPID slingfall-attest      # the service's pid ...
-ss -ltnp 'sport = :8557'                        # ... and the process holding 8557: systemd (pid 1) and that pid
+ss -lxp | grep /run/slingfall-attest/attest.sock    # ... and who holds the socket: systemd (pid 1) and that pid
 ```
 
-Check the last three together: `/health` alone is answered by whatever holds the port. The socket belongs to
+Check the last three together: `/health` alone is answered by whatever holds the socket. The socket belongs to
 systemd from boot, so `ss` lists `systemd` and the service's `python3` (the pid of `MainPID`), nothing else.
+`install.sh --proxy-group` names the reverse proxy's group (default `caddy`), the socket's group.
 
 `install.sh` refuses a checkout that is not root-owned, is group- or other-writable, has local changes, lives
 under `/home`, or reads its git objects from outside itself (a gitfile, a shared or alternate object store). It
-validates `--user`, never reads the key (it checks the file's owner and mode with `stat`), never starts or
+validates `--user` and `--proxy-group`, never reads the key (it checks the file's owner and mode with `stat`), never starts or
 restarts the service, and is idempotent: a release already installed is kept, `current` is re-pointed. A
 rollback is `install.sh` from the older checkout, or re-pointing `/opt/slingfall/current` at an older release,
 then a restart.
@@ -123,7 +143,8 @@ inaccessible, no new privileges, and every process it started killed when it end
 (`HOME`, scarb cache, sources) is under the root-owned `/opt/slingfall/.build`, not a world-writable `/var/tmp`.
 
 Root then takes only regular files from what `nobody` wrote, copied without following links: if the build
-left a symbolic link, a device or a socket among the executables or in the scarb cache, the install is refused.
+left a symbolic link, a device or a socket among the executables or in the scarb cache, or if either directory
+resolves (`realpath`) outside the build directory, the install is refused.
 The script copies the five `*.executable.json` and that build's scarb cache into the release, makes the release
 root-owned and read-only, then runs it as the service will (`prepare.sh`, then the replay offline), again as
 `nobody` in a confined unit, and refuses to install unless the pile10 reference shot gives its committed golden
@@ -166,41 +187,56 @@ journalctl -u slingfall-attest --since today | grep ' 429 '
 
 Every request logs one line: time (UTC), method, path, status, duration, client (`local` for a caller on the
 machine itself) and player; an attestation adds its mode, epoch and message hash, a refusal its reason. Never a
-key, a signature input or a body. The unit restarts the service 5 s after any exit, at most 5 times in 300 s
-(then `systemctl reset-failed slingfall-attest`). A replay killed for memory fails that request (500), not
-the unit (`OOMPolicy=continue`).
+key, a signature input or a body. The unit restarts the service 5 s after any exit, at most 5 times in 300 s.
+Past that, systemd also fails the socket unit and closes the socket; recover both, then check who holds it:
+
+```sh
+systemctl reset-failed slingfall-attest slingfall-attest.socket && systemctl start slingfall-attest.socket
+systemctl restart slingfall-attest
+ss -lxp | grep /run/slingfall-attest/attest.sock    # systemd and the service's MainPID only
+```
+
+A replay killed for memory fails that request (500), not the unit (`OOMPolicy=continue`).
 
 `GET /health` answers `{"service", "revision", "uptime", "public_key", "mode", "verify", "contract",
 "chain_id", "program_hash", "epoch"}`: the installed sha, seconds since the start, and the chain values as last
 read for a request (no chain call of its own).
 
-## Port and limits
+## Socket and limits
 
-systemd listens on `127.0.0.1:8557` (`slingfall-attest.socket`; not `scripts/play.sh`'s 8547) from boot and
-hands the socket to the service (`--systemd-socket`); only the reverse proxy reaches it from outside. A TCP port
-on loopback rather than a Unix socket only Caddy's group can reach: local callers can reach it, and are capped
-together (`--local-rate`). A request body above 16 KiB answers 413 (an `--execute` request is under 1 KiB).
-Browsers may call only from `ATTEST_CORS_ORIGIN` (the env file: the web client's origin, `https://<subdomain>`).
+systemd listens on the Unix socket `/run/slingfall-attest/attest.sock` (`slingfall-attest.socket`) from boot and
+hands it to the service (`--systemd-socket`). The socket is `root:<proxy group> 0660` in a root-owned directory:
+only root and the reverse proxy (Caddy, group `caddy` by default) can open it, so the agents' user cannot reach
+the service at all, and nothing else can take the path while the service is down. The service trusts
+`X-Forwarded-For` only on that socket. Started on TCP instead (`--host`/`--port`, local play), it never reads the
+header: a loopback caller counts as `local` whatever it sends, any other peer by its own address.
+
+A connection idle for 10 s (headers or body not arriving) is closed, a stalled body with 408; at most 32
+connections are open at once and the next is closed at once, so slow connections cannot exhaust the unit's
+`TasksMax=64`. A request body above 16 KiB answers 413 (an `--execute` request is under 1 KiB). Browsers may call
+only from `ATTEST_CORS_ORIGIN` (the env file: the web client's origin, `https://<subdomain>`).
 
 The limits are in memory (one process: a restart resets them) and answer 429 with `Retry-After`. They are charged
 in this order, so a refused request costs nothing further:
 
 | order | flag | default | why |
 | --- | --- | --- | --- |
-| 1 | `--client-rate` / `--client-window` | 20 / 3600 s | per client address (an IPv6 client is its /64), sized against the one replay slot below |
-| 1 | `--local-rate` | 60 / 3600 s | every local caller together (127.0.0.1 without the header, or with a header that is not an IP address) |
-| 2 | (the request is parsed) | | a malformed request (400) charges nothing further |
+| 1 | `--client-rate` / `--client-window` | 20 / 3600 s | per client address (an IPv6 client is its /64), charged on every `POST /attest` before its body is read, malformed ones included; sized against the one replay slot below |
+| 1 | `--local-rate` | 60 / 3600 s | every local caller together: on the socket, a request without a valid IP literal in `X-Forwarded-For` (root's own checks) |
+| 2 | (the request is read and parsed) | | a malformed request (400) charges nothing further |
 | 3 | `--max-concurrent` | 1 | replays at once: one replay holds 4.2 GB (tower) and a CPU for 14 to 23 s |
 | 3 | `--max-queue` | 4 | replays waiting beyond the running one; the next is refused at once (busy) rather than queued for minutes |
 | 4 | `--rate` / `--rate-window` | 20 / 3600 s | per player, charged only once the gate admits the request; the player is chosen by the caller |
 
-The client is the last entry of `X-Forwarded-For` when the peer is 127.0.0.1 (the proxy; Caddy sets the header
-to the address it saw), else the peer address; the header is ignored from any other peer, and a last entry that
-is not an IP literal counts as local. Idle keys are pruned after a window, and at most 100,000 are kept.
+The client is the last entry of `X-Forwarded-For`, every line of the header joined (the last proxy's addition
+comes last; Caddy sets the header to the address it saw); a last entry that is not an IP literal counts as local.
+Idle keys are pruned after a window, and at most 100,000 are kept. The player is chosen by the caller and its
+address is public: twenty well-formed requests naming a player lock that player out for an hour, at the cost of
+twenty of the caller's own replays and client budget.
 
 **One service on one slot can be saturated.** A replay holds the only slot for 14 s (pile10) to 23 s
 (tower), so the service attests at most about 250 pile10 replays an hour (about 150 tower ones). With the defaults, one address gets at
-most 20 an hour (under a tenth of that), and local callers 60. About 13 addresses (13 IPv6 /64s, a handful of
+most 20 an hour (under a tenth of that). About 13 addresses (13 IPv6 /64s, a handful of
 cloud machines) attesting continuously keep the slot busy and the queue full, and every other player then gets
 429 busy until they stop. The limits bound the cost of a flood (memory, CPU), not its reach; for the MVP on
 Sepolia that is accepted, and the numbers can be tuned in the unit's `ExecStart`.
@@ -241,7 +277,8 @@ heavy-build lock: a replay can coincide with an agent's build, within the VPS's 
 
 1. Write the new key: `install -o slingfall-attest -g slingfall-attest -m 0600 /dev/null /etc/slingfall/attest.key.new`,
    edit it, then `mv /etc/slingfall/attest.key.new /etc/slingfall/attest.key`.
-2. `systemctl restart slingfall-attest`; `curl -s http://127.0.0.1:8557/health` shows the new `public_key`.
+2. `systemctl restart slingfall-attest`; `curl -s --unix-socket /run/slingfall-attest/attest.sock http://localhost/health`
+   shows the new `public_key`.
 3. The same public key through the file:
    `runuser -u slingfall-attest -- env SLINGFALL_ATTEST_KEY_FILE=/etc/slingfall/attest.key /usr/bin/python3 /opt/slingfall/current/services/attest/attest.py pubkey`.
 4. The owner's `set_attestation_key(<public key>)` transaction (it bumps `attestation_epoch()`).
@@ -253,25 +290,32 @@ void once the epoch bumps. Plan the rotation for a quiet moment; it takes a minu
 
 ## Caddy, later (an example, not a change)
 
-When the owner creates the subdomain:
+When the owner creates the subdomain (Caddy's user must be in the socket's group, `caddy` by default):
 
 ```caddy
 {
     admin off
+    servers {
+        timeouts {
+            read_header 5s
+            read_body 10s
+        }
+    }
 }
 
 attest.<domain> {
     request_body {
         max_size 16KB
     }
-    reverse_proxy 127.0.0.1:8557
+    reverse_proxy unix//run/slingfall-attest/attest.sock
 }
 ```
 
 Caddy replaces any `X-Forwarded-For` from an untrusted client with the address it saw, which is what the
-per-client limit reads. **The per-client limit is only as trustworthy as Caddy's admin access.** By default
-Caddy's admin API listens on `127.0.0.1:2019` without authentication (it does on this VPS today), so any local
-user, the agents' included, can replace Caddy's configuration: set any `X-Forwarded-For`, lift the body cap, or
-send the subdomain to another process. Hence `admin off` in the global options (reload by restarting Caddy), or
-`admin unix//run/caddy/admin.sock` with that socket readable by root only. The web client then points
-`VITE_ATTEST_URL` at `https://attest.<domain>`, and `ATTEST_CORS_ORIGIN` is that client's origin.
+per-client limit reads; the read timeouts keep slow clients at Caddy. **The per-client limit is only as
+trustworthy as Caddy's admin access.** By default Caddy's admin API listens on `127.0.0.1:2019` without
+authentication (it does on this VPS today), so any local user, the agents' included, can replace Caddy's
+configuration: set any `X-Forwarded-For`, lift the body cap, or send the subdomain to another process. Hence
+`admin off` in the global options (reload by restarting Caddy), or `admin unix//run/caddy/admin.sock` with that
+socket readable by root only. The web client then points `VITE_ATTEST_URL` at `https://attest.<domain>`, and
+`ATTEST_CORS_ORIGIN` is that client's origin.

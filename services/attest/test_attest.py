@@ -324,6 +324,28 @@ class SystemdSocketTest(unittest.TestCase):
         with urllib.request.urlopen(f"http://127.0.0.1:{sock.getsockname()[1]}/health", timeout=10) as r:
             self.assertEqual(json.loads(r.read())["service"], "slingfall-attest")
 
+    def test_a_unix_socket_from_systemd(self):
+        tmp = tempfile.mkdtemp(prefix="attest_sock_")
+        path = f"{tmp}/attest.sock"
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(path)
+        listener.listen()
+        self.addCleanup(lambda: (os.unlink(path), os.rmdir(tmp)))
+        fd = os.dup(listener.fileno())
+        listener.close()
+        sock = attest.systemd_socket({"LISTEN_PID": str(os.getpid()), "LISTEN_FDS": "1"}, fd)
+        self.assertEqual(sock.family, socket.AF_UNIX)
+        chain = attest.Chain(CONTRACT, None, chain_id=CHAIN_ID, program_hash=PROGRAM, epoch=EPOCH)
+        server = attest.serve(attest.Attester(CONST["SECRET"], chain), "ignored", 0, sock=sock, log=io.StringIO())
+        self.assertEqual(attest.describe(server.server_address), f"unix:{path}")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        conn = UnixHTTPConnection(path)
+        conn.request("GET", "/health")
+        self.assertEqual(json.loads(conn.getresponse().read())["service"], "slingfall-attest")
+        conn.close()
+
     def test_refuses_without_systemd(self):
         for environ in [{}, {"LISTEN_PID": "1", "LISTEN_FDS": "1"}, {"LISTEN_PID": str(os.getpid()), "LISTEN_FDS": "2"}]:
             with self.assertRaises(SystemExit):

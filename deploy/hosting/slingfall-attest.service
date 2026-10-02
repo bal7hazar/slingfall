@@ -31,8 +31,8 @@ Environment=SCARB_CONFIG=/var/lib/slingfall-attest/scarb-config
 Environment=SCARB_OFFLINE=true
 Environment=RAYON_NUM_THREADS=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-# The socket 127.0.0.1:8557 comes from slingfall-attest.socket (the reverse proxy in front); the
-# limits are docs/hosting.md's.
+# The Unix socket /run/slingfall-attest/attest.sock comes from slingfall-attest.socket (only the
+# reverse proxy reaches it); the limits are docs/hosting.md's.
 ExecStartPre=/opt/slingfall/current/deploy/hosting/prepare.sh
 ExecStart=/usr/bin/python3 /opt/slingfall/current/services/attest/attest.py serve --execute --no-build \
     --replay-dir /var/lib/slingfall-attest/work/crates/slingfall_replay --contract ${ATTEST_CONTRACT} \
