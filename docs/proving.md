@@ -264,6 +264,11 @@ hashes) differ. Cost: the clean split build takes 105 s on one thread against 44
 `scarb clean` first if they were not built on one thread (a drifted class fails loudly at declaration
 against the pinned hashes).
 
+One thread makes a build reproducible per machine only: a class built on one thread has a different Sierra text
+and class hash on the Mac and on the VPS (same CASM; each machine is stable by itself). So every committed file
+that pins a hash, class bytes, a class size or a declared-class margin is generated and checked on Linux only
+(the VPS or CI), never from a Mac build.
+
 ## Memory model
 
 Research 05, `canonical_small`: **RSS ≈ 2.6 GiB + 1.5 GiB per million Cairo steps**. It is
