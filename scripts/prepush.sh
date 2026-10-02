@@ -13,6 +13,11 @@
 # bypassed. The wait for that lock is measured apart (sampled, or timed by the compile's own flock) and is not
 # part of the time the default run aims at (under 2 minutes).
 set -euo pipefail
+# mapfile and EPOCHREALTIME need bash 5 (the Mac's /bin/bash is 3.2: `brew install bash`).
+if [ "${BASH_VERSINFO[0]:-0}" -lt 5 ]; then
+  echo "prepush: needs bash >= 5, found ${BASH_VERSION:-unknown} (macOS: brew install bash, then run it with that bash)" >&2
+  exit 2
+fi
 export RAYON_NUM_THREADS=1   # Sierra is not deterministic across compiler threads (docs/proving.md)
 
 full=0
@@ -29,7 +34,7 @@ done
 
 cd "$(git rev-parse --show-toplevel)"
 REPLAY=crates/slingfall_replay/Scarb.toml
-LOCK="${HEAVY_BUILD_LOCK:-$HOME/orchestrator/heavy-build.lock}"
+LOCK="$HOME/orchestrator/heavy-build.lock"   # the shims' own lock
 base="$(git merge-base HEAD "$base_ref")" || { echo "prepush: no merge base with $base_ref (--base REF)" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
@@ -68,7 +73,7 @@ run_sampled() {
     sleep 1
   done
   wait "$pid" || rc=$?
-  lock_wait=$((lock_wait + w))
+  lock_wait="$(awk -v a="$lock_wait" -v b="$w" 'BEGIN { printf "%.1f", a + b }')"
   return "$rc"
 }
 
@@ -78,14 +83,17 @@ run_sampled() {
 # 90 s and nothing ran (a build failure is any other non-zero status). Nothing is killed; the lock file is
 # touched only through flock. Without the lock file (the Mac) or on Darwin: no flock, the command runs as is.
 lock_busy=0
-compile_left_to_ci=0
+busy_said=0   # the line is printed once
+ws_left=0      # the workspace build was left to CI
+replay_left=0  # the replay build was left to CI (or not built)
 run_held() {
-  local rc=0 stamp="$tmp/acquired" a b
-  rm -f "$stamp"; a="$(now)"
+  local rc=0 stamp="$tmp/acquired" a
+  rm -f "$stamp"; a="$(now)"; lock_busy=0
   if [ "$compile_cap" -gt 0 ]; then
     flock -w "$compile_cap" -E 242 "$LOCK" bash -c 'date +%s.%N > "$1"; shift; export HEAVY_BUILD_LOCK_HELD=1; exec "$@"' _ "$stamp" "$@" \
       > "$tmp/out" 2>&1 || rc=$?
-    if [ "$rc" = 242 ]; then
+    # 242 is "lock busy" only when nothing ran under the flock (no stamp): a command may exit 242 itself.
+    if [ "$rc" = 242 ] && [ ! -s "$stamp" ]; then
       lock_wait="$(awk -v w="$lock_wait" -v d="$compile_cap" 'BEGIN { printf "%.1f", w + d }')"; lock_busy=1; return 242
     fi
     [ -s "$stamp" ] && lock_wait="$(awk -v w="$lock_wait" -v a="$a" -v g="$(cat "$stamp")" 'BEGIN { printf "%.1f", w + g - a }')"
@@ -110,9 +118,9 @@ run() {
   elif [ "$locked" = 1 ]; then run_sampled "$@" || rc=$?
   else "$@" > "$tmp/out" 2>&1 || rc=$?; fi
   b="$(now)"
-  if [ "$rc" = 242 ] && [ "$lock_busy" = 1 ]; then
-    [ "$compile_left_to_ci" = 1 ] || echo "heavy lock busy: Cairo compile left to CI"
-    compile_left_to_ci=1
+  if [ "$locked" = held ] && [ "$rc" = 242 ] && [ "$lock_busy" = 1 ]; then
+    [ "$busy_said" = 1 ] || echo "heavy lock busy: Cairo compile left to CI"
+    busy_said=1
   elif [ "$rc" = 0 ]; then
     local note=""   # classsize skips the CASM figures without `starknet-sierra-compile` on PATH
     grep -qi 'CASM not checked' "$tmp/out" && note="(CASM not checked), "
@@ -230,15 +238,17 @@ PY
 if [ "$CAIRO" = 1 ] && [ -n "$BUILD" ]; then
   pkgs=(); for c in $BUILD; do pkgs+=(-p "$c"); done
   run "build $BUILD" held scarb build "${pkgs[@]}"
+  ws_left=$lock_busy
 elif [ "$CAIRO" = 1 ]; then
   skip_unchanged "build (workspace)"
 else
   skip_unchanged "build"
 fi
-if [ "$REPLAY" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
-  :   # the compile was left to CI above
+if [ "$REPLAY" = 1 ] && [ "$ws_left" = 1 ]; then
+  replay_left=1   # the lock is busy: not tried again
 elif [ "$REPLAY" = 1 ]; then
   run "build slingfall_replay" held scarb --manifest-path "$REPLAY" build
+  replay_left=$lock_busy
 elif [ "$CAIRO" = 1 ]; then
   skip_full "build slingfall_replay"
 else
@@ -259,7 +269,7 @@ fi
 # ---------------------------------------------------------------------------- class sizes (path-free)
 size_check() {   # <name> <TRIG> <BUILT> <classsize subcommand>
   if [ "$2" != 1 ]; then skip_unchanged "$1"
-  elif [ "$compile_left_to_ci" = 1 ]; then line skip "$1" "(compile left to CI)"
+  elif [ "$ws_left" = 1 ]; then line skip "$1" "(compile left to CI)"
   elif [ "$3" != 1 ]; then skip_full "$1"
   else run "$1" 0 python3 tools/classsize/classsize.py "$4" --no-build
   fi
@@ -276,7 +286,7 @@ fi
 
 # ---------------------------------------------------------------------------- --full
 if [ "$full" = 1 ]; then
-  if [ "$compile_left_to_ci" = 1 ]; then
+  if [ "$ws_left" = 1 ]; then
     line skip "steps check" "(compile left to CI)"
   elif [ "$CAIRO" = 1 ] || changed '^steps/'; then
     run "steps check" 1 python3 scripts/steps.py check
@@ -284,7 +294,7 @@ if [ "$full" = 1 ]; then
     skip_unchanged "steps check"
   fi
 
-  if [ "$MOVE" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
+  if [ "$MOVE" = 1 ] && [ "$ws_left" = 1 ]; then
     line skip "pins (split)" "(compile left to CI)"
   elif [ "$MOVE" = 1 ]; then
     a="$(now)"; rc=0
@@ -310,7 +320,7 @@ if [ "$full" = 1 ]; then
     skip_unchanged "pins (split)"
   fi
 
-  if [ "$REPLAY" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
+  if [ "$REPLAY" = 1 ] && [ "$replay_left" = 1 ]; then
     line skip "replay executables" "(compile left to CI)"
   elif [ "$REPLAY" = 1 ]; then
     compare_executables() {
