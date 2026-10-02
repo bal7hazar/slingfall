@@ -15,14 +15,22 @@ headless Chromium with mobile throttling:
 - on Slow 4G: 146–156 s against 22–24 s.
 The owner's decision (2026-10-02): go. Everything is measured on desktop, and the design stays mobile-first.
 
-**The patch.** It is already written and checked with `git apply --check` on fc00698:
-`/home/claude/.herdr-projects/slingfall-game/library/t-0023/harness/play-built.patch` (read-only). Lot L4 (#68) changes
-`scripts/play.sh` since then, so the patch is re-applied by hand on current main, keeping its meaning:
+**The patch.** It was written on the VPS (`library/t-0023/harness/play-built.patch` there), which a Mac thread cannot
+read, so its substance is given here. Apply it by hand on current main. If L4 (#68) has merged by then, it has changed
+`scripts/play.sh` too.
 - `PLAY_BUILT=1` builds the client into `target/play/dist` at each start of the client. The contract address is baked
   in, so the build is redone each time.
 - It then runs `vite preview` with the same proxy (`/rpc`, `/attest-service`, `/prove-service`) and the same
   `--host` / `--port`.
 - The default (dev server) is unchanged.
+- The details to get right:
+  - The build runs in the foreground before `start` (the background start waits at most 30 s for HTTP).
+  - Build into `target/play/dist` with `--outDir … --emptyOutDir` (the folder is outside the client root).
+  - Give the build the same `VITE_*` values as `start`: they are baked in.
+  - Keep `--config scripts/play/vite.config.mts` on `preview` (`running client` matches it).
+  - Adjust the header range that `help` prints, so the new header line shows.
+- A running client is reused whatever its mode (`fresh client`). Record the mode with the client's PID, or make `up`
+  restart a client of the other mode. At the least, `docs/play-local.md` says to run `down` before switching modes.
 
 Read first: `scripts/play.sh` (`up`, `start client`, the `VITE_*` variables), `scripts/play/vite.config.mts`,
 `docs/play-local.md`, and the research report's Finding 1.
@@ -51,8 +59,17 @@ Everything else is forbidden; needs go to "Escalations".
    (`scripts/play/qa-browser.mjs` is the harness; Playwright comes from `PLAYWRIGHT_MODULE`). Then run `down`, and run
    once more without `PLAY_BUILT` to show the default still works.
 4. **Measure on desktop** (no throttling, and also the Fast 4G profile), as real output: bytes transferred, request
-   count, and time to the first playable frame, for dev against built. Use the research harness
-   (`library/t-0023/harness/cold.mjs`), copied into your scratch directory.
+   count, and time to the first playable frame, for dev against built.
+   - Write a small harness in your scratch directory from `scripts/play/qa-browser.mjs`. Count bytes with CDP
+     `Network.loadingFinished`'s `encodedDataLength`. "Playable" means the sling accepts a pull: the hint switches to
+     "Drag the pebble…".
+   - The research's VPS figures (dev 23.9 MB / 74 requests, built 2.6 MB / 19) are the reference to compare with.
+   - **Prerequisites on the Mac:**
+     - The wasm must be built (`play.sh`'s `build()`: Rust and `client/vm/scripts/build.sh`), not `PLAY_NO_VM=1`.
+       Without it there is no wasm in `dist`, and the bytes and the wasm-compression result mean nothing.
+     - Playwright: use the `PLAYWRIGHT_MODULE` and the browser that lot L2 used on this Mac
+       (`docs/qa/2026-09-30-mac-play.md`).
+     - If either is missing, report it, and install nothing.
 
 ## 5. Machine
 
