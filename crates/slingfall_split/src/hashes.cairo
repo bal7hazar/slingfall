@@ -21,7 +21,8 @@ pub trait SplitHashes {
     fn step() -> ClassHash;
 }
 
-// Build root of these class hashes: /home/runner/work/slingfall/slingfall
+// Build root of these class hashes:
+// /home/runner/work/slingfall/slingfall
 pub const WORLD_EDIT_HASH: felt252 =
     0x10c4d0f04c869f302be8209a7d230809628831ec2bb4fd93603784dfcc98693;
 pub const CONTACT_BALL_HASH: felt252 =
@@ -37,13 +38,13 @@ pub const NARROW_PHASE_HASH: felt252 =
 pub const ACTIVE_SET_HASH: felt252 =
     0x5ea0e678c30220f403888fa50bf0b304040ee2628f14edfa4158cf082e90e9b;
 pub const RULES_HASH: felt252 = 0x37c9b47d091e7531d86e6ac40b3f310345aaf60d3e9cc781433331f83ea2be;
-pub const STEP_HASH: felt252 = 0x19fc37d407bfe629a5cbcde2f0a2ac031fc6013a01c2dd6a3bc17f270fa855c;
+pub const STEP_HASH: felt252 = 0x3c420b3e3689244a0c6d399f4b4f8662bd1429e04e11dbf734c5190288572e3;
 
-pub const WORLD_HASH: felt252 = 0x683a09686e877faa7278d976908581cdf94a11dde45d9c2c886a0d4fcf13df1;
+pub const WORLD_HASH: felt252 = 0x7d40b2eddf6080060620d54a5dccaf02e19181f8f988a5acfc4854c975961f3;
 pub const FALLBACK_GAME_HASH: felt252 =
-    0x52830d62b9435656c169d1b2007057c7475665ec5529d51ada081594637ef0d;
+    0x12017cd55e705129fb53848d6a8be816a5c45783f55eaa5eaf7a64a9c0ef2a2;
 pub const BUILD_HASH: felt252 = 0x592421400795bf672876d4270c8cd5e53b853f60e841ec24af7c9459ecb5bc0;
-pub const SETTLE_HASH: felt252 = 0x5954c1c3abb4a001621e3c8234680cdcf67c1308851c8da36ba5ae1ffe486e2;
+pub const SETTLE_HASH: felt252 = 0x38650b81140f92b1209aab2e798e19d49f75fe93aca1d4191ceb02f7794d029;
 pub const OUTPUTS_HASH: felt252 = 0x4debb40a1fa636c3a68c9c540236ef5caf0c034d413dd86db84a95b76c0a0d6;
 pub const SPLIT_CHAIN_HASH: felt252 =
     0xd86128e076fb3c81f25cfb801c2c824299204c2da26257af4ad879487ddf0a;
@@ -51,7 +52,7 @@ pub const SPLIT_CHAIN_HASH: felt252 =
 /// The bundle hash of layout (e)'s chain (contract v3's `pin_chain`): Poseidon of [`bundle`].
 /// `services/prove/snip36.py` (`own_bundle`) and `deploy/split.ts` (`bundleOf`) compute the same
 /// value from `classes.json`'s order and the constants above (their tests check this one).
-pub const BUNDLE_HASH: felt252 = 0x8a629c64c8e6c34dcc4cd0f29fd51c2c34d19cefe83647335a98825ddd7368;
+pub const BUNDLE_HASH: felt252 = 0x47835a67bcd21b6dbc0628e31de7b8a4f1a8a13100dc324aba531f90043353;
 
 /// The class hash of the stage classes the game never calls (`ContactPolygonClass`: in
 /// `NarrowPhaseClass` since alpha.8; `SolverClass`, `ForceEventsClass`: `SlimSplitStages` runs the
