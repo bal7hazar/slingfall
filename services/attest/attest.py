@@ -34,8 +34,8 @@ being the later of the latest block's timestamp (when an RPC is configured: a de
 run ahead of the wall clock) and the wall clock. The RPC is `--rpc` or `$STARKNET_RPC_URL`.
 
 `serve`: HTTP on `--host:--port` (default 127.0.0.1:8547), or on the socket systemd passes
-(`--systemd-socket`: `LISTEN_FDS`, the hosted service's `slingfall-attest.socket`), one of three
-modes:
+(`--systemd-socket`: `LISTEN_FDS`; the hosted service's `slingfall-attest.socket` is a Unix socket
+only the reverse proxy's group can open), one of three modes:
 
 * `--execute` (research 06 §2.1, the default of a real deployment): `POST /attest` `{"level":
   "<name or level_hash>", "inputs": [felts], "outputs": [10 felts] (optional)}`. The service
@@ -57,12 +57,13 @@ Every answer carries `{"message", "evidence", "signature": [r, s], "public_key",
 request answers 400 (413 above 16 KiB in `--execute` mode, 64 MiB otherwise) and a refused one
 422. Limits (in memory: one process), each answering 429 with `Retry-After`, charged in this order:
 
-1. per client: `--client-rate` (default 20) within `--client-window` seconds (default 3 600). The
-   client is the peer address, or the last entry of `X-Forwarded-For` when the peer is 127.0.0.1
-   (the reverse proxy); an IPv6 client counts as its /64. Local callers (127.0.0.1 without that
-   header, or with one that is not an IP address) share one key, capped by `--local-rate`
-   (default 60) within `--client-window`;
-2. the request is parsed (400: no further limit is charged);
+1. per client, on every `POST /attest` before its body is read: `--client-rate` (default 20)
+   within `--client-window` seconds (default 3 600). On a Unix socket (the reverse proxy's) the
+   client is the last entry of `X-Forwarded-For`; on TCP it is the peer address, and the header is
+   ignored. An IPv6 client counts as its /64. Local callers (a loopback TCP peer whatever header
+   it sends, or a Unix-socket caller without a valid IP literal in the header) share one key,
+   capped by `--local-rate` (default 60) within `--client-window`;
+2. the request is read and parsed (400: no further limit is charged);
 3. globally: `--max-concurrent` executions or verifications run at once (default 1) and at most
    `--max-queue` more wait (default 4); a request refused as busy charges nothing further;
 4. per player (`outputs.player`, or `inputs.player`, chosen by the caller): `--rate` requests
@@ -71,7 +72,8 @@ request answers 400 (413 above 16 KiB in `--execute` mode, 64 MiB otherwise) and
 
 `--rate 0` turns every limit off (local play, `scripts/play.sh`): no 429 at all, the queue is
 unbounded, and `--max-concurrent` still runs that many at once. Idle keys are pruned.
-`--cors-origin` is the one origin browsers may call from (default `*`, local play).
+`--cors-origin` is the one origin browsers may call from (default `*`, local play). A connection
+idle for 10 s is closed, and at most 32 are open at once (the next is closed at once).
 
 `GET /health`: `{"service", "revision", "uptime", "public_key", "mode", "verify", "contract",
 "chain_id", "program_hash", "epoch"}` (the last three as last read; no chain call). `revision` is
@@ -137,10 +139,11 @@ DEFAULT_LOCAL_RATE = 60  # every local caller together (agents on the machine, h
 DEFAULT_MAX_CONCURRENT = 1
 DEFAULT_MAX_QUEUE = 4
 MAX_KEYS = 100_000  # rate-limit keys kept at most (the least recently seen go first)
-TRUSTED_PROXY = "127.0.0.1"
 LOCAL = "local"  # the per-client key of every local caller
 IPV6_PREFIX = 64  # an IPv6 client is its /64: one subscriber gets a whole /64
 SD_LISTEN_FDS_START = 3
+CONNECTION_TIMEOUT = 10.0  # seconds a connection may stay idle (headers, body) before it is closed
+MAX_CONNECTIONS = 32  # open at once; each holds a thread (the unit's TasksMax is 64)
 CHAIN_TTL = 30.0
 
 
@@ -549,12 +552,20 @@ def client_key(text: str) -> str | None:
     return str(ip)
 
 
-def client_of(peer: str, forwarded: str | None) -> str | None:
-    """The client a request counts against: the last `X-Forwarded-For` entry when the peer is the
-    reverse proxy (127.0.0.1); the peer itself otherwise. None: a local caller (127.0.0.1 without
-    the header, or with a last entry that is not an IP literal), counted under `LOCAL`."""
-    if peer != TRUSTED_PROXY:
+def client_of(peer: str | None, forwarded: list[str] | str | None, proxied: bool = False) -> str | None:
+    """The client a request counts against. On the reverse proxy's Unix socket (`proxied`): the
+    last `X-Forwarded-For` entry, every header line joined (the last proxy's addition comes last).
+    On TCP: the peer address; the header is ignored. None: a local caller (a loopback TCP peer
+    whatever it sends, or a Unix-socket caller without a valid IP literal), counted under `LOCAL`."""
+    if not proxied:
+        try:
+            if ipaddress.ip_address(peer or "").is_loopback:
+                return None
+        except ValueError:
+            return None
         return client_key(peer)
+    if isinstance(forwarded, list):
+        forwarded = ",".join(forwarded)
     if forwarded:
         return client_key(forwarded.split(",")[-1].strip())
     return None
@@ -597,15 +608,9 @@ class Attester:
     def max_body(self) -> int:
         return MAX_EXECUTE_BODY if self.executor is not None else MAX_BODY
 
-    def handle(self, request: dict, client: str | None = None, info: dict | None = None) -> dict:
-        """`client` is what `client_of` gives (None: local); `info` gets the player (the log). The
-        limits are charged per client, then (once the request parses and the gate admits it) per
-        player."""
-        if not isinstance(request, dict):
-            raise AttestError(400, "expected a JSON object")
-        player = self.player_of(request)
-        if info is not None:
-            info["player"] = hex(player)
+    def charge_client(self, client: str | None) -> None:
+        """The per-client limit (`client` from `client_of`; None: local), charged on every POST
+        before its body is read, so a malformed request counts too."""
         if client is None:
             wait = self.local.wait(LOCAL)
             if wait:
@@ -616,6 +621,15 @@ class Attester:
             if wait:
                 raise AttestError(429, f"rate limit: more than {self.clients.limit} requests from {client} "
                                        f"in {self.clients.window:.0f} s", retry_after=wait)
+
+    def handle(self, request: dict, info: dict | None = None) -> dict:
+        """One request whose client is already charged (`charge_client`); `info` gets the player
+        (the log). The player is charged once the request parses and the gate admits it."""
+        if not isinstance(request, dict):
+            raise AttestError(400, "expected a JSON object")
+        player = self.player_of(request)
+        if info is not None:
+            info["player"] = hex(player)
 
         def charge_player() -> None:
             wait = self.limiter.wait(player)
@@ -663,16 +677,21 @@ def read_revision(path: Path = REVISION) -> str | None:
         return None
 
 
-def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*"):
+def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", timeout: float = CONNECTION_TIMEOUT):
     class Handler(BaseHTTPRequestHandler):
         server_version = "slingfall-attest/2"
+        timeout = None  # set after the class: a stalled header or body read ends the connection
+
+        def peer(self) -> str:
+            # A Unix socket's peer has no address ("unix" in the log).
+            return self.client_address[0] if isinstance(self.client_address, tuple) else "unix"
 
         def log_request(self, code="-", size="-"):
             pass  # one line per request, written by `answer`
 
         def log_message(self, fmt, *args):
             # Errors of the HTTP layer (a malformed request line): never a body.
-            print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} attest: {self.client_address[0]} "
+            print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} attest: {self.peer()} "
                   f"{fmt % args}", file=log, flush=True)
 
         def setup(self):
@@ -680,7 +699,9 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*"):
             self.started, self.info = time.monotonic(), {}
 
         def client(self) -> str | None:
-            return client_of(self.client_address[0], self.headers.get("X-Forwarded-For"))
+            if not isinstance(self.client_address, tuple):  # the reverse proxy's Unix socket
+                return client_of(None, self.headers.get_all("X-Forwarded-For"), proxied=True)
+            return client_of(self.client_address[0], None)
 
         def answer(self, status: int, body: dict, retry_after: float | None = None) -> None:
             data = json.dumps(body).encode()
@@ -722,21 +743,60 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*"):
             if self.path != "/attest":
                 return self.answer(404, {"error": "not found"})
             try:
-                length = int(self.headers.get("Content-Length") or 0)
+                attester.charge_client(self.client())
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    raise AttestError(400, "body: bad Content-Length") from None
                 if not 0 < length <= attester.max_body:
                     raise AttestError(400 if length <= 0 else 413, "body: missing or too large")
                 try:
-                    request = json.loads(self.rfile.read(length))
+                    data = self.rfile.read(length)
+                except TimeoutError:
+                    self.close_connection = True
+                    raise AttestError(408, f"body: not received within {timeout:.0f} s") from None
+                if len(data) != length:
+                    self.close_connection = True
+                    raise AttestError(400, "body: shorter than its Content-Length")
+                try:
+                    request = json.loads(data)
                 except ValueError as e:
                     raise AttestError(400, f"body: {e}") from None
-                body = attester.handle(request, self.client(), self.info)
+                body = attester.handle(request, self.info)
                 self.info.update(mode=body["mode"], epoch=body["epoch"], message=body["message"])
                 self.answer(200, body)
             except AttestError as e:
                 self.info["error"] = json.dumps(str(e)[:200])
                 self.answer(e.status, {"error": str(e)}, e.retry_after)
 
+    Handler.timeout = timeout
     return Handler
+
+
+class Server(ThreadingHTTPServer):
+    """One thread per connection, at most `max_connections` open: the next is closed at once
+    rather than given a thread (a slow-connection flood cannot exhaust the unit's tasks)."""
+
+    daemon_threads = True
+    max_connections = MAX_CONNECTIONS
+
+    def process_request(self, request, client_address):
+        if not hasattr(self, "_open"):
+            self._open = threading.BoundedSemaphore(self.max_connections)
+        if not self._open.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._open.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._open.release()
 
 
 def systemd_socket(environ=os.environ, fd: int = SD_LISTEN_FDS_START) -> socket.socket:
@@ -748,16 +808,27 @@ def systemd_socket(environ=os.environ, fd: int = SD_LISTEN_FDS_START) -> socket.
     return socket.socket(fileno=fd)
 
 
-def serve(attester: Attester, host: str, port: int, cors_origin: str = "*",
-          sock: socket.socket | None = None, log=sys.stdout) -> ThreadingHTTPServer:
-    handler = make_handler(attester, log, cors_origin)
+def serve(attester: Attester, host: str, port: int, cors_origin: str = "*", sock: socket.socket | None = None,
+          log=sys.stdout, timeout: float = CONNECTION_TIMEOUT, max_connections: int = MAX_CONNECTIONS) -> Server:
+    """HTTP on `host:port`, or on a listening socket already bound (systemd's: TCP or Unix)."""
+    handler = make_handler(attester, log, cors_origin, timeout)
     if sock is None:
-        return ThreadingHTTPServer((host, port), handler)
-    server = ThreadingHTTPServer(sock.getsockname()[:2], handler, bind_and_activate=False)
-    server.socket.close()
-    server.socket = sock
-    server.server_address = sock.getsockname()
+        server = Server((host, port), handler)
+    else:
+        server = Server(("127.0.0.1", 0), handler, bind_and_activate=False)
+        server.socket.close()
+        server.socket = sock
+        server.address_family = sock.family
+        server.server_address = sock.getsockname()
+    server.max_connections = max_connections
     return server
+
+
+def describe(address) -> str:
+    """`http://host:port`, or `unix:<path>`."""
+    if isinstance(address, tuple):
+        return f"http://{address[0]}:{address[1]}"
+    return f"unix:{address.decode() if isinstance(address, bytes) else address}"
 
 
 # --------------------------------------------------------------------------- CLI
@@ -811,13 +882,12 @@ def cmd_serve(args) -> int:
         sys.exit("serve: --cors-origin is empty (the web client's origin, or *)")
     sock = systemd_socket() if args.systemd_socket else None
     server = serve(attester, args.host, args.port, args.cors_origin, sock)
-    host, port = server.server_address[:2]
     print(f"attest: public key {attester.public_key}", file=sys.stderr)
     limits = (f"rate {args.rate} per {args.rate_window:.0f} s per player, {args.client_rate} per "
               f"{args.client_window:.0f} s per client, {args.local_rate} for local callers, "
               f"{attester.gate.concurrent} running + {args.max_queue} queued"
               if args.rate > 0 else "no limits (--rate 0)")
-    print(f"attest: listening on http://{host}:{port} (mode {attester.mode}, contract {args.contract}, "
+    print(f"attest: listening on {describe(server.server_address)} (mode {attester.mode}, contract {args.contract}, "
           f"revision {attester.revision}, {limits}, CORS {args.cors_origin}"
           f"{', socket from systemd' if sock else ''})", file=sys.stderr, flush=True)
     try:

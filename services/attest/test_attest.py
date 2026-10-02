@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.client
 import io
 import json
 import os
@@ -221,26 +222,51 @@ class RateLimiterTest(unittest.TestCase):
 
 
 class ClientTest(unittest.TestCase):
-    def test_forwarded_for_is_trusted_from_the_proxy_only(self):
-        self.assertEqual(attest.client_of("127.0.0.1", "203.0.113.9"), "203.0.113.9")
+    def test_forwarded_for_is_trusted_on_the_proxys_socket_only(self):
+        proxied = lambda forwarded: attest.client_of(None, forwarded, proxied=True)  # noqa: E731
+        self.assertEqual(proxied("203.0.113.9"), "203.0.113.9")
         # Caddy appends the peer it saw: the last entry; the earlier ones are the caller's own.
-        self.assertEqual(attest.client_of("127.0.0.1", "10.0.0.1, 203.0.113.9"), "203.0.113.9")
-        self.assertIsNone(attest.client_of("127.0.0.1", None))  # a local caller
-        self.assertIsNone(attest.client_of("127.0.0.1", " "))
-        # Another peer is counted on its own address, whatever it claims.
+        self.assertEqual(proxied("10.0.0.1, 203.0.113.9"), "203.0.113.9")
+        # Several header lines: joined, the last line's last entry (the last proxy's addition).
+        self.assertEqual(proxied(["203.0.113.9", "198.51.100.7"]), "198.51.100.7")
+        self.assertIsNone(proxied(None))  # a local caller
+        self.assertIsNone(proxied(" "))
+        # On TCP the header is never read: a remote peer counts on its own address, a loopback peer
+        # (an agent on the machine) is local whatever it claims.
         self.assertEqual(attest.client_of("198.51.100.7", "203.0.113.9"), "198.51.100.7")
-        self.assertEqual(attest.client_of("198.51.100.7", None), "198.51.100.7")
+        self.assertIsNone(attest.client_of("127.0.0.1", "203.0.113.9"))
+        self.assertIsNone(attest.client_of("127.0.0.5", None))
+        self.assertIsNone(attest.client_of("::1", None))
 
     def test_ipv6_counts_as_its_64(self):
-        a = attest.client_of("127.0.0.1", "2001:db8:1:2::1")
+        a = attest.client_of(None, "2001:db8:1:2::1", proxied=True)
         self.assertEqual(a, "2001:db8:1:2::/64")
-        self.assertEqual(attest.client_of("127.0.0.1", "2001:db8:1:2:ffff:ffff:ffff:ffff"), a)
-        self.assertNotEqual(attest.client_of("127.0.0.1", "2001:db8:1:3::1"), a)
-        self.assertEqual(attest.client_of("127.0.0.1", "::ffff:203.0.113.9"), "203.0.113.9")
+        self.assertEqual(attest.client_of(None, "2001:db8:1:2:ffff:ffff:ffff:ffff", proxied=True), a)
+        self.assertNotEqual(attest.client_of(None, "2001:db8:1:3::1", proxied=True), a)
+        self.assertEqual(attest.client_of(None, "::ffff:203.0.113.9", proxied=True), "203.0.113.9")
+        self.assertEqual(attest.client_of("2001:db8:1:2::9", None), a)
 
     def test_only_an_ip_literal_is_a_client(self):
         for bad in ["unknown", "203.0.113.9\r\n 2026-10-02T00:00:00Z POST /attest 200", "203.0.113.9:443", "_hidden"]:
-            self.assertIsNone(attest.client_of("127.0.0.1", bad), bad)  # counted as local
+            self.assertIsNone(attest.client_of(None, bad, proxied=True), bad)  # counted as local
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, path: str, timeout: float = 30):
+        super().__init__("localhost", timeout=timeout)
+        self.path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.path)
+
+
+def connection(url: str, timeout: float = 30) -> http.client.HTTPConnection:
+    if url.startswith("unix:"):
+        return UnixHTTPConnection(url[len("unix:"):], timeout)
+    host, port = url[len("http://"):].split(":")
+    return http.client.HTTPConnection(host, int(port), timeout=timeout)
 
 
 class GateTest(unittest.TestCase):
@@ -381,38 +407,54 @@ class ServiceTest(unittest.TestCase):
         return self.replay_outputs
 
     def start(self, command: str | None = None, execute: bool = False, rate: int = 20, client_rate: int = 120,
-              revision: str | None = None, local_rate: int = 60, cors_origin: str = "*") -> str:
+              revision: str | None = None, local_rate: int = 60, cors_origin: str = "*", unix: bool = False) -> str:
         chain = attest.Chain(CONTRACT, self.rpc, clock=lambda: 0.0)
         executor = attest.Executor(self.replay) if execute else None
         self.attester = attest.Attester(CONST["SECRET"], chain, executor, attest.Verifier(command, None, 30),
                                         attest.RateLimiter(rate, 3600), ttl=TTL,
                                         clients=attest.RateLimiter(client_rate, 3600), revision=revision,
                                         local=attest.RateLimiter(local_rate, 3600))
-        return self.serve(self.attester, cors_origin)
+        return self.serve(self.attester, cors_origin, unix)
 
-    def serve(self, attester, cors_origin: str = "*") -> str:
+    def serve(self, attester, cors_origin: str = "*", unix: bool = False, **options) -> str:
+        """On 127.0.0.1 (TCP: every caller local), or on a Unix socket like the reverse proxy's
+        (`unix`: `X-Forwarded-For` is the client)."""
         self.log = io.StringIO()
         self.cors_origin = cors_origin
-        server = attest.ThreadingHTTPServer(("127.0.0.1", 0), attest.make_handler(attester, self.log, cors_origin))
+        sock = None
+        if unix:
+            tmp = tempfile.mkdtemp(prefix="attest_sock_")
+            self.addCleanup(lambda: (os.path.exists(f"{tmp}/s") and os.unlink(f"{tmp}/s"), os.rmdir(tmp)))
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.bind(f"{tmp}/s")
+            sock.listen()
+        server = attest.serve(attester, "127.0.0.1", 0, cors_origin, sock=sock, log=self.log, **options)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        return f"http://127.0.0.1:{server.server_address[1]}"
+        return attest.describe(server.server_address)
 
-    def post(self, url: str, body, headers: dict | None = None) -> tuple[int, dict]:
+    def post(self, url: str, body, headers=None) -> tuple[int, dict]:
         status, answer, _ = self.post_full(url, body, headers)
         return status, answer
 
-    def post_full(self, url: str, body, headers: dict | None = None) -> tuple[int, dict, dict]:
+    def post_full(self, url: str, body, headers=None) -> tuple[int, dict, dict]:
+        """`headers`: a dict, or a list of (name, value) pairs (a header sent on several lines)."""
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
-        request = urllib.request.Request(url + "/attest", data=data, method="POST",
-                                         headers={"Content-Type": "application/json", **(headers or {})})
+        items = list(headers.items()) if isinstance(headers, dict) else list(headers or [])
+        conn = connection(url)
         try:
-            with urllib.request.urlopen(request, timeout=30) as r:
-                self.assertEqual(r.headers["Access-Control-Allow-Origin"], self.cors_origin)
-                return r.status, json.loads(r.read()), dict(r.headers)
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read()), dict(e.headers)
+            conn.putrequest("POST", "/attest")
+            for name, value in [("Content-Type", "application/json"), ("Content-Length", str(len(data))), *items]:
+                conn.putheader(name, value)
+            conn.endheaders(data)
+            r = conn.getresponse()
+            answer = json.loads(r.read())
+            if r.status == 200:
+                self.assertEqual(r.getheader("Access-Control-Allow-Origin"), self.cors_origin)
+            return r.status, answer, dict(r.getheaders())
+        finally:
+            conn.close()
 
     def test_execute_signs_the_replays_outputs(self):
         url = self.start(execute=True)
@@ -461,14 +503,14 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.post(url, {"level": "pile10", "inputs": other})[0], 200)
 
     def test_rate_limit_per_client_behind_the_proxy(self):
-        url = self.start(execute=True, client_rate=2)
+        url = self.start(execute=True, client_rate=2, unix=True)
         players = [[hex(CONST["PLAYER"] + i), *INPUTS[1:]] for i in range(4)]
         a, b = {"X-Forwarded-For": "203.0.113.9"}, {"X-Forwarded-For": "198.51.100.7"}
         answers = [self.post_full(url, {"level": "pile10", "inputs": p}, a) for p in players[:3]]
         self.assertEqual([x[0] for x in answers], [200, 200, 429])  # new players do not help
         self.assertIn("Retry-After", answers[2][2])
         self.assertEqual(self.post(url, {"level": "pile10", "inputs": players[3]}, b)[0], 200)  # another client
-        # A local caller (no header) is outside the per-client limit.
+        # A caller without the header is local: its own cap (60), not this client's.
         self.assertEqual([self.post(url, {"level": "pile10", "inputs": p})[0] for p in players[3:] * 3], [200] * 3)
         self.assertIn("client=203.0.113.9", self.log.getvalue())
         self.assertIn("client=local", self.log.getvalue())
@@ -487,13 +529,72 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.post(url, {"outputs": GOLDEN, "proof": base64.b64encode(b"x").decode()})[0], 429)
 
     def test_local_callers_share_one_cap(self):
-        url = self.start(execute=True, local_rate=2)
+        url = self.start(execute=True, local_rate=2, unix=True)
         players = [[hex(CONST["PLAYER"] + i), *INPUTS[1:]] for i in range(4)]
         answers = [self.post(url, {"level": "pile10", "inputs": p})[0] for p in players[:2]]
         # Not an IP literal: local too.
         answers.append(self.post(url, {"level": "pile10", "inputs": players[2]}, {"X-Forwarded-For": "nope"})[0])
         self.assertEqual(answers, [200, 200, 429])
         self.assertEqual(self.post(url, {"level": "pile10", "inputs": players[3]}, {"X-Forwarded-For": "203.0.113.9"})[0], 200)
+
+    def test_tcp_loopback_callers_are_local_whatever_header(self):
+        url = self.start(execute=True, local_rate=2, client_rate=100)
+        players = [[hex(CONST["PLAYER"] + i), *INPUTS[1:]] for i in range(3)]
+        answers = [self.post(url, {"level": "pile10", "inputs": p}, {"X-Forwarded-For": f"198.51.100.{i}"})[0]
+                   for i, p in enumerate(players)]
+        self.assertEqual(answers, [200, 200, 429])  # the header did not make them three clients
+        self.assertNotIn("client=198.51.100", self.log.getvalue())
+
+    def test_several_forwarded_lines_count_the_last(self):
+        url = self.start(execute=True, client_rate=1, unix=True)
+        players = [[hex(CONST["PLAYER"] + i), *INPUTS[1:]] for i in range(3)]
+        lines = [("X-Forwarded-For", "198.51.100.1"), ("X-Forwarded-For", "203.0.113.9")]
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": players[0]}, lines)[0], 200)
+        # The caller's own first line changes: still 203.0.113.9, refused.
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": players[1]},
+                                   [("X-Forwarded-For", "198.51.100.2"), lines[1]])[0], 429)
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": players[2]},
+                                   [lines[1], ("X-Forwarded-For", "198.51.100.7")])[0], 200)
+
+    def test_every_malformed_post_is_charged_to_its_client(self):
+        url = self.start(execute=True, client_rate=2, rate=1, unix=True)
+        a = {"X-Forwarded-For": "203.0.113.9"}
+        self.assertEqual(self.post(url, {"level": "pile10"}, a)[0], 400)  # no player
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": ["xyz", "0x0"]}, a)[0], 400)  # a bad player
+        self.assertEqual(self.post(url, b"{not json", a)[0], 429)  # the client's two are spent
+        # The player named by none of them is untouched: one request left, from another client.
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": INPUTS}, {"X-Forwarded-For": "198.51.100.7"})[0], 200)
+
+    def raw(self, url: str, data: bytes, wait: float = 5.0) -> bytes:
+        """Sends `data` on a fresh connection and reads until the server closes it (or `wait`)."""
+        host, port = url[len("http://"):].split(":")
+        with socket.create_connection((host, int(port)), timeout=wait) as s:
+            s.sendall(data)
+            received = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    return received
+                received += chunk
+
+    def test_a_stalled_connection_is_closed(self):
+        url = self.serve(attest.Attester(CONST["SECRET"], attest.Chain(CONTRACT, self.rpc)), timeout=0.5)
+        started = time.monotonic()
+        answer = self.raw(url, b"POST /attest HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n")  # no body
+        self.assertTrue(answer.startswith(b"HTTP/1.0 408"), answer[:40])
+        self.assertEqual(self.raw(url, b"POST /attest HTTP/1.1\r\n"), b"")  # headers never end
+        self.assertLess(time.monotonic() - started, 4)
+
+    def test_connections_are_capped(self):
+        url = self.serve(attest.Attester(CONST["SECRET"], attest.Chain(CONTRACT, self.rpc)), timeout=1.0,
+                         max_connections=1)
+        host, port = url[len("http://"):].split(":")
+        idle = socket.create_connection((host, int(port)))
+        self.addCleanup(idle.close)
+        time.sleep(0.2)  # accepted: it holds the one connection
+        self.assertEqual(self.raw(url, b"GET /health HTTP/1.0\r\n\r\n", wait=0.5), b"")  # closed at once
+        time.sleep(1.2)  # the idle one timed out
+        self.assertTrue(self.raw(url, b"GET /health HTTP/1.0\r\n\r\n").startswith(b"HTTP/1.0 200"))
 
     def test_cors_origin(self):
         url = self.start(execute=True, cors_origin="https://play.example")
