@@ -110,12 +110,12 @@ pytest_dir scripts/play python3 -m unittest discover -s scripts/play
 #   CAIRO       1 when a Cairo source or a manifest changed
 #   CONTRACT_*  / SPLIT_*   TRIG: the crate or a dependency of its class changed; BUILT: it is in BUILD
 #   MOVE        1 when the split class hashes may move
-eval "$(python3 - "$full" < "$tmp/changed" <<'PY'
+eval "$(python3 - "$full" "$tmp/changed" <<'PY'
 import re, sys
 from pathlib import Path
 
 full = sys.argv[1] == "1"
-changed = [l.strip() for l in sys.stdin if l.strip()]
+changed = [l.strip() for l in Path(sys.argv[2]).read_text().splitlines() if l.strip()]
 root = Path("Scarb.toml").read_text()
 members = re.findall(r'"crates/(\w+)"', root.split("members", 1)[1].split("]", 1)[0])
 REPLAY = "slingfall_replay"

@@ -76,7 +76,8 @@ a command and end the turn, never switch branches, stash or reset, never touch o
 
 ## 6b. Before every push
 
-Run `scripts/install-hooks.sh` once per clone; the pre-push hook then runs `scripts/prepush.sh` (fmt, syntax,
+`scripts/install-hooks.sh` is run once per main clone by its owner, never by a thread (it refuses in a
+worktree); the pre-push hook then runs `scripts/prepush.sh` (fmt, syntax,
 Python tests, the touched crates' build, golden and class-size gates; `--full` adds the slow checks). Never push
 red and never skip the hook (`--no-verify`): fix what it reports.
 
