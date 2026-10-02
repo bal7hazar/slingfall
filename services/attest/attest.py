@@ -4,7 +4,8 @@
 
     attest.py serve [--key HEX] (--execute | --verify-cmd CMD | --no-verify) --contract HEX
                     [--rpc URL] [--chain-id FELT] [--program-hash HEX] [--epoch N] [--ttl S]
-                    [--rate N] [--rate-window S] [--host H] [--port N] [--proof-dir DIR]
+                    [--rate N] [--rate-window S] [--client-rate N] [--client-window S]
+                    [--max-concurrent N] [--max-queue N] [--host H] [--port N] [--proof-dir DIR]
                     [--timeout S] [--no-build]
     attest.py sign [--key HEX] --chain-id FELT --contract HEX --program-hash HEX --epoch N
                    --expiry T (--outputs FILE | FELT...)
@@ -14,7 +15,8 @@
 
 The key is the attestation secret (a Stark-curve scalar); without `--key` it is read from the
 environment variable `SLINGFALL_ATTEST_KEY` (a command line is visible to every user of the
-machine). The contract checks the signature with the public key the admin set
+machine), or else from the file `SLINGFALL_ATTEST_KEY_FILE` names (a hosted service: the file
+belongs to the service's own user, `docs/hosting.md`). The contract checks the signature with the public key the admin set
 (`set_attestation_key`, `attest.py pubkey`).
 
 What is signed (`verifier::attestation_message`):
@@ -46,10 +48,24 @@ run ahead of the wall clock) and the wall clock. The RPC is `--rpc` or `$STARKNE
 
 Every answer carries `{"message", "evidence", "signature": [r, s], "public_key", "verified",
 "mode", "outputs", "chain_id", "contract", "program_hash", "epoch", "expiry"}`. A malformed
-request answers 400, a refused one 422, and more than `--rate` requests (default 20) per player
-(`outputs.player`, or `inputs.player`) within `--rate-window` seconds (default 3 600) 429. One
-execution or verification runs at a time. `GET /health`: `{"public_key", "mode", "contract",
-"chain_id", "program_hash", "epoch"}` (the last three as last read).
+request answers 400 and a refused one 422. Limits (in memory: one process), each answering 429
+with `Retry-After`:
+
+* per player (`outputs.player`, or `inputs.player`, chosen by the caller): `--rate` requests
+  (default 20) within `--rate-window` seconds (default 3 600);
+* per client: `--client-rate` (default 120) within `--client-window` (default 3 600). The client
+  is the peer address, or the last entry of `X-Forwarded-For` when the peer is 127.0.0.1 (the
+  reverse proxy). A local caller (127.0.0.1 without that header) is outside this limit;
+* globally: `--max-concurrent` executions or verifications run at once (default 1) and at most
+  `--max-queue` more wait (default 4).
+
+`--rate 0` turns every limit off (local play, `scripts/play.sh`): no 429 at all, the queue is
+unbounded, and `--max-concurrent` still runs that many at once. Idle keys are pruned.
+
+`GET /health`: `{"service", "revision", "uptime", "public_key", "mode", "verify", "contract",
+"chain_id", "program_hash", "epoch"}` (the last three as last read; no chain call). `revision` is
+the `REVISION` file at the root of an installed tree (`deploy/hosting/install.sh`), else null.
+Every request logs one line to stdout: time, method, path, status, duration, client and player.
 
 `sign` prints the message and the evidence of the given outputs (offline attestation); `request`
 posts to a running service and prints its answer (the client of `deploy/e2e.sh`).
@@ -61,6 +77,7 @@ import argparse
 import base64
 import binascii
 import json
+import math
 import os
 import shlex
 import subprocess
@@ -71,6 +88,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -88,6 +106,9 @@ P = vectors.P
 N_OUTPUTS = 10  # the felts of `Outputs` (docs/DESIGN.md D4)
 PLAYER_INDEX = 3
 KEY_ENV = "SLINGFALL_ATTEST_KEY"
+KEY_FILE_ENV = "SLINGFALL_ATTEST_KEY_FILE"
+SERVICE = "slingfall-attest"
+REVISION = ROOT / "REVISION"
 MAX_BODY = 64 << 20  # a base64 proof; P1's proofs are a few MB
 LEVELS = ROOT / "fixtures" / "levels"
 OUTPUT_NAMES = ["version", "level_hash", "seed", "player", "inputs_hash", "score", "won", "shots_used",
@@ -95,15 +116,21 @@ OUTPUT_NAMES = ["version", "level_hash", "seed", "player", "inputs_hash", "score
 DEFAULT_TTL = 600.0
 DEFAULT_RATE = 20
 DEFAULT_RATE_WINDOW = 3600.0
+DEFAULT_CLIENT_RATE = 120  # a few players behind one address (a NAT), each under --rate
+DEFAULT_MAX_CONCURRENT = 1
+DEFAULT_MAX_QUEUE = 4
+MAX_KEYS = 100_000  # rate-limit keys kept at most (the least recently seen go first)
+TRUSTED_PROXY = "127.0.0.1"
 CHAIN_TTL = 30.0
 
 
 class AttestError(Exception):
     """A request the service refuses; `status` is the HTTP status of the answer."""
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, retry_after: float | None = None):
         super().__init__(message)
         self.status = status
+        self.retry_after = retry_after
 
 
 # --------------------------------------------------------------------------- felts
@@ -140,12 +167,27 @@ def parse_inputs(values: object) -> list[int]:
 
 
 def parse_key(text: str | None) -> int:
-    text = text if text is not None else os.environ.get(KEY_ENV)
+    """`--key`, else `$SLINGFALL_ATTEST_KEY`, else the file `$SLINGFALL_ATTEST_KEY_FILE` names. No
+    message quotes the key."""
+    source = "--key"
+    if text is None and os.environ.get(KEY_ENV):
+        if os.environ.get(KEY_FILE_ENV):
+            raise SystemExit(f"key: set {KEY_ENV} or {KEY_FILE_ENV}, not both")
+        text, source = os.environ[KEY_ENV], KEY_ENV
+    elif text is None and os.environ.get(KEY_FILE_ENV):
+        source = os.environ[KEY_FILE_ENV]
+        try:
+            text = Path(source).read_text().strip()
+        except OSError as e:
+            raise SystemExit(f"key: cannot read {source}: {e.strerror}") from None
     if not text:
-        raise SystemExit(f"no key: pass --key or set {KEY_ENV}")
-    key = int(text, 0)
+        raise SystemExit(f"no key: pass --key, or set {KEY_ENV} or {KEY_FILE_ENV}")
+    try:
+        key = int(text, 0)
+    except ValueError:
+        raise SystemExit(f"key ({source}): not a number") from None
     if not 0 < key < vectors.N:
-        raise SystemExit("key: out of range (0, N)")
+        raise SystemExit(f"key ({source}): out of range (0, N)")
     return key
 
 
@@ -293,24 +335,28 @@ def scarb_replay(level: str, inputs: list[int]) -> list[int]:
 
 
 class Executor:
-    """Re-executes a replay natively, one at a time. `run(level_name, inputs) -> outputs`."""
+    """Re-executes a replay natively (as many at once as the `Gate` lets through).
+    `run(level_name, inputs) -> outputs`."""
 
     def __init__(self, run=scarb_replay):
         self.run = run
-        self._lock = threading.Lock()
 
-    def outputs(self, request: dict) -> list[int]:
+    def parse(self, request: dict) -> tuple[str, list[int], list[int] | None]:
+        """The level, the inputs and the claimed outputs; 400 before any queueing."""
         try:
             level = resolve_level(request.get("level"))
             inputs = parse_inputs(request.get("inputs"))
             claimed = parse_outputs(request["outputs"]) if "outputs" in request else None
         except ValueError as e:
             raise AttestError(400, str(e)) from None
-        with self._lock:
-            try:
-                outputs = [v % P for v in self.run(level, inputs)]
-            except Exception as e:  # noqa: BLE001  (a failed run refuses, never signs)
-                raise AttestError(500, f"execute: {str(e).strip().splitlines()[0] if str(e).strip() else e!r}") from None
+        return level, inputs, claimed
+
+    def outputs(self, request: dict) -> list[int]:
+        level, inputs, claimed = self.parse(request)
+        try:
+            outputs = [v % P for v in self.run(level, inputs)]
+        except Exception as e:  # noqa: BLE001  (a failed run refuses, never signs)
+            raise AttestError(500, f"execute: {str(e).strip().splitlines()[0] if str(e).strip() else e!r}") from None
         if len(outputs) != N_OUTPUTS:
             raise AttestError(500, f"execute: {len(outputs)} output felts, expected {N_OUTPUTS}")
         if claimed is not None and claimed != outputs:
@@ -383,25 +429,89 @@ class Verifier:
 # --------------------------------------------------------------------------- rate limit
 
 class RateLimiter:
-    """At most `limit` requests per key within any `window` seconds (a sliding window)."""
+    """At most `limit` requests per key within any `window` seconds (a sliding window; `limit` 0:
+    no limit). Keys idle for a window are pruned (at most once per `window / 4`), and at most
+    `max_keys` are kept (the least recently seen go first), so memory stays bounded."""
 
-    def __init__(self, limit: int, window: float, clock=time.monotonic):
-        self.limit, self.window, self.clock = limit, window, clock
-        self._seen: dict[int, deque] = {}
+    def __init__(self, limit: int, window: float, clock=time.monotonic, max_keys: int = MAX_KEYS):
+        self.limit, self.window, self.clock, self.max_keys = limit, window, clock, max_keys
+        self._seen: dict[object, deque] = {}
+        self._pruned = clock()
         self._lock = threading.Lock()
 
-    def allow(self, key: int) -> bool:
+    def __len__(self) -> int:
+        return len(self._seen)
+
+    def wait(self, key: object) -> float:
+        """0 and the request counts, or the seconds until `key` may ask again."""
         if self.limit <= 0:
-            return True
+            return 0.0
         now = self.clock()
         with self._lock:
-            seen = self._seen.setdefault(key, deque())
+            if now - self._pruned >= self.window / 4:
+                self.prune(now)
+            seen = self._seen.pop(key, None) or deque()
+            self._seen[key] = seen  # most recently seen last
             while seen and now - seen[0] >= self.window:
                 seen.popleft()
             if len(seen) >= self.limit:
-                return False
+                return max(seen[0] + self.window - now, 1e-3)
             seen.append(now)
-            return True
+            while len(self._seen) > self.max_keys:
+                del self._seen[next(iter(self._seen))]
+            return 0.0
+
+    def allow(self, key: object) -> bool:
+        return self.wait(key) == 0.0
+
+    def prune(self, now: float) -> None:
+        """Drops the keys with no request within the window (lock held)."""
+        self._seen = {k: s for k, s in self._seen.items() if s and now - s[-1] < self.window}
+        self._pruned = now
+
+
+class Gate:
+    """The global cap on replays: at most `concurrent` run at once and at most `queue` more wait;
+    beyond, 429 (`queue` None: no cap on the waiting ones)."""
+
+    def __init__(self, concurrent: int = DEFAULT_MAX_CONCURRENT, queue: int | None = DEFAULT_MAX_QUEUE):
+        self.concurrent, self.queue = max(1, concurrent), queue
+        self._slots = threading.Semaphore(self.concurrent)
+        self._lock = threading.Lock()
+        self.admitted = 0  # running and waiting
+        self.last_duration = 10.0  # seconds; a first guess for Retry-After until a run is timed
+
+    @contextmanager
+    def slot(self):
+        with self._lock:
+            if self.queue is not None and self.admitted >= self.concurrent + self.queue:
+                waves = self.admitted // self.concurrent
+                raise AttestError(429, f"busy: {self.admitted} replays running or queued",
+                                  retry_after=max(1.0, waves * self.last_duration))
+            self.admitted += 1
+        try:
+            with self._slots:
+                started = time.monotonic()
+                try:
+                    yield
+                finally:
+                    self.last_duration = time.monotonic() - started
+        finally:
+            with self._lock:
+                self.admitted -= 1
+
+
+def client_of(peer: str, forwarded: str | None) -> str | None:
+    """The client a request counts against: the last `X-Forwarded-For` entry when the peer is the
+    reverse proxy (127.0.0.1); the peer itself otherwise. None: a local caller (127.0.0.1 without
+    the header), outside the per-client limit."""
+    if peer != TRUSTED_PROXY:
+        return peer
+    if forwarded:
+        last = forwarded.split(",")[-1].strip()
+        if last:
+            return last
+    return None
 
 
 # --------------------------------------------------------------------------- the service
@@ -411,11 +521,16 @@ class Attester:
     then the signature over the chain's context."""
 
     def __init__(self, secret: int, chain: Chain, executor: Executor | None = None, verifier: Verifier | None = None,
-                 limiter: RateLimiter | None = None, ttl: float = DEFAULT_TTL):
+                 limiter: RateLimiter | None = None, ttl: float = DEFAULT_TTL, clients: RateLimiter | None = None,
+                 gate: Gate | None = None, revision: str | None = None):
         self.secret, self.chain, self.executor, self.ttl = secret, chain, executor, ttl
         self.verifier = verifier or Verifier(None, None, 1)
-        self.limiter = limiter or RateLimiter(DEFAULT_RATE, DEFAULT_RATE_WINDOW)
+        self.limiter = limiter if limiter is not None else RateLimiter(DEFAULT_RATE, DEFAULT_RATE_WINDOW)
+        self.clients = clients if clients is not None else RateLimiter(DEFAULT_CLIENT_RATE, DEFAULT_RATE_WINDOW)
+        self.gate = gate if gate is not None else Gate()
+        self.revision = revision
         self.public_key = hex(vectors.pubkey(secret))
+        self.started = time.monotonic()
 
     @property
     def mode(self) -> str:
@@ -431,47 +546,89 @@ class Attester:
         except (ValueError, TypeError, AttributeError) as e:
             raise AttestError(400, str(e)) from None
 
-    def handle(self, request: dict) -> dict:
+    def handle(self, request: dict, client: str | None = None, info: dict | None = None) -> dict:
+        """`client` is what `client_of` gives (None: local); `info` gets the player (the log)."""
         if not isinstance(request, dict):
             raise AttestError(400, "expected a JSON object")
         player = self.player_of(request)
-        if not self.limiter.allow(player):
+        if info is not None:
+            info["player"] = hex(player)
+        if client is not None:
+            wait = self.clients.wait(client)
+            if wait:
+                raise AttestError(429, f"rate limit: more than {self.clients.limit} requests from {client} "
+                                       f"in {self.clients.window:.0f} s", retry_after=wait)
+        wait = self.limiter.wait(player)
+        if wait:
             raise AttestError(429, f"rate limit: more than {self.limiter.limit} requests for player {hex(player)} "
-                                   f"in {self.limiter.window:.0f} s")
+                                   f"in {self.limiter.window:.0f} s", retry_after=wait)
         if self.executor is not None:
-            outputs = self.executor.outputs(request)
+            self.executor.parse(request)  # a malformed request is refused before it queues
+            with self.gate.slot():
+                outputs = self.executor.outputs(request)
             verified = True
         else:
             try:
                 outputs = parse_outputs(request.get("outputs"))
             except ValueError as e:
                 raise AttestError(400, str(e)) from None
-            verified = self.verifier.check(request, outputs)
+            if self.verifier.command is None:
+                verified = False
+            else:
+                with self.gate.slot():
+                    verified = self.verifier.check(request, outputs)
         ctx = self.chain.context()
         expiry = int(ctx["now"] + self.ttl)
         body = attest(self.secret, ctx["chain_id"], self.chain.contract, ctx["program_hash"], ctx["epoch"], expiry, outputs)
         return {**body, "verified": verified, "mode": self.mode, "outputs": [hex(v) for v in outputs]}
 
     def health(self) -> dict:
-        return {"public_key": self.public_key, "mode": self.mode, "verify": self.verifier.command,
+        return {"service": SERVICE, "revision": self.revision, "uptime": round(time.monotonic() - self.started, 1),
+                "public_key": self.public_key, "mode": self.mode, "verify": self.verifier.command,
                 "contract": hex(self.chain.contract), **self.chain.known()}
 
 
-def make_handler(attester: Attester, log=sys.stderr):
+def read_revision(path: Path = REVISION) -> str | None:
+    """The git sha `install.sh` wrote; None in a checkout."""
+    try:
+        return path.read_text().strip() or None
+    except OSError:
+        return None
+
+
+def make_handler(attester: Attester, log=sys.stdout):
     class Handler(BaseHTTPRequestHandler):
         server_version = "slingfall-attest/2"
 
-        def log_message(self, fmt, *args):
-            print(f"attest: {self.address_string()} {fmt % args}", file=log)
+        def log_request(self, code="-", size="-"):
+            pass  # one line per request, written by `answer`
 
-        def answer(self, status: int, body: dict) -> None:
+        def log_message(self, fmt, *args):
+            # Errors of the HTTP layer (a malformed request line): never a body.
+            print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} attest: {self.client_address[0]} "
+                  f"{fmt % args}", file=log, flush=True)
+
+        def setup(self):
+            super().setup()
+            self.started, self.info = time.monotonic(), {}
+
+        def client(self) -> str | None:
+            return client_of(self.client_address[0], self.headers.get("X-Forwarded-For"))
+
+        def answer(self, status: int, body: dict, retry_after: float | None = None) -> None:
             data = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            if retry_after is not None:
+                self.send_header("Retry-After", str(max(1, math.ceil(retry_after))))
             self.cors()
             self.end_headers()
             self.wfile.write(data)
+            fields = " ".join(f"{k}={v}" for k, v in self.info.items())
+            print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {self.command} {self.path} {status} "
+                  f"{time.monotonic() - self.started:.3f}s client={self.client() or 'local'} {fields}".rstrip(),
+                  file=log, flush=True)
 
         def cors(self) -> None:
             # The client runs on another origin (the Vite dev server).
@@ -483,6 +640,8 @@ def make_handler(attester: Attester, log=sys.stderr):
             self.send_response(204)
             self.cors()
             self.end_headers()
+            print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} OPTIONS {self.path} 204 "
+                  f"{time.monotonic() - self.started:.3f}s client={self.client() or 'local'}", file=log, flush=True)
 
         def do_GET(self):  # noqa: N802
             if self.path != "/health":
@@ -500,13 +659,12 @@ def make_handler(attester: Attester, log=sys.stderr):
                     request = json.loads(self.rfile.read(length))
                 except ValueError as e:
                     raise AttestError(400, f"body: {e}") from None
-                body = attester.handle(request)
-                print(f"attest: signed {body['message']} for {body['outputs'][PLAYER_INDEX]} ({body['mode']}, "
-                      f"epoch {body['epoch']}, program {body['program_hash']})", file=log)
+                body = attester.handle(request, self.client(), self.info)
+                self.info.update(mode=body["mode"], epoch=body["epoch"], message=body["message"])
                 self.answer(200, body)
             except AttestError as e:
-                print(f"attest: refused ({e.status}): {e}", file=log)
-                self.answer(e.status, {"error": str(e)})
+                self.info["error"] = json.dumps(str(e)[:200])
+                self.answer(e.status, {"error": str(e)}, e.retry_after)
 
     return Handler
 
@@ -543,7 +701,12 @@ def make_attester(args) -> Attester:
             golden.build()
         executor = Executor()
     verifier = Verifier(args.verify_cmd, Path(args.proof_dir) if args.proof_dir else None, args.timeout)
-    return Attester(secret, chain, executor, verifier, RateLimiter(args.rate, args.rate_window), args.ttl)
+    # `--rate 0` (local play) turns off every limit: per player, per client and the queue's.
+    unlimited = args.rate <= 0
+    clients = RateLimiter(0 if unlimited else args.client_rate, args.client_window)
+    gate = Gate(args.max_concurrent, None if unlimited else args.max_queue)
+    return Attester(secret, chain, executor, verifier, RateLimiter(args.rate, args.rate_window), args.ttl,
+                    clients, gate, read_revision())
 
 
 def cmd_serve(args) -> int:
@@ -554,8 +717,11 @@ def cmd_serve(args) -> int:
     server = serve(attester, args.host, args.port)
     host, port = server.server_address[:2]
     print(f"attest: public key {attester.public_key}", file=sys.stderr)
+    limits = (f"rate {args.rate} per {args.rate_window:.0f} s per player, {args.client_rate} per "
+              f"{args.client_window:.0f} s per client, {attester.gate.concurrent} running + {args.max_queue} queued"
+              if args.rate > 0 else "no limits (--rate 0)")
     print(f"attest: listening on http://{host}:{port} (mode {attester.mode}, contract {args.contract}, "
-          f"rate {args.rate} per {args.rate_window:.0f} s per player)", file=sys.stderr, flush=True)
+          f"revision {attester.revision}, {limits})", file=sys.stderr, flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -605,7 +771,7 @@ def cmd_request(args) -> int:
         return 1
 
 
-def main(argv: list[str]) -> int:
+def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -624,8 +790,14 @@ def main(argv: list[str]) -> int:
     p.add_argument("--program-hash", help="the engine release this service runs (default: current_program())")
     p.add_argument("--epoch", type=int, help="fixed attestation epoch instead of attestation_epoch()")
     p.add_argument("--ttl", type=float, default=DEFAULT_TTL, help="seconds until an attestation expires")
-    p.add_argument("--rate", type=int, default=DEFAULT_RATE, help="requests per player per window (0: no limit)")
+    p.add_argument("--rate", type=int, default=DEFAULT_RATE,
+                   help="requests per player per window (0: no limit at all, per player, per client or queue)")
     p.add_argument("--rate-window", type=float, default=DEFAULT_RATE_WINDOW, help="seconds")
+    p.add_argument("--client-rate", type=int, default=DEFAULT_CLIENT_RATE,
+                   help="requests per client address per window (local callers are not counted)")
+    p.add_argument("--client-window", type=float, default=DEFAULT_RATE_WINDOW, help="seconds")
+    p.add_argument("--max-concurrent", type=int, default=DEFAULT_MAX_CONCURRENT, help="replays running at once")
+    p.add_argument("--max-queue", type=int, default=DEFAULT_MAX_QUEUE, help="replays waiting at most; beyond, 429")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8547)
     p.add_argument("--proof-dir", help="proof_path must be inside this directory")
@@ -656,8 +828,11 @@ def main(argv: list[str]) -> int:
     p.add_argument("--timeout", type=float, default=960.0)
     outputs_args(p)
     p.set_defaults(run=cmd_request)
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str]) -> int:
+    args = make_parser().parse_args(argv)
     return args.run(args)
 
 

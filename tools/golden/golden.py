@@ -139,7 +139,9 @@ class GoldenError(Exception):
 
 def build() -> None:
     sync_variant(*SETTINGS)
-    out = subprocess.run(["scarb", "--manifest-path", str(MANIFEST), "build"], capture_output=True, text=True)
+    # From the package's directory, the subcommand first: the machine's `scarb` shim reads its
+    # subcommand from the first argument (heavy-build lock), so no global option goes before it.
+    out = subprocess.run(["scarb", "build"], cwd=MANIFEST.parent, capture_output=True, text=True)
     if out.returncode != 0:
         sys.exit(f"scarb build failed\n{out.stdout}\n{out.stderr}")
 
@@ -150,10 +152,9 @@ def execute(name: str, felts: list[int]) -> tuple[int, list[int], list[str]]:
         json.dump([hex(x % P) for x in felts], f)
     try:
         out = subprocess.run(
-            ["scarb", "--manifest-path", str(MANIFEST), "execute", "--no-build", "--output", "none",
-             "--executable-name", name, "--arguments-file", f.name, "--print-program-output",
-             "--print-resource-usage"],
-            capture_output=True, text=True, check=False,
+            ["scarb", "execute", "--no-build", "--output", "none", "--executable-name", name,
+             "--arguments-file", f.name, "--print-program-output", "--print-resource-usage"],
+            cwd=MANIFEST.parent, capture_output=True, text=True, check=False,
         )
     finally:
         Path(f.name).unlink()
