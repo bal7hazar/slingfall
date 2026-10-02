@@ -39,10 +39,11 @@
 set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_INDEX_FILE
 
-SCARB_VERSION=2.19.4
+SCARB_VERSION=2.20.1
 SCARB_NAME="scarb-v$SCARB_VERSION-x86_64-unknown-linux-gnu"
-# checksums.sha256 of the GitHub release v2.19.4 of software-mansion/scarb.
-SCARB_SHA256=3832b9d79640e5385372025be53b5a7dbdbee5ca1b2c7ab5d5c21e090dc9e108
+# From checksums.sha256 of the GitHub release v2.20.1 of software-mansion/scarb (fetched 2026-10-02:
+# https://github.com/software-mansion/scarb/releases/download/v2.20.1/checksums.sha256).
+SCARB_SHA256=6795b268da13c8ff397a0f5e4b7a63f4b2b313d8a5e41fff36626087279c4804
 SCARB_URL="https://github.com/software-mansion/scarb/releases/download/v$SCARB_VERSION/$SCARB_NAME.tar.gz"
 PREFIX=/opt/slingfall
 ETC=/etc/slingfall
@@ -83,6 +84,48 @@ done
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 say() { echo "install.sh: $*"; }
+
+# --- archive checks: begin
+# git archive is not a byte-exact export: it applies the export-subst and export-ignore attributes of
+# the archived tree's .gitattributes (export-subst expands $Format:...$, the commit message included).
+# check_attributes SRC SHA PATHS...: refuses export-subst or export-ignore set on any path of the commit.
+check_attributes() {
+  local src="$1" sha="$2" path attr value
+  shift 2
+  while IFS= read -r -d '' path && IFS= read -r -d '' attr && IFS= read -r -d '' value; do
+    case "$value" in
+      unspecified|unset) ;;
+      *) die "$path: $attr is set ($value) in the commit's .gitattributes: refused" ;;
+    esac
+  done < <(git -C "$src" ls-tree -r -z --name-only "$sha" -- "$@" \
+    | git -C "$src" check-attr -z --source="$sha" --stdin export-subst export-ignore)
+}
+# check_archive SRC SHA STAGE PATHS...: every file extracted into STAGE is the commit's blob, byte for byte
+# and with its mode; no file of the commit is missing and none is extra.
+check_archive() {
+  local src="$1" sha="$2" stage="$3" entry meta path mode type blob listed staged extra
+  shift 3
+  listed="$(mktemp)" staged="$(mktemp)"
+  while IFS= read -r -d '' entry; do
+    meta="${entry%%$'\t'*}" path="${entry#*$'\t'}"
+    read -r mode type blob <<<"$meta"
+    { [ "$type" = blob ] && { [ "$mode" = 100644 ] || [ "$mode" = 100755 ]; }; } \
+      || { rm -f "$listed" "$staged"; die "$path: $mode $type, not a regular file: refused"; }
+    { [ -f "$stage/$path" ] && [ ! -L "$stage/$path" ]; } \
+      || { rm -f "$listed" "$staged"; die "$path: missing from the archive: refused"; }
+    [ "$(git -C "$src" hash-object --no-filters -- "$stage/$path")" = "$blob" ] \
+      || { rm -f "$listed" "$staged"; die "$path: differs from its blob $blob in $sha: refused"; }
+    if [ "$mode" = 100755 ]; then [ -x "$stage/$path" ]; else [ ! -x "$stage/$path" ]; fi \
+      || { rm -f "$listed" "$staged"; die "$path: its mode differs from $mode: refused"; }
+    printf '%s\0' "$path" >>"$listed"
+  done < <(git -C "$src" ls-tree -r -z "$sha" -- "$@")
+  (cd "$stage" && find . ! -type d -printf '%P\0') | LC_ALL=C sort -z >"$staged.sorted"
+  LC_ALL=C sort -z "$listed" >"$listed.sorted"
+  extra="$(LC_ALL=C comm -z -13 "$listed.sorted" "$staged.sorted" | tr '\0' ' ')"
+  rm -f "$listed" "$staged" "$listed.sorted" "$staged.sorted"
+  [ -z "$extra" ] || die "not in $sha, yet in the archive: $extra: refused"
+}
+# --- archive checks: end
 
 # ------------------------------------------------------------------ 1. checks (nothing changes)
 [ "$(id -u)" = 0 ] || die "run as root (the tree it installs must be root-owned)"
@@ -187,7 +230,12 @@ if [ ! -d "$REL" ]; then
   stage="$(mktemp -d "$PREFIX/releases/.stage.XXXXXX")"
   build="$(mktemp -d "$PREFIX/.build/run.XXXXXX")"
   trap 'rm -rf "$stage" "$build"' EXIT
+  check_attributes "$SRC" "$SHA" "${RELEASE_PATHS[@]}"
   git -C "$SRC" archive "$SHA" "${RELEASE_PATHS[@]}" | tar -x -C "$stage"
+  check_archive "$SRC" "$SHA" "$stage" "${RELEASE_PATHS[@]}"
+  for d in "${PYTHON_DIRS[@]}"; do
+    [ -d "$stage/$d" ] || die "$d (PYTHON_DIRS) is not in the revision: update install.sh"
+  done
   # No compiled Python anywhere, and nothing importable on the service's sys.path but PYTHON_FILES.
   odd="$(find "$stage" \( -name __pycache__ -o -name '*.pyc' -o -name '*.pyo' \) -print -quit)"
   [ -z "$odd" ] || die "the revision holds compiled Python: ${odd#"$stage"/}: refused"

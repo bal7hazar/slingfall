@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import select
 import socket
 import sys
 import tempfile
@@ -606,6 +607,39 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(answer.startswith(b"HTTP/1.0 408"), answer[:40])
         self.assertEqual(self.raw(url, b"POST /attest HTTP/1.1\r\n"), b"")  # headers never end
         self.assertLess(time.monotonic() - started, 4)
+
+    def trickle(self, url: str, head: bytes, data: bytes, every: float, limit: float) -> tuple[bytes, float]:
+        """Sends `head` at once, then `data` a byte every `every` s (each within the idle timeout) until
+        the server closes the connection; returns what came back and when, or fails after `limit` s."""
+        host, port = url[len("http://"):].split(":")
+        started = time.monotonic()
+        with socket.create_connection((host, int(port)), timeout=limit) as s:
+            s.sendall(head)
+            for byte in data:
+                try:
+                    s.sendall(bytes([byte]))
+                except OSError:
+                    break  # closed by the server
+                ready = select.select([s], [], [], every)[0]
+                if ready:
+                    break
+            received = b""
+            while chunk := s.recv(4096):
+                received += chunk
+        return received, time.monotonic() - started
+
+    def test_a_trickling_client_is_cut_at_the_deadline(self):
+        attester = attest.Attester(CONST["SECRET"], attest.Chain(CONTRACT, self.rpc))
+        url = self.serve(attester, timeout=0.5, deadline=1.0)
+        # Headers, a byte every 0.2 s (under the 0.5 s idle timeout): closed once the 1 s deadline passes.
+        answer, took = self.trickle(url, b"", b"POST /attest HTTP/1.1\r\nHost: " + b"x" * 200, 0.2, 10)
+        self.assertEqual(answer, b"")
+        self.assertLess(took, 3)
+        # Headers on time, then the body trickled: 408.
+        head = b"POST /attest HTTP/1.1\r\nHost: x\r\nContent-Length: 200\r\n\r\n"
+        answer, took = self.trickle(url, head, b"{" * 200, 0.2, 10)
+        self.assertTrue(answer.startswith(b"HTTP/1.0 408"), answer[:40])
+        self.assertLess(took, 3)
 
     def test_connections_are_capped(self):
         url = self.serve(attest.Attester(CONST["SECRET"], attest.Chain(CONTRACT, self.rpc)), timeout=1.0,

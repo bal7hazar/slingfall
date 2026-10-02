@@ -73,7 +73,8 @@ request answers 400 (413 above 16 KiB in `--execute` mode, 64 MiB otherwise) and
 `--rate 0` turns every limit off (local play, `scripts/play.sh`): no 429 at all, the queue is
 unbounded, and `--max-concurrent` still runs that many at once. Idle keys are pruned.
 `--cors-origin` is the one origin browsers may call from (default `*`, local play). A connection
-idle for 10 s is closed, and at most 32 are open at once (the next is closed at once).
+idle for 10 s, or still sending its request after 20 s, is closed, and at most 32 are open at
+once (the next is closed at once).
 
 `GET /health`: `{"service", "revision", "uptime", "public_key", "mode", "verify", "contract",
 "chain_id", "program_hash", "epoch"}` (the last three as last read; no chain call). `revision` is
@@ -89,6 +90,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import io
 import ipaddress
 import json
 import math
@@ -143,6 +145,7 @@ LOCAL = "local"  # the per-client key of every local caller
 IPV6_PREFIX = 64  # an IPv6 client is its /64: one subscriber gets a whole /64
 SD_LISTEN_FDS_START = 3
 CONNECTION_TIMEOUT = 10.0  # seconds a connection may stay idle (headers, body) before it is closed
+REQUEST_DEADLINE = 20.0  # seconds for the whole request line, headers and body, however they trickle
 MAX_CONNECTIONS = 32  # open at once; each holds a thread (the unit's TasksMax is 64)
 CHAIN_TTL = 30.0
 
@@ -677,7 +680,26 @@ def read_revision(path: Path = REVISION) -> str | None:
         return None
 
 
-def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", timeout: float = CONNECTION_TIMEOUT):
+class DeadlineReader(io.RawIOBase):
+    """A socket's reading side under two bounds: each `recv` waits at most `idle` seconds, and all of
+    them end by `deadline` (`time.monotonic()`), so a client trickling one byte at a time is cut off."""
+
+    def __init__(self, sock: socket.socket, deadline: float, idle: float):
+        self.sock, self.deadline, self.idle = sock, deadline, idle
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("request deadline passed")
+        self.sock.settimeout(min(self.idle, left))
+        return self.sock.recv_into(buffer)
+
+
+def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", timeout: float = CONNECTION_TIMEOUT,
+                 deadline: float = REQUEST_DEADLINE):
     class Handler(BaseHTTPRequestHandler):
         server_version = "slingfall-attest/2"
         timeout = None  # set after the class: a stalled header or body read ends the connection
@@ -697,6 +719,8 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
         def setup(self):
             super().setup()
             self.started, self.info = time.monotonic(), {}
+            # One request per connection (HTTP/1.0): its line, headers and body all within the deadline.
+            self.rfile = io.BufferedReader(DeadlineReader(self.connection, self.started + deadline, timeout))
 
         def client(self) -> str | None:
             if not isinstance(self.client_address, tuple):  # the reverse proxy's Unix socket
@@ -754,7 +778,8 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
                     data = self.rfile.read(length)
                 except TimeoutError:
                     self.close_connection = True
-                    raise AttestError(408, f"body: not received within {timeout:.0f} s") from None
+                    raise AttestError(408, f"body: not received within {timeout:.0f} s, or the request took "
+                                           f"over {deadline:.0f} s") from None
                 if len(data) != length:
                     self.close_connection = True
                     raise AttestError(400, "body: shorter than its Content-Length")
@@ -809,9 +834,10 @@ def systemd_socket(environ=os.environ, fd: int = SD_LISTEN_FDS_START) -> socket.
 
 
 def serve(attester: Attester, host: str, port: int, cors_origin: str = "*", sock: socket.socket | None = None,
-          log=sys.stdout, timeout: float = CONNECTION_TIMEOUT, max_connections: int = MAX_CONNECTIONS) -> Server:
+          log=sys.stdout, timeout: float = CONNECTION_TIMEOUT, max_connections: int = MAX_CONNECTIONS,
+          deadline: float = REQUEST_DEADLINE) -> Server:
     """HTTP on `host:port`, or on a listening socket already bound (systemd's: TCP or Unix)."""
-    handler = make_handler(attester, log, cors_origin, timeout)
+    handler = make_handler(attester, log, cors_origin, timeout, deadline)
     if sock is None:
         server = Server((host, port), handler)
     else:
