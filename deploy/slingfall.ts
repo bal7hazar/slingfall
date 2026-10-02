@@ -124,10 +124,10 @@ import { SPLIT_ARTIFACTS, bundleOf, checkChainEntryPoints, pinnedHashes, verifyC
 const root = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url));
 const ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_Slingfall';
 const FAKE_ARTIFACTS = 'deploy/contract/target/dev/slingfall_deploy_FakeSatellite';
-// `docs/proving.md` "Program hash history": the pinned `c1main` (rapier2d alpha.6, lot B4; unchanged by alpha.7, lot B5,
-// and alpha.8, lot B6: `fixtures/proofs/atlantic/child-hash-alpha8.json`), Atlantic's bootloader, Integrity's SHARP
-// bootloader, Herodotus's Satellite on Sepolia.
-const CHILD_PROGRAM_HASH = '0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a';
+// `docs/proving.md` "Program hash history": the pinned `c1main` (rapier2d alpha.8 compiled by Scarb 2.20.1 / Cairo
+// 2.20.0, lot TC: `fixtures/proofs/atlantic/child-hash-scarb-2.20.1.json`; alpha.6 to alpha.8 on Scarb 2.19.4 had
+// `0x580ef5d1…edf75a`), Atlantic's bootloader, Integrity's SHARP bootloader, Herodotus's Satellite on Sepolia.
+const CHILD_PROGRAM_HASH = '0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360';
 const ATLANTIC_BOOTLOADER_HASH = '0x288ba12915c0c7e91df572cf3ed0c9f391aa673cb247c5a208beaa50b668f09';
 const SHARP_BOOTLOADER_HASH = '0x5ab580b04e3532b6b18f81cfa654a05e29dd8e2352d88df1e765a84072db07';
 const SATELLITE_SEPOLIA = '0x421cd95f9ddabdd090db74c9429f257cb6bc1ccc339278d1db1de39156676e';
