@@ -223,12 +223,12 @@ build() {
   # (both wait on scarb's shared caches). The contract: deploy/devnet.sh builds it (scarb caches).
   if [ ! -f "$REPLAY_BUILT" ]; then
     say "the replay executables (scarb build of crates/slingfall_replay, once: a few minutes)"
-    scarb --manifest-path "$ROOT/crates/slingfall_replay/Scarb.toml" build >"$PLAY/replay-build.log" 2>&1 ||
+    (cd "$ROOT/crates/slingfall_replay" && scarb build) >"$PLAY/replay-build.log" 2>&1 ||
       { tail -n 20 "$PLAY/replay-build.log" >&2; die "replay build failed"; }
   fi
   if [ ! -f "$SPLIT_BUILT" ]; then
     say "the proven tier's classes (scarb build -p slingfall_split, once: a minute or two)"
-    scarb --manifest-path "$ROOT/Scarb.toml" build -p slingfall_split >"$PLAY/split-build.log" 2>&1 ||
+    (cd "$ROOT" && scarb build -p slingfall_split) >"$PLAY/split-build.log" 2>&1 ||
       { tail -n 20 "$PLAY/split-build.log" >&2; die "split classes build failed"; }
   fi
 }

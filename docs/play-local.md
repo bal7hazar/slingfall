@@ -24,8 +24,8 @@ ports are free.
 | | needed for | install |
 |---|---|---|
 | Node 24 (`.tool-versions`: 24.21.0) | the client, `deploy/slingfall.ts` | `asdf plugin add nodejs && asdf install nodejs 24.21.0` |
-| scarb 2.19.4 | the replay, the contract, the proven tier's classes | `asdf plugin add scarb && asdf install scarb 2.19.4` |
-| snforge 0.61.0 | the Cairo tests only (not to play) | `asdf plugin add starknet-foundry && asdf install starknet-foundry 0.61.0` |
+| scarb 2.20.1 | the replay, the contract, the proven tier's classes | `asdf plugin add scarb && asdf install scarb 2.20.1` |
+| snforge 0.64.0 | the Cairo tests only (not to play) | `asdf plugin add starknet-foundry && asdf install starknet-foundry 0.64.0` |
 | Python 3.10+ | both services (standard library only) | macOS: `brew install python`; Linux: the distribution's `python3` |
 | Rust (rustup) | once, to build the browser's Cairo VM (`client/vm/`, a few minutes) | https://rustup.rs; the pinned toolchain installs itself |
 | curl, tar | the devnet's release binary | present on both systems |
@@ -137,7 +137,8 @@ first (a second `up` reuses the running dev server as it is).
   network, allow it (System Settings > Privacy & Security > Local Network). Playing on the Mac itself, in
   Chromium, is verified (lot L2); the LAN address (`PLAY_HOST=0.0.0.0`), Safari and the firewall dialog are not.
 * **`No version is set for command starknet-devnet`** (asdf's shim): `deploy/devnet.sh` ignores a
-  `starknet-devnet` that does not run and downloads its own release binary into `deploy/.devnet/bin/`.
+  `starknet-devnet` that does not run and downloads its own release binary into `deploy/.devnet/bin/` and looks it up again (a first `up` used to stop
+  silently there); if the installed binary still does not run, `up` prints the failing command and its output.
 * **Something failed during `up`**: its last lines are printed; the whole log is in `target/play/`
   (`deploy.log`, `vm-build.log`, `replay-build.log`, `split-build.log`, `attest.log`, `prove.log`,
   `client.log`, `devnet-5050.log`). After a contract change, `scripts/play.sh reset`.
