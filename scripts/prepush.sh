@@ -95,7 +95,7 @@ run_held() {
   return "$rc"
 }
 
-# The locked scarb calls (build) put the subcommand first: the VPS shim takes the lock only then. The compile
+# The replay build uses the global-option form (`scarb --manifest-path X build`, the only valid one; the shim locks it). The compile
 # steps hold the lock themselves for at most 90 s of waiting (run_held), then are left to CI.
 compile_cap=90
 if [ "$(uname -s)" = Darwin ] || [ ! -e "$LOCK" ]; then compile_cap=0; fi
@@ -238,7 +238,7 @@ fi
 if [ "$REPLAY" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
   :   # the compile was left to CI above
 elif [ "$REPLAY" = 1 ]; then
-  run "build slingfall_replay" held scarb build --manifest-path "$REPLAY"
+  run "build slingfall_replay" held scarb --manifest-path "$REPLAY" build
 elif [ "$CAIRO" = 1 ]; then
   skip_full "build slingfall_replay"
 else
