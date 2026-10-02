@@ -57,6 +57,9 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds"):
+# every build of this script runs on one.
+os.environ["RAYON_NUM_THREADS"] = "1"
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = ["slingfall_contract", "slingfall_sizes"]
 

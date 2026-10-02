@@ -28,6 +28,8 @@
 # The local mode ignores the caller's STARKNET_*, SLINGFALL_*, ATLANTIC_*, VITE_* and DEVNET_*
 # variables (and starknet-devnet's own, e.g. FORK_NETWORK): each child gets the devnet's values only.
 set -euo pipefail
+# Sierra is not deterministic across compiler threads: every build here runs on one (docs/proving.md "Deterministic builds").
+export RAYON_NUM_THREADS=1
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLAY="$ROOT/target/play"

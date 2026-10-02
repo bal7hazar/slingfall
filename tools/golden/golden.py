@@ -56,6 +56,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds"):
+# every build of this script runs on one.
+os.environ["RAYON_NUM_THREADS"] = "1"
 ROOT = Path(__file__).resolve().parents[2]
 LEVELS = ROOT / "fixtures" / "levels"
 GOLDEN = ROOT / "fixtures" / "golden"

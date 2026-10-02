@@ -34,6 +34,8 @@
 #   DEVNET_DUMP          a file: the devnet's state is dumped there when `down` stops it (SIGINT) and
 #                        loaded from it at start (scripts/play.sh: a restart without a redeploy)
 set -euo pipefail
+# Sierra is not deterministic across compiler threads: every build here runs on one (docs/proving.md "Deterministic builds").
+export RAYON_NUM_THREADS=1
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${DEVNET_PORT:-5050}"

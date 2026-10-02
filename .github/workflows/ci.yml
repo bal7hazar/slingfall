@@ -11,6 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # The Cairo compiler's Sierra is not deterministic across threads (docs/proving.md "Deterministic
+  # builds"): the class hashes, the program hash and the step snapshots all depend on it, so every job
+  # compiles on one thread.
+  RAYON_NUM_THREADS: 1
   # Nested executable package, outside the root workspace (enable-gas = false).
   REPLAY: crates/slingfall_replay/Scarb.toml
 
@@ -46,6 +50,19 @@ jobs:
         run: |
           python3 tools/tracec/tracec.py args fixtures/levels/one_block.felts.json --shot=-600,-392 --out args.json
           scarb --manifest-path "$REPLAY" execute --executable-name main --arguments-file args.json --print-program-output --print-resource-usage
+      - name: Deterministic build (the split classes built twice from clean have the same bytes)
+        run: |
+          set -euo pipefail
+          for run in 1 2; do
+            scarb clean
+            scarb build -p slingfall_split
+            sha256sum target/dev/slingfall_split_*.contract_class.json | sort -k2 > "classes-$run.sha256"
+          done
+          if ! diff -u classes-1.sha256 classes-2.sha256; then
+            echo "::error::two clean one-thread builds of slingfall_split gave different classes"
+            exit 1
+          fi
+          wc -l < classes-1.sha256 | xargs echo "identical classes:"
 
   test:
     # One job per crate; the `steps` job checks the snapshot on the merged logs.
