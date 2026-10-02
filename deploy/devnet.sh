@@ -31,6 +31,8 @@
 #   DEVNET_OUT           deploy/devnet.json      DEVNET_ENV   deploy/devnet.env
 #   DEVNET_SPLIT_OUT     deploy/devnet-split.json
 #   DEVNET_RUN           deploy/out: the devnet's log and PID file
+#   DEVNET_BIN_DIR       deploy/.devnet/bin: where the release binary is installed
+#                        (DEVNET_SOURCED=1 loads the functions only: scripts/play/test_devnet_shim.sh)
 #   DEVNET_DUMP          a file: the devnet's state is dumped there when `down` stops it (SIGINT) and
 #                        loaded from it at start (scripts/play.sh: a restart without a redeploy)
 set -euo pipefail
@@ -40,7 +42,7 @@ export RAYON_NUM_THREADS=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${DEVNET_PORT:-5050}"
 RPC="http://127.0.0.1:${PORT}/rpc"
-BIN_DIR="$ROOT/deploy/.devnet/bin"
+BIN_DIR="${DEVNET_BIN_DIR:-$ROOT/deploy/.devnet/bin}"
 RUN="${DEVNET_RUN:-$ROOT/deploy/out}"
 PID_FILE="$RUN/devnet-${PORT}.pid"
 OUT="${DEVNET_OUT:-$ROOT/deploy/devnet.json}"
@@ -63,6 +65,20 @@ except Exception:
 EOF
 }
 
+# The release binary into $BIN_DIR (a function so that the test replaces the download).
+fetch_devnet() {
+  curl -fsSL "$1" | tar -xz -C "$BIN_DIR"
+}
+
+# `starknet-devnet --version` through the shell's current lookup; on failure, an error that names the command
+# and prints its output (set -e would otherwise end the script with no message).
+check_devnet() {
+  local out
+  if out="$(starknet-devnet --version 2>&1)"; then return 0; fi
+  echo "devnet: 'starknet-devnet --version' failed ($(command -v starknet-devnet || echo 'not found')): $out" >&2
+  return 1
+}
+
 install_devnet() {
   # A binary that does not run (an asdf shim with no version it accepts) does not count: install ours.
   if starknet-devnet --version >/dev/null 2>&1; then return; fi
@@ -76,13 +92,17 @@ install_devnet() {
   esac
   local url="https://github.com/0xSpaceShard/starknet-devnet/releases/download/v${DEVNET_VERSION}/starknet-devnet-${target}.tar.gz"
   mkdir -p "$BIN_DIR"
-  if [ -n "$target" ] && curl -fsSL "$url" | tar -xz -C "$BIN_DIR"; then
+  if [ -n "$target" ] && fetch_devnet "$url"; then
     echo "devnet: installed $url" >&2
   else
     echo "devnet: no release binary; cargo install starknet-devnet $DEVNET_VERSION" >&2
-    cargo install -j 2 --locked starknet-devnet --version "$DEVNET_VERSION"
+    cargo install -j 2 --locked starknet-devnet --version "$DEVNET_VERSION" ||
+      { echo "devnet: cargo install starknet-devnet $DEVNET_VERSION failed" >&2; return 1; }
   fi
-  starknet-devnet --version >/dev/null 2>&1
+  # The first check cached the failing shim's path, and a cargo install lands in ~/.cargo/bin, not $BIN_DIR:
+  # forget every cached path and look the command up again (works wherever it was installed on PATH).
+  hash -r
+  check_devnet
 }
 
 up() {
@@ -90,7 +110,7 @@ up() {
     echo "devnet: already up on $RPC" >&2
     return
   fi
-  install_devnet
+  install_devnet || exit 1
   echo "devnet: $(starknet-devnet --version) on $RPC (log $RUN/devnet-${PORT}.log)" >&2
   local dump=()
   if [ -n "${DEVNET_DUMP:-}" ]; then
@@ -132,7 +152,7 @@ down() {
 
 deploy() {
   [ -d "$ROOT/client/node_modules/starknet" ] || npm --prefix "$ROOT/client" ci --no-audit --no-fund
-  scarb --manifest-path "$ROOT/deploy/contract/Scarb.toml" build
+  (cd "$ROOT/deploy/contract" && scarb build)
   local pubkey artifacts=()
   pubkey="$(python3 "$ROOT/services/attest/attest.py" pubkey --key "$ATTEST_KEY")"
   if [ "${DEVNET_CONTRACT:-v3}" = v2 ]; then
@@ -158,7 +178,7 @@ EOF
 DEVNET_VIRTUAL_OS=0x53f6c9fcfd31d27279ff7d7e422b44623550a732b59fe193354a7316a96daa1
 
 proven() {
-  [ -f "$ROOT/target/dev/slingfall_split_SplitChain.contract_class.json" ] || scarb build -p slingfall_split
+  [ -f "$ROOT/target/dev/slingfall_split_SplitChain.contract_class.json" ] || (cd "$ROOT" && scarb build -p slingfall_split)
   local cli=(node "$ROOT/deploy/slingfall.ts")
   "${cli[@]}" deploy-split --devnet --rpc "$RPC" --out "$SPLIT_OUT" >/dev/null
   "${cli[@]}" set-chunk-marker --devnet --rpc "$RPC" --config "$OUT" >/dev/null
@@ -166,6 +186,9 @@ proven() {
   "${cli[@]}" pin-chain --devnet --rpc "$RPC" --config "$OUT" --split "$SPLIT_OUT" --grace 0 >"$RUN/pin-chain-${PORT}.json"
   echo "devnet: proven tier open, chain $(python3 -c "import json, sys; d = json.load(open(sys.argv[1])); print(d['chain'], 'bundle', d['bundle_hash'])" "$RUN/pin-chain-${PORT}.json") ($SPLIT_OUT)" >&2
 }
+
+# DEVNET_SOURCED=1: only the functions (scripts/play/test_devnet_shim.sh).
+[ "${DEVNET_SOURCED:-}" = 1 ] && return 0
 
 case "${1:-all}" in
   up) up ;;

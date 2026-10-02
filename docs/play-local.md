@@ -137,7 +137,8 @@ first (a second `up` reuses the running dev server as it is).
   network, allow it (System Settings > Privacy & Security > Local Network). Playing on the Mac itself, in
   Chromium, is verified (lot L2); the LAN address (`PLAY_HOST=0.0.0.0`), Safari and the firewall dialog are not.
 * **`No version is set for command starknet-devnet`** (asdf's shim): `deploy/devnet.sh` ignores a
-  `starknet-devnet` that does not run and downloads its own release binary into `deploy/.devnet/bin/`.
+  `starknet-devnet` that does not run and downloads its own release binary into `deploy/.devnet/bin/` and looks it up again (a first `up` used to stop
+  silently there); if the installed binary still does not run, `up` prints the failing command and its output.
 * **Something failed during `up`**: its last lines are printed; the whole log is in `target/play/`
   (`deploy.log`, `vm-build.log`, `replay-build.log`, `split-build.log`, `attest.log`, `prove.log`,
   `client.log`, `devnet-5050.log`). After a contract change, `scripts/play.sh reset`.
