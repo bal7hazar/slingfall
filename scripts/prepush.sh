@@ -49,13 +49,13 @@ fails=0
 skipped_full=()
 
 # The wait for the heavy-build lock is measured by sampling: while a command runs, once a second, is one of
-# its own descendants a `flock .../heavy-build.lock` (the shim's, still waiting; once it holds the lock flock
+# itself (the shim execs into it) or its own descendants a `flock .../heavy-build.lock` (the shim's, still waiting; once it holds the lock flock
 # becomes the real binary)? The command takes the lock through the shim, as always; the lock file is never
 # opened here.
 waiting_flock() {   # <pid>: prints the pid of the descendant flock that waits, if any
   ps -eo pid,ppid,args | awk -v root="$1" '
     { pp[$1] = $2; a[$1] = $0 }
-    END { for (p in pp) { q = p; while (q in pp) { if (pp[q] == root) { if (a[p] ~ /flock .*heavy-build/) print p; break } q = pp[q] } } }' | head -n 1
+    END { for (p in pp) { q = p; while (q in pp) { if (p == root || pp[q] == root) { if (a[p] ~ /flock .*heavy-build/) print p; break } q = pp[q] } } }' | head -n 1
 }
 # run_sampled <cmd...>: output to $tmp/out, status returned, the seconds spent waiting added to lock_wait.
 # With LOCK_CAP=<s> (the compile steps): once the command has waited that long for the lock, its waiting
@@ -85,7 +85,7 @@ run_sampled() {
   return "$rc"
 }
 
-# The compile steps wait at most 90 s for the lock, then are left to CI. Without the lock file (the Mac,
+# Every scarb call puts its subcommand first (the VPS shim takes the lock only then). The compile steps wait at most 90 s for the lock, then are left to CI. Without the lock file (the Mac,
 # or any machine without the shims) nothing waits, and the compile always runs.
 compile_cap=90
 if [ "$(uname -s)" = Darwin ] || [ ! -e "$LOCK" ]; then compile_cap=0; fi
@@ -116,7 +116,7 @@ skip_full() { line skip "$1" "(use --full)"; skipped_full+=("$1"); }
 
 # ---------------------------------------------------------------------------- always
 run "fmt (workspace)" 0 scarb fmt --check --workspace
-run "fmt (replay)" 0 scarb --manifest-path "$REPLAY" fmt --check
+run "fmt (replay)" 0 scarb fmt --check --manifest-path "$REPLAY"
 
 mapfile -t pys < <(existing '\.py$')
 if [ "${#pys[@]}" -gt 0 ]; then run "py_compile (${#pys[@]} changed)" 0 python3 -m py_compile "${pys[@]}"
@@ -226,7 +226,7 @@ fi
 if [ "$REPLAY" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
   :   # the compile was left to CI above
 elif [ "$REPLAY" = 1 ]; then
-  LOCK_CAP=$compile_cap run "build slingfall_replay" 1 scarb --manifest-path "$REPLAY" build
+  LOCK_CAP=$compile_cap run "build slingfall_replay" 1 scarb build --manifest-path "$REPLAY"
 elif [ "$CAIRO" = 1 ]; then
   skip_full "build slingfall_replay"
 else
