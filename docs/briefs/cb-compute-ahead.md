@@ -24,20 +24,33 @@ read-only; path (b) of its Table 3, chosen by the owner):
 - `client/src/game/play.ts` starts the head.
 - The contact tick is already predicted, by the chunk cut (`client/src/vm/`; read it).
 
-**Design** (the research's sketch; you may improve it, saying why):
-- Hold the head at the release, or better at the predicted contact tick, since the flight is cheap and can play live.
-- Start when the predicted end of production is no later than the end of playback at real time.
-- Predict production from the measured steps/s of the chunks already run, and a steps-per-tick estimate after the
-  contact.
-- During the hold, show a small "simulating…" indicator. Optionally, an intentional 0.5x "impact cam" over the first
-  ticks after the contact, to hide part of the wait: the owner has not asked for it, so leave it off by default and
-  describe it.
-- Once started, the head never stalls. If a prediction was wrong and the lead runs dry, the head waits, without slow
-  motion, and the event is logged with the numbers.
+**Design.**
+- **The start rule is a pure function**, `shouldStart(input) -> boolean`, in `live.ts`. Its input:
+  - the ticks produced so far and the ticks shown so far;
+  - the production rate measured on the chunks already run (ticks per second, from `ChunkReport {ticks, steps, ms}`);
+  - **an estimate of the ticks still to come**. For that estimate, take the largest `ticks_run` of the level's
+    golden cases (`fixtures/golden/*`) times a margin (say which and why), capped by the level's `tick_cap` (read it
+    from the level felts; `cut.ts` skips it today, so parse it in `play.ts` or `live.ts`). Refine the estimate as the
+    shot goes, for example when the pile falls asleep, if that is cheap.
 
-**M6 runs alongside.** M6 (the art skin, PR #67) changes `client/src/render/scene.ts`, `render/skin/**`,
-`game/stage.ts`, `main.ts` and `aim/controller.ts`. Keep **timing** in `live.ts` / `play.ts` and keep drawing out of
-them, so the two lots do not collide. A later M6 phase B is cut from main after this lot merges.
+  Start when the time to produce the remaining ticks at the measured rate is no longer than the time to play
+  everything not yet shown at real time.
+- **The rule applies from the release on.** On the loaded VPS even the flight is slower than real time (1.0–1.8M
+  steps/s against about 2.8M needed). The contact is a lower bound, not the trigger. If you need it, take it from the
+  chunk reports (the cut ends the flight chunk at the contact, and the steps per tick then jump 15–20x), not from
+  `predictContactTick` in the page.
+- **The hold sets `playback.speed = 0`.** The existing indicator, `#simulating` in `client/index.html`, shown by
+  `main.ts` when `producing() && playback.speed < 1`, then shows during the hold with no change to `main.ts`,
+  `index.html` or `hud.ts`. Once started, the speed is 1 and the head never slows down. If a prediction was wrong and
+  the lead runs dry, `Playback.advance` already clamps to the last frame: the head waits at speed 1, without slow
+  motion, and the event is logged with the numbers.
+- An optional 0.5x "impact cam": not asked for by the owner. Off by default; describe it in the report only.
+
+**M6 and the order.** M6 phase A (PR #67) changes `client/src/render/scene.ts`, `render/skin/**`, `game/stage.ts`,
+`main.ts`, `aim/controller.ts`, `client/ASSETS.md` and the assets. M6's brief allowlists all of `client/src/render/**`,
+`main.ts`, `index.html`, `style.css` and `client/README.md`. This lot is narrowed so as not to collide with phase A,
+and it merges **first**: #67 rebases on it if needed, and M6 phase B is cut from main after this lot merges. If you
+need a file outside §3, stop and escalate.
 
 ## 2. Transactions
 
@@ -49,31 +62,43 @@ Everything else is forbidden; needs go to "Escalations".
 
 - `client/src/render/live.ts`, `client/src/render/live.test.ts`.
 - `client/src/game/play.ts`, `client/src/game/play.test.ts`.
-- `client/src/render/buffer.ts`, `client/src/render/follow.ts` and their tests, only if the hold needs them.
-- `client/src/render/hud.ts`: only the "simulating…" indicator, text only, no styling of the skin.
-- `client/README.md`: one paragraph on the start rule.
-- `REPORT.md`.
-- Not `scene.ts`, `skin/**`, `stage.ts`, `main.ts`, `controller.ts`, `index.html`, `style.css` (M6), and not
-  `client/vm/**`.
+- `client/README.md`: rewrite the sentence that says playback slows to the arrival rate (around line 46), and add one
+  paragraph on the start rule.
+- `REPORT.md` (at the worktree root, not committed).
+- Not `buffer.ts`, `follow.ts`, `hud.ts`, `scene.ts`, `skin/**`, `stage.ts`, `main.ts`, `controller.ts`, `index.html`,
+  `style.css`, `session.ts`, nor `client/vm/**`.
 
 ## 4. Work and acceptance
 
-1. The start rule and the hold, as in §1, with unit tests: the start decision for given production and consumption
-   rates, the never-stall property once started, and the fallback when the lead runs dry.
-2. The proof is unchanged: the same outputs and chain calls as before, for the reference shot and the owner's shot.
-3. **Measure, on desktop, headless**, as real output: the wait before play and the wall time against real time per
-   phase (flight, impact, settle), on both pile10 shots (owner's (-1022, -63) and reference (-604, -392)):
-   - on the **Mac** (the lot runs there);
-   - on the **VPS**, the same measurement through the research harness (`library/t-0023/harness/shot.mjs`,
-     `phases.mjs`, `waits.mjs`, copied into your scratch directory). If you cannot reach the VPS from the Mac, say
-     so: I run the VPS measurement after the merge.
-   Use the built client (`PLAY_BUILT=1` if lot PB has merged, otherwise `vite build` plus `vite preview`).
-4. The slow motion is gone: no tick plays slower than real time once the head has started.
+1. The start rule and the hold, as in §1, with unit tests:
+   - the start decision for given inputs;
+   - the never-stall property once started, as a named test with the impact cam off: `playback.speed` is 1 on every
+     `advance` after the start;
+   - the fallback when the lead runs dry;
+   - production ending while still holding (a short shot, or a fast machine): the hold releases at once, and the end
+     check still fires;
+   - a shot that fails during the hold: the hold clears;
+   - `dispose` during the hold;
+   - a second shot that starts with the head at the last frame;
+   - pause and scrub during the hold.
+2. **The proof is unchanged.** Record the outputs felts and the frame sequence (ticks and poses) of both pile10 shots
+   on main and on the branch, and require them equal. `session.fire` keeps the same arguments, except an added
+   `onChunk` handler if you need it. The existing `play.test.ts` and `vm.test.ts` pass.
+3. **Measure on the Mac, headless**, as real output: the wait before play, and the wall time against real time per
+   phase (flight, impact, settle), on both pile10 shots: the owner's (-1022, -63) and the reference (-604, -392).
+   - The client needs the wasm runner: build it first with `client/vm/scripts/build.sh` (Rust wasm32 and
+     wasm-bindgen). This is outside "no Cairo build" and allowed.
+   - Use the built client (`PLAY_BUILT=1` if lot PB has merged, otherwise `vite build` and `vite preview`).
+   - Driver: your own short Playwright script from `scripts/play/qa-browser.mjs`, with the `PLAYWRIGHT_MODULE` and
+     the Chromium that lot L2 used on this Mac (`docs/qa/2026-09-30-mac-play.md`). If any of these is missing, report
+     it and install nothing.
+   - The VPS measurement is not yours: I take it after the merge.
+4. The slow motion is gone: no tick plays slower than real time once the head has started (the named test of 1).
 
 ## 5. Machine
 
-The Mac (`/Users/bal7hazar/git/slingfall`). No Cairo build is needed: the client uses the committed executables.
-Foreground only.
+The Mac (`/Users/bal7hazar/git/slingfall`). No Cairo build: the client uses the committed executables; only the wasm
+runner is built. Foreground only.
 
 ## 6. Definition of done
 
