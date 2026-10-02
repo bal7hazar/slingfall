@@ -1,74 +1,21 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container } from 'pixi.js';
 import { ABSENT, ASLEEP, TraceBuffer } from './buffer';
 import { UNITS_PER_METRE, type Camera } from './camera';
 import type { Effects } from './effects';
-import { fixedToNumber, type LevelBody, type Shape, type TraceLevel } from '../trace/types';
+import { fixedToNumber, type TraceLevel } from '../trace/types';
+import type { Skin } from './skin';
 
-/** Placeholder flat colours per material (docs/DESIGN.md D12 names) until real assets exist. */
-export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
-  timber: 0xb07d48,
-  slate: 0x66727f,
-  frost: 0x9fd8e8,
-  core: 0xe0554b,
-  ground: 0x3a4150,
-};
-export const PEBBLE_COLOUR = 0xe8b64c;
-const FALLBACK_COLOUR = 0x9a9a9a;
-
-/** D12: the pebble is a ball of radius 0.25 m (raw 0.25 * 2^32). */
-const PEBBLE_SHAPE: Shape = { type: 'ball', radius: String(2 ** 30) };
+/** D12: the pebble is a ball of radius 0.25 m. */
+export const PEBBLE_RADIUS_METRES = 0.25;
 
 const AWAKE_TINT = 0xffffff;
-const ASLEEP_TINT = 0x8a8f99;
 /** A damaged body flashes red (`Effects`). */
 const FLASH_TINT = 0xff6a5c;
-const OUTLINE = 0x14161b;
 
 const u = (metres: number): number => metres * UNITS_PER_METRE;
 
-/** Draws a shape in body-local coordinates, in scene units (centimetres). */
-function drawShape(g: Graphics, shape: Shape, colour: number, extent: number): void {
-  switch (shape.type) {
-    case 'ball':
-      g.circle(0, 0, u(fixedToNumber(shape.radius)));
-      break;
-    case 'cuboid': {
-      const hx = u(fixedToNumber(shape.hx));
-      const hy = u(fixedToNumber(shape.hy));
-      g.rect(-hx, -hy, 2 * hx, 2 * hy);
-      break;
-    }
-    case 'polygon':
-      g.poly(shape.vertices.flatMap((v) => [u(fixedToNumber(v.x)), u(fixedToNumber(v.y))]));
-      break;
-    case 'halfspace': {
-      // The half-plane below its boundary, cut to `extent` around the body.
-      const nx = fixedToNumber(shape.normal.x);
-      const ny = fixedToNumber(shape.normal.y);
-      const tx = -ny * extent;
-      const ty = nx * extent;
-      const dx = -nx * extent;
-      const dy = -ny * extent;
-      g.poly([tx, ty, -tx, -ty, -tx + dx, -ty + dy, tx + dx, ty + dy]);
-      break;
-    }
-  }
-  g.fill(colour);
-  if (shape.type !== 'halfspace') g.stroke({ width: u(0.03), color: OUTLINE });
-}
-
-function bodyGraphics(body: LevelBody | undefined, extent: number): Graphics {
-  const g = new Graphics();
-  if (body) {
-    drawShape(g, body.shape, MATERIAL_COLOURS[body.material] ?? FALLBACK_COLOUR, extent);
-  } else {
-    drawShape(g, PEBBLE_SHAPE, PEBBLE_COLOUR, extent);
-  }
-  return g;
-}
-
 /**
- * The PixiJS scene of a trace: one `Graphics` per body, flat-coloured, drawn once. `update`
+ * The PixiJS scene of a trace: one view per body, from the skin (`render/skin/`), built once. `update`
  * moves them from the buffer with linear interpolation between frames (display only) and dims the
  * sleeping ones; it allocates nothing. The scene is in centimetres, y up: `world` carries the
  * camera transform.
@@ -80,12 +27,14 @@ export class Scene {
 
   private readonly level: TraceLevel;
   private readonly buffer: TraceBuffer;
+  private readonly skin: Skin;
   private readonly extent: number;
-  private readonly sprites: Graphics[] = [];
+  private readonly sprites: Container[] = [];
   private readonly tints: number[] = [];
 
-  constructor(level: TraceLevel, buffer: TraceBuffer) {
+  constructor(level: TraceLevel, buffer: TraceBuffer, skin: Skin) {
     this.level = level;
+    this.skin = skin;
     this.buffer = buffer;
     const b = level.bounds;
     const w = fixedToNumber(b.max_x) - fixedToNumber(b.min_x);
@@ -138,7 +87,7 @@ export class Scene {
       const im = c.im[f] + (c.im[g] - c.im[f]) * t;
       sprite.rotation = Math.atan2(im, re);
       const tint =
-        effects !== undefined && effects.flashing(slot, now) ? FLASH_TINT : state === ASLEEP ? ASLEEP_TINT : AWAKE_TINT;
+        effects !== undefined && effects.flashing(slot, now) ? FLASH_TINT : state === ASLEEP ? this.skin.palette.asleep : AWAKE_TINT;
       if (this.tints[slot] !== tint) {
         this.tints[slot] = tint;
         sprite.tint = tint;
@@ -157,7 +106,7 @@ export class Scene {
       const slot = this.sprites.length;
       const handle = this.buffer.handles[slot];
       const body = this.level.bodies.find((b) => b.handle === handle);
-      const sprite = bodyGraphics(body, this.extent);
+      const sprite = body ? this.skin.body(body, this.extent) : this.skin.pebble(PEBBLE_RADIUS_METRES);
       sprite.visible = false;
       this.sprites.push(sprite);
       this.tints.push(AWAKE_TINT);

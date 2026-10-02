@@ -1,0 +1,12 @@
+{
+  "flat": {
+    "frames": 49,
+    "taskMsPerFrame": 64.6615918367347,
+    "rafMeanMs": 67.68367346938777
+  },
+  "kenney": {
+    "frames": 37,
+    "taskMsPerFrame": 110.78756756756755,
+    "rafMeanMs": 114.85945945945944
+  }
+}

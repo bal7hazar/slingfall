@@ -7,6 +7,7 @@ import { inputsFelts, shortFelt } from './chain/slingfall';
 import { ShotLoop } from './game/play';
 import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
+import { loadSkin, skinName } from './render/skin';
 import { Hud, hudAt } from './render/hud';
 import { Playback } from './render/playback';
 import { foldResult, toggleResult } from './render/result';
@@ -91,9 +92,13 @@ interface View {
 }
 
 async function main(): Promise<void> {
+  // The art (`?skin=flat|kenney`): its textures load before any scene is built; the page takes its colours.
+  const skin = await loadSkin(skinName(location.search), import.meta.env.BASE_URL);
+  document.body.style.background = skin.palette.page;
+  document.body.style.color = skin.palette.text;
   const app = new Application();
   await app.init({
-    background: '#1b1d23',
+    background: skin.palette.page,
     resizeTo: window,
     antialias: true,
     autoDensity: true,
@@ -193,7 +198,7 @@ async function main(): Promise<void> {
     setHint(HINTS.recorded);
     const source = new RecordedTraceSource(TRACE_URL);
     const level = await source.level(); // loads the whole trace: `source.events` is complete
-    const stage = new Stage(app, level, source.events, { insets: INSETS, onAim: (p) => hud.setPull(p), onRelease: () => {} });
+    const stage = new Stage(app, level, source.events, { skin, insets: INSETS, onAim: (p) => hud.setPull(p), onRelease: () => {} });
     stage.armed = false;
     show({ stage, events: source.events, shots: level.shots, releases: [], loop: null });
     for await (const frame of source.frames()) stage.buffer.push(frame);
@@ -223,6 +228,7 @@ async function main(): Promise<void> {
     submit?.hide();
     let loop: ShotLoop | null = null;
     const stage = new Stage(app, s.traceLevel, s.events, {
+      skin,
       insets: INSETS,
       keys: window,
       initialPull: lastPull,

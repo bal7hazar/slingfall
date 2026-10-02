@@ -1,6 +1,8 @@
 import type { Graphics } from 'pixi.js';
 import { UNITS_PER_METRE, groundBelowAnchor, worldToScreen, type Camera } from '../render/camera';
 import { fixedToNumber, type TraceLevel } from '../trace/types';
+import { FLAT_PALETTE } from '../render/skin/palette';
+import type { Palette } from '../render/skin/types';
 import { arcParamsFromLevel, flightArc, type ArcParams } from './arc';
 import { nudgePull, pullFromDrag, pullToDrag, type Pull } from './pull';
 
@@ -13,11 +15,13 @@ export const GRAB_MIN_PX_MOUSE = 22;
 export const NUDGE_FINE = 1;
 export const NUDGE_COARSE = 10;
 
-const BAND_COLOUR = 0xc9b28a;
-const DOT_COLOUR = 0xffffff;
-const POST_COLOUR = 0x8a6a3c;
-/** The scene's pebble colour (`render/scene.ts`), repeated to keep PixiJS out of this module's imports. */
-const PEBBLE_COLOUR = 0xe8b64c;
+/** The pebble's view when the skin gives one (a sprite): the controller only places it. */
+export interface PebbleView {
+  visible: boolean;
+  alpha: number;
+  position: { set(x: number, y: number): void };
+}
+
 const PEBBLE_RADIUS_METRES = 0.25;
 /** The fork of the sling: its tips sit this far beside and above the anchor, metres. */
 const FORK_HALF_WIDTH = 0.35;
@@ -78,6 +82,8 @@ export class AimController {
   private readonly camera: () => Camera;
   private readonly fullPullPx: () => number;
   private readonly graphics: Graphics;
+  private readonly palette: Palette;
+  private readonly pebble: PebbleView | undefined;
   private readonly params: ArcParams;
   private readonly radius: number;
   private readonly anchor: { x: number; y: number };
@@ -98,6 +104,10 @@ export class AimController {
     camera: () => Camera;
     fullPullPx: () => number;
     graphics: Graphics;
+    /** The skin's colours (default: the flat skin's). */
+    palette?: Palette;
+    /** The skin's pebble, shared look with the pebble in flight (default: a flat circle). */
+    pebble?: PebbleView;
     level: TraceLevel;
     initialPull?: Pull;
     onAim?: (pull: Pull | undefined) => void;
@@ -108,6 +118,8 @@ export class AimController {
     this.camera = options.camera;
     this.fullPullPx = options.fullPullPx;
     this.graphics = options.graphics;
+    this.palette = options.palette ?? FLAT_PALETTE;
+    this.pebble = options.pebble;
     this.params = arcParamsFromLevel(options.level);
     this.radius = options.level.pull_radius;
     this.anchor = {
@@ -234,18 +246,19 @@ export class AimController {
   draw(): void {
     const g = this.graphics;
     g.clear();
+    if (this.pebble) this.pebble.visible = false;
     const { x: ax, y: ay } = this.anchor;
     const left = { x: ax - FORK_HALF_WIDTH, y: ay + FORK_RISE };
     const right = { x: ax + FORK_HALF_WIDTH, y: ay + FORK_RISE };
-    const post = { width: u(0.12), color: POST_COLOUR, cap: 'round' as const };
+    const post = { width: u(0.12), color: this.palette.post, cap: 'round' as const };
     g.moveTo(u(ax), u(this.ground)).lineTo(u(ax), u(ay - FORK_DEPTH)).stroke(post);
     g.moveTo(u(left.x), u(left.y)).lineTo(u(ax), u(ay - FORK_DEPTH)).lineTo(u(right.x), u(right.y)).stroke(post);
     const pull = this.pull;
     if (!pull) {
       if (!this.armed) return;
-      const band = { width: u(0.05), color: BAND_COLOUR };
+      const band = { width: u(0.05), color: this.palette.band };
       g.moveTo(u(left.x), u(left.y)).lineTo(u(ax), u(ay)).lineTo(u(right.x), u(right.y)).stroke(band);
-      g.circle(u(ax), u(ay), u(PEBBLE_RADIUS_METRES)).fill(PEBBLE_COLOUR);
+      this.placePebble(u(ax), u(ay), 1);
       return;
     }
 
@@ -253,15 +266,26 @@ export class AimController {
     const drag = pullToDrag(pull, this.radius, this.fullPullPx());
     const px = u(ax + drag.dx / scale);
     const py = u(ay + drag.dy / scale);
-    const band = { width: u(0.05), color: BAND_COLOUR };
+    const band = { width: u(0.05), color: this.palette.band };
     g.moveTo(u(left.x), u(left.y)).lineTo(px, py).lineTo(u(right.x), u(right.y)).stroke(band);
-    g.circle(px, py, u(PEBBLE_RADIUS_METRES)).fill({ color: PEBBLE_COLOUR, alpha: 0.85 });
+    this.placePebble(px, py, 0.85);
 
     if (pull.x === 0 && pull.y === 0) return;
     const arc = flightArc(this.params, pull);
     for (const point of arc) {
       g.circle(u(fixedToNumber(point.x.toString())), u(fixedToNumber(point.y.toString())), u(0.05));
     }
-    g.fill({ color: DOT_COLOUR, alpha: 0.85 });
+    g.fill({ color: this.palette.dot, alpha: 0.85 });
+  }
+
+  /** The pebble at the sling: the skin's view, else a flat circle on the overlay. */
+  private placePebble(x: number, y: number, alpha: number): void {
+    if (this.pebble) {
+      this.pebble.position.set(x, y);
+      this.pebble.alpha = alpha;
+      this.pebble.visible = true;
+    } else {
+      this.graphics.circle(x, y, u(PEBBLE_RADIUS_METRES)).fill({ color: this.palette.pebble, alpha });
+    }
   }
 }

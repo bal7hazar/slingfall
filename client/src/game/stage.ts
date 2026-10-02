@@ -1,14 +1,17 @@
-import { Graphics, type Application } from 'pixi.js';
+import { Container, Graphics, type Application } from 'pixi.js';
 import { AimController } from '../aim/controller';
 import { fullPullPixels, type Pull } from '../aim/pull';
 import { TraceBuffer } from '../render/buffer';
 import type { Insets } from '../render/camera';
 import { Effects } from '../render/effects';
 import { CameraRig } from '../render/follow';
-import { Scene } from '../render/scene';
+import { PEBBLE_RADIUS_METRES, Scene } from '../render/scene';
+import type { Backdrop, Skin } from '../render/skin';
 import type { TraceEvent, TraceLevel } from '../trace/types';
 
 export interface StageOptions {
+  /** The art: every visual choice of the stage (`render/skin/`). */
+  skin: Skin;
   insets: Insets;
   /** Where the arrow keys come from (the window), for fine aiming. */
   keys?: Window;
@@ -33,8 +36,10 @@ export class Stage {
   readonly rig: CameraRig;
   private readonly app: Application;
   private readonly insets: Insets;
+  private readonly backdrop: Backdrop | undefined;
   private shownFrame = 0;
   private readonly onResize = () => {
+    this.backdrop?.resize(this.app.screen.width, this.app.screen.height);
     this.rig.snap(this.shownFrame, this.effects);
     this.applyCamera(true);
   };
@@ -44,19 +49,27 @@ export class Stage {
     this.level = level;
     this.insets = options.insets;
     this.buffer = new TraceBuffer(level);
-    this.scene = new Scene(level, this.buffer);
+    this.scene = new Scene(level, this.buffer, options.skin);
     this.effects = new Effects(this.buffer, events);
+    this.backdrop = options.skin.background();
+    if (this.backdrop) {
+      this.backdrop.resize(app.screen.width, app.screen.height);
+      app.stage.addChild(this.backdrop.view);
+    }
     app.stage.addChild(this.scene.world);
     this.rig = new CameraRig(level, this.buffer, () => app.screen, this.insets, () => this.fullPullPx());
     this.scene.setCamera(this.rig.camera);
     const aimLayer = new Graphics();
-    this.scene.overlay.addChild(aimLayer);
+    const pebble: Container = options.skin.pebble(PEBBLE_RADIUS_METRES);
+    this.scene.overlay.addChild(aimLayer, pebble);
     this.aim = new AimController({
       canvas: app.canvas,
       keys: options.keys,
       camera: () => this.rig.camera,
       fullPullPx: () => this.fullPullPx(),
       graphics: aimLayer,
+      palette: options.skin.palette,
+      pebble,
       level,
       initialPull: options.initialPull,
       onAim: options.onAim,
@@ -94,6 +107,10 @@ export class Stage {
   destroy(): void {
     this.aim.dispose();
     this.app.renderer.off('resize', this.onResize);
+    if (this.backdrop) {
+      this.app.stage.removeChild(this.backdrop.view);
+      this.backdrop.view.destroy({ children: true });
+    }
     this.app.stage.removeChild(this.scene.world);
     this.scene.destroy();
   }
