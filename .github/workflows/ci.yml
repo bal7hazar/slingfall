@@ -54,7 +54,8 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           docs_only=false
-          if files=$(git diff --name-only "$BASE...$HEAD"); then
+          # --no-renames: a rename lists both the old and the new path (renaming code to .md is not docs-only).
+          if files=$(git diff --no-renames --name-only "$BASE...$HEAD"); then
             echo "changed paths:"; echo "$files"
             # An empty list is vacuously docs-only; any path that is not a .md makes it false.
             if [ -z "$(printf '%s\n' "$files" | grep -v -e '^$' | grep -v -e '\.md$' || true)" ]; then docs_only=true; fi
@@ -153,7 +154,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -167,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -181,7 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -222,16 +223,14 @@ jobs:
         crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_game, slingfall_contract, slingfall_split, slingfall_replay]
     steps:
       - uses: actions/checkout@v7
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
           attempt_delay: 10000
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
-        with:
-          action: foundry-rs/setup-snfoundry@v6
-          attempt_limit: 3
-          attempt_delay: 10000
+      # No retry here: setup-snfoundry is a composite action and wretry.action runs only JavaScript and Docker
+      # actions (wrapped, every test leg failed in seconds).
+      - uses: foundry-rs/setup-snfoundry@v6
       - name: Run tests
         env:
           CRATE: ${{ matrix.crate }}
@@ -383,7 +382,7 @@ jobs:
         working-directory: client/vm/runner
         run: cargo test -j 4 --lib
       # The committed client executables must be what crates/slingfall_replay builds (lot G4c).
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -417,7 +416,7 @@ jobs:
         kind: [check, fuzz]
     steps:
       - uses: actions/checkout@v7
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -467,7 +466,7 @@ jobs:
             ~/.cargo/git
             tools/prove/vendor
           key: stwo-cairo-467d5c6-${{ hashFiles('tools/prove/*.patch', 'tools/prove/setup.sh') }}
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -515,7 +514,7 @@ jobs:
       # Contract v2's class on Sepolia was compiled by Scarb 2.19.4, and another compiler gives another
       # class hash: deploy/v2.sh builds it here with 2.19.4 (checked against deploy/sepolia.json), and
       # deploy/e2e.sh reuses that build. Then the toolchain of .tool-versions for everything else.
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -524,7 +523,7 @@ jobs:
             scarb-version: 2.19.4
       - name: Contract v2's class (Scarb 2.19.4, as declared on Sepolia)
         run: deploy/v2.sh
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
@@ -553,7 +552,7 @@ jobs:
       PLAY_NO_VM: 1
     steps:
       - uses: actions/checkout@v7
-      - uses: Wandalen/wretry.action@e68c23e6309f2871ca8ae4763e7629b9c258e1ea # v3.8.0
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
