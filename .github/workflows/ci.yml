@@ -321,13 +321,22 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/atlantic -p 'test_*.py' -v
           python3 -m unittest discover -s services/prove -v
-      - uses: software-mansion/setup-scarb@v1
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm --prefix client ci
+      # Contract v2's class on Sepolia was compiled by Scarb 2.19.4, and another compiler gives another
+      # class hash: deploy/v2.sh builds it here with 2.19.4 (checked against deploy/sepolia.json), and
+      # deploy/e2e.sh reuses that build. Then the toolchain of .tool-versions for everything else.
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: 2.19.4
+      - name: Contract v2's class (Scarb 2.19.4, as declared on Sepolia)
+        run: deploy/v2.sh
+      - uses: software-mansion/setup-scarb@v1
+      - run: scarb --version
       - run: scarb --manifest-path "$REPLAY" build
       - name: End to end on the devnet
         run: deploy/e2e.sh
