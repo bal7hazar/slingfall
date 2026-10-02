@@ -200,5 +200,5 @@ case "${1:-all}" in
     deploy
     if [ "${DEVNET_CONTRACT:-v3}" = v3 ]; then proven; fi
     ;;
-  *) sed -n '2,35p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,/^set -euo/{/^set -euo/!p;}' "$0" >&2; exit 2 ;;
 esac

@@ -15,10 +15,11 @@ printf '#!/bin/sh\necho "shim: whatever asdf says"\nexit 126\n' >"$TMP/shim/star
 chmod +x "$TMP/shim/starknet-devnet"
 
 # Runs install_devnet in a fresh shell: the shim first in PATH, a temporary HOME, an empty BIN_DIR.
-# $1 the body of fetch_devnet; $2 the stub cargo's exit code (cargo is the fallback when the download fails).
+# $1 the body of fetch_devnet; $2 the stub cargo's exit code (cargo is the fallback when the download fails);
+# $3 optional: a shell line the stub cargo runs first.
 run() {
-  rm -rf "$TMP/bin" "$TMP/run"
-  printf '#!/bin/sh\nexit %s\n' "$2" >"$TMP/shim/cargo"
+  rm -rf "$TMP/bin" "$TMP/run" "$TMP/home/.cargo"
+  printf '#!/bin/sh\n%s\nexit %s\n' "${3:-:}" "$2" >"$TMP/shim/cargo"
   chmod +x "$TMP/shim/cargo"
   OUT="$(env -i HOME="$TMP/home" PATH="$TMP/shim:/usr/bin:/bin:/usr/sbin" TMP="$TMP" ROOT="$ROOT" FETCH="$1" bash -c '
     set -euo pipefail
@@ -52,5 +53,11 @@ check "it names the command and its output" "$(grep -c "'starknet-devnet --versi
 
 run 'return 1' 0
 check "download fails, cargo installs nothing usable: non-zero" "$([ "$RC" -ne 0 ] && echo yes)" yes
+
+# The cargo fallback installs into $HOME/.cargo/bin, not BIN_DIR: found after `hash -r`.
+CARGO_INSTALL='mkdir -p "$HOME/.cargo/bin"; printf "#!/bin/sh\necho starknet-devnet 0.10.0\n" >"$HOME/.cargo/bin/starknet-devnet"; chmod +x "$HOME/.cargo/bin/starknet-devnet"'
+run 'return 1' 0 "$CARGO_INSTALL"
+check "cargo installs into ~/.cargo/bin: install_devnet succeeds" "$RC" 0
+check "the cargo-installed binary is found" "$(grep -c '^version: starknet-devnet 0.10.0' <<<"$OUT")" 1
 
 [ "$failed" = 0 ] && echo "test_devnet_shim: ok" || { echo "test_devnet_shim: FAILED"; exit 1; }
