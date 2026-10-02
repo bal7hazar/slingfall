@@ -49,27 +49,46 @@ fails=0
 skipped_full=()
 
 # The wait for the heavy-build lock is measured by sampling: while a command runs, once a second, is one of
-# its descendants a `flock .../heavy-build.lock` (the shim's, still waiting; once it holds the lock flock
-# becomes the real binary)? The command still takes the lock through the shim, as always.
-waiting_on_lock() {   # <pid>
+# its own descendants a `flock .../heavy-build.lock` (the shim's, still waiting; once it holds the lock flock
+# becomes the real binary)? The command takes the lock through the shim, as always; the lock file is never
+# opened here.
+waiting_flock() {   # <pid>: prints the pid of the descendant flock that waits, if any
   ps -eo pid,ppid,args | awk -v root="$1" '
     { pp[$1] = $2; a[$1] = $0 }
-    END { for (p in pp) { q = p; while (q in pp) { if (pp[q] == root) { if (a[p] ~ /flock .*heavy-build/) f = 1; break } q = pp[q] } }
-          exit !f }'
+    END { for (p in pp) { q = p; while (q in pp) { if (pp[q] == root) { if (a[p] ~ /flock .*heavy-build/) print p; break } q = pp[q] } } }' | head -n 1
 }
 # run_sampled <cmd...>: output to $tmp/out, status returned, the seconds spent waiting added to lock_wait.
+# With LOCK_CAP=<s> (the compile steps): once the command has waited that long for the lock, its waiting
+# flock (our own descendant, by pid) is stopped, `lock_busy` is set and the status is 99. The shim has no
+# timeout of its own.
+lock_busy=0
+compile_left_to_ci=0
 run_sampled() {
-  local pid w=0 rc=0
+  local pid w=0 rc=0 fl
   "$@" > "$tmp/out" 2>&1 &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
-    waiting_on_lock "$pid" && w=$((w + 1))
+    fl="$(waiting_flock "$pid")"
+    if [ -n "$fl" ]; then
+      w=$((w + 1))
+      if [ "${LOCK_CAP:-0}" -gt 0 ] && [ "$w" -ge "$LOCK_CAP" ]; then
+        kill "$fl" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        lock_wait=$((lock_wait + w)); lock_busy=1
+        return 99
+      fi
+    fi
     sleep 1
   done
   wait "$pid" || rc=$?
   lock_wait=$((lock_wait + w))
   return "$rc"
 }
+
+# The compile steps wait at most 90 s for the lock, then are left to CI. Without the lock file (the Mac,
+# or any machine without the shims) nothing waits, and the compile always runs.
+compile_cap=90
+if [ "$(uname -s)" = Darwin ] || [ ! -e "$LOCK" ]; then compile_cap=0; fi
 
 line() { printf '%-5s %-44s %s\n' "$1" "$2" "${3:-}"; }
 
@@ -79,7 +98,10 @@ run() {
   local a b rc=0; a="$(now)"
   if [ "$locked" = 1 ]; then run_sampled "$@" || rc=$?; else "$@" > "$tmp/out" 2>&1 || rc=$?; fi
   b="$(now)"
-  if [ "$rc" = 0 ]; then
+  if [ "$rc" = 99 ] && [ "$lock_busy" = 1 ]; then
+    [ "$compile_left_to_ci" = 1 ] || echo "heavy lock busy: Cairo compile left to CI"
+    compile_left_to_ci=1
+  elif [ "$rc" = 0 ]; then
     local note=""   # classsize skips the CASM figures without `starknet-sierra-compile` on PATH
     grep -qi 'CASM not checked' "$tmp/out" && note="(CASM not checked), "
     line ok "$name" "$note$(secs "$a" "$b") s"
@@ -195,14 +217,16 @@ PY
 # ---------------------------------------------------------------------------- compile
 if [ "$CAIRO" = 1 ] && [ -n "$BUILD" ]; then
   pkgs=(); for c in $BUILD; do pkgs+=(-p "$c"); done
-  run "build $BUILD" 1 scarb build "${pkgs[@]}"
+  LOCK_CAP=$compile_cap run "build $BUILD" 1 scarb build "${pkgs[@]}"
 elif [ "$CAIRO" = 1 ]; then
   skip_unchanged "build (workspace)"
 else
   skip_unchanged "build"
 fi
-if [ "$REPLAY" = 1 ]; then
-  run "build slingfall_replay" 1 scarb --manifest-path "$REPLAY" build
+if [ "$REPLAY" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
+  :   # the compile was left to CI above
+elif [ "$REPLAY" = 1 ]; then
+  LOCK_CAP=$compile_cap run "build slingfall_replay" 1 scarb --manifest-path "$REPLAY" build
 elif [ "$CAIRO" = 1 ]; then
   skip_full "build slingfall_replay"
 else
@@ -223,6 +247,7 @@ fi
 # ---------------------------------------------------------------------------- class sizes (path-free)
 size_check() {   # <name> <TRIG> <BUILT> <classsize subcommand>
   if [ "$2" != 1 ]; then skip_unchanged "$1"
+  elif [ "$compile_left_to_ci" = 1 ]; then line skip "$1" "(compile left to CI)"
   elif [ "$3" != 1 ]; then skip_full "$1"
   else run "$1" 0 python3 tools/classsize/classsize.py "$4" --no-build
   fi
@@ -239,13 +264,17 @@ fi
 
 # ---------------------------------------------------------------------------- --full
 if [ "$full" = 1 ]; then
-  if [ "$CAIRO" = 1 ] || changed '^steps/'; then
+  if [ "$compile_left_to_ci" = 1 ]; then
+    line skip "steps check" "(compile left to CI)"
+  elif [ "$CAIRO" = 1 ] || changed '^steps/'; then
     run "steps check" 1 python3 scripts/steps.py check
   else
     skip_unchanged "steps check"
   fi
 
-  if [ "$MOVE" = 1 ]; then
+  if [ "$MOVE" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
+    line skip "pins (split)" "(compile left to CI)"
+  elif [ "$MOVE" = 1 ]; then
     a="$(now)"; rc=0
     run_sampled python3 crates/slingfall_split/scripts/pin.py --check || rc=$?   # `stale:` lines go to stderr
     out="$(cat "$tmp/out")"   # stdout and stderr both
@@ -269,7 +298,9 @@ if [ "$full" = 1 ]; then
     skip_unchanged "pins (split)"
   fi
 
-  if [ "$REPLAY" = 1 ]; then
+  if [ "$REPLAY" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
+    line skip "replay executables" "(compile left to CI)"
+  elif [ "$REPLAY" = 1 ]; then
     compare_executables() {
       local n rc=0
       for n in main_trace init step_chunk outputs; do
