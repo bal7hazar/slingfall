@@ -9,7 +9,7 @@ repository = "https://github.com/bal7hazar/slingfall"
 
 # Kept out of the root workspace (as rapier-cairo/examples/ball_drop): an executable target needs
 # `[cairo] enable-gas = false`, which the snforge-tested workspace crates do not use. Build with
-# `scarb build --manifest-path crates/slingfall_replay/Scarb.toml`.
+# `scarb --manifest-path crates/slingfall_replay/Scarb.toml build`.
 [workspace]
 
 [dependencies]
