@@ -15,7 +15,8 @@
 #   2. scarb $SCARB_VERSION, the official release tarball, sha256-checked, into
 #      /opt/slingfall/scarb (root-owned);
 #   3. the release /opt/slingfall/releases/<sha>: the files the service runs (git archive of this
-#      commit) plus the prebuilt replay (crates/slingfall_replay/target), compiled by the
+#      commit), the prebuilt replay (crates/slingfall_replay/target/dev/*.executable.json) and the
+#      scarb cache it was built with (scarb-cache/, offline at runtime), compiled by the
 #      unprivileged user `nobody` in a scratch copy under /var/tmp (never as root), then checked
 #      on the pile10 reference shot, then made root-owned and read-only; /opt/slingfall/current
 #      points at it; REVISION holds the sha;
@@ -135,23 +136,34 @@ if [ ! -d "$REL" ]; then
   }
   say "building the replay as $BUILD_USER in $build (a few minutes)"
   (cd "$build/src/crates/slingfall_replay" && as_build scarb build)
-  # The pile10 reference shot through the service's own replay: the committed golden outputs.
-  (cd "$build/src" && as_build python3 - <<'EOF'
-import json, sys
-sys.path.insert(0, "services/attest")
-import attest, golden
-case = next(c for c in json.load(open("fixtures/golden/cases.json"))["cases"] if c["name"] == "pile10-reference")
-want = [int(v, 16) for v in json.load(open("fixtures/golden/pile10-reference.json"))["outputs"]]
-got = attest.scarb_replay("pile10", golden.case_inputs(case))
-assert got == want, f"pile10-reference: {got} != {want}"
-print("install.sh: pile10-reference replays to its golden outputs")
-EOF
-  )
-  cp -a "$build/src/crates/slingfall_replay/target" "$stage/crates/slingfall_replay/target"
+  # Only the executables (not the Sierra, fingerprints and incremental data of the compile).
+  install -d "$stage/crates/slingfall_replay/target/dev"
+  cp "$build/src/crates/slingfall_replay/target/dev/"*.executable.json "$stage/crates/slingfall_replay/target/dev/"
+  cp -R "$build/home/scarb-cache" "$stage/scarb-cache"
   echo "$SHA" >"$stage/REVISION"
   chown -R root:root "$stage"
   chmod -R a-w,a+rX "$stage"
   chmod 0755 "$stage"
+  # The release as the service will run it (prepare.sh, then the replay offline), still as the build
+  # user: the pile10 reference shot must give its committed golden outputs.
+  install -d -o "$BUILD_USER" -m 0700 "$build/state"
+  runuser -u "$BUILD_USER" -- env -i PATH="$SCARB_PATH" ATTEST_RELEASE="$stage" ATTEST_STATE="$build/state" \
+    "$stage/deploy/hosting/prepare.sh"
+  (cd "$stage" && runuser -u "$BUILD_USER" -- env -i PATH="$SCARB_PATH" HOME="$build/state" \
+    SCARB_CACHE="$build/state/scarb-cache" SCARB_CONFIG="$build/state/scarb-config" SCARB_OFFLINE=true \
+    RAYON_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 REPLAY_DIR="$build/state/work/crates/slingfall_replay" \
+    python3 - <<'EOF'
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, "services/attest")
+import attest, golden
+case = next(c for c in json.load(open("fixtures/golden/cases.json"))["cases"] if c["name"] == "pile10-reference")
+want = [int(v, 16) for v in json.load(open("fixtures/golden/pile10-reference.json"))["outputs"]]
+got = attest.scarb_replay("pile10", golden.case_inputs(case), Path(os.environ["REPLAY_DIR"]))
+assert got == want, f"pile10-reference: {got} != {want}"
+print("install.sh: pile10-reference replays to its golden outputs")
+EOF
+  )
   mv -T "$stage" "$REL"
   rm -rf "$build"
   trap - EXIT

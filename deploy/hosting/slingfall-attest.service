@@ -4,7 +4,8 @@
 #
 # Everything it runs is root-owned and read-only: the code and the prebuilt replay under
 # /opt/slingfall/current, scarb under /opt/slingfall/scarb, /usr/bin/python3. It writes only its
-# state directory. Nothing under /home is used (ProtectHome).
+# state directory, where prepare.sh copies the replay's workspace and the offline scarb cache at
+# every start (scarb opens Scarb.lock for writing). Nothing under /home is used (ProtectHome).
 
 [Unit]
 Description=Slingfall attestation service (provisional tier)
@@ -30,8 +31,9 @@ Environment=SCARB_OFFLINE=true
 Environment=RAYON_NUM_THREADS=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 # Port 8547 on 127.0.0.1 (the reverse proxy in front); the limits are docs/hosting.md's.
+ExecStartPre=/opt/slingfall/current/deploy/hosting/prepare.sh
 ExecStart=/usr/bin/python3 /opt/slingfall/current/services/attest/attest.py serve --execute --no-build \
-    --contract ${ATTEST_CONTRACT} --host 127.0.0.1 --port 8547 \
+    --replay-dir /var/lib/slingfall-attest/work/crates/slingfall_replay --contract ${ATTEST_CONTRACT} --host 127.0.0.1 --port 8547 \
     --rate 20 --rate-window 3600 --client-rate 120 --client-window 3600 \
     --max-concurrent 1 --max-queue 4 --ttl 600
 Restart=always

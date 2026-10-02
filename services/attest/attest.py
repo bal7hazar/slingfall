@@ -6,7 +6,7 @@
                     [--rpc URL] [--chain-id FELT] [--program-hash HEX] [--epoch N] [--ttl S]
                     [--rate N] [--rate-window S] [--client-rate N] [--client-window S]
                     [--max-concurrent N] [--max-queue N] [--host H] [--port N] [--proof-dir DIR]
-                    [--timeout S] [--no-build]
+                    [--timeout S] [--no-build] [--replay-dir DIR]
     attest.py sign [--key HEX] --chain-id FELT --contract HEX --program-hash HEX --epoch N
                    --expiry T (--outputs FILE | FELT...)
     attest.py pubkey [--key HEX]
@@ -39,6 +39,9 @@ run ahead of the wall clock) and the wall clock. The RPC is `--rpc` or `$STARKNE
   re-executes the replay natively (`scarb execute` of `crates/slingfall_replay`'s proof build
   `main`, as `tools/golden/golden.py` does; built once at start unless `--no-build`), and signs its
   own outputs; claimed `outputs` that differ answer 422. Seconds, not the minutes of a proof.
+  `--replay-dir` runs another copy of `crates/slingfall_replay` (with its sibling crates and its
+  prebuilt `target/`): scarb opens `Scarb.lock` for writing even with `--no-build`, so a hosted
+  service runs a writable copy of its read-only release (`deploy/hosting/prepare.sh`).
 * `--verify-cmd CMD`: `POST /attest` `{"outputs": [10 felts], "proof_path": "..."}` (or `"proof":
   "<base64>"`): runs P1's `tools/prove/verify.py` (`<CMD> <proof> <outputs.json>`, the outputs as
   a JSON array of `0x` felts; `{proof}` / `{outputs}` in CMD place the two paths) and signs when it
@@ -327,9 +330,12 @@ def resolve_level(level: object) -> str:
     raise ValueError(f"level: unknown {level!r}")
 
 
-def scarb_replay(level: str, inputs: list[int]) -> list[int]:
-    """The 10 outputs of the proof build `main` on a fixture level (`scarb execute`, built)."""
+def scarb_replay(level: str, inputs: list[int], replay_dir: Path | None = None) -> list[int]:
+    """The 10 outputs of the proof build `main` on a fixture level (`scarb execute`, built), in the
+    repository's `crates/slingfall_replay` or in `replay_dir`."""
     import golden  # noqa: PLC0415  (tools/golden: needs scarb, loaded only by --execute)
+    if replay_dir is not None:
+        golden.MANIFEST = replay_dir / "Scarb.toml"
     _, outputs, _ = golden.run_build(golden.Level(level), inputs, "main")
     return outputs
 
@@ -695,11 +701,16 @@ def make_attester(args) -> Attester:
                   epoch=args.epoch)
     executor = None
     if args.execute:
+        replay_dir = Path(args.replay_dir).resolve() if args.replay_dir else None
+        if replay_dir is not None and not (replay_dir / "Scarb.toml").is_file():
+            sys.exit(f"serve: no Scarb.toml in --replay-dir {replay_dir}")
+        if replay_dir is not None and not args.no_build:
+            sys.exit("serve: --replay-dir runs a prebuilt replay: pass --no-build")
         if not args.no_build:
             import golden  # noqa: PLC0415
             print("attest: building the replay (scarb build)", file=sys.stderr, flush=True)
             golden.build()
-        executor = Executor()
+        executor = Executor(lambda level, inputs: scarb_replay(level, inputs, replay_dir))
     verifier = Verifier(args.verify_cmd, Path(args.proof_dir) if args.proof_dir else None, args.timeout)
     # `--rate 0` (local play) turns off every limit: per player, per client and the queue's.
     unlimited = args.rate <= 0
@@ -803,6 +814,8 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--proof-dir", help="proof_path must be inside this directory")
     p.add_argument("--timeout", type=float, default=900.0, help="verify command timeout, seconds")
     p.add_argument("--no-build", action="store_true", help="--execute: the replay is already built")
+    p.add_argument("--replay-dir", help="--execute: a writable copy of crates/slingfall_replay, prebuilt "
+                                        "(default: the repository's)")
     p.set_defaults(run=cmd_serve)
 
     p = sub.add_parser("sign", help="sign outputs offline")

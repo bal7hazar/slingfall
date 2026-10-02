@@ -596,7 +596,18 @@ class CliTest(unittest.TestCase):
                     key=hex(CONST["SECRET"]), execute="--execute" in modes, verify_cmd="x" if "--verify-cmd" in modes else None,
                     no_verify="--no-verify" in modes, rpc=None, contract="0x1", chain_id=None, program_hash=None,
                     epoch=None, no_build=True, proof_dir=None, timeout=1, rate=1, rate_window=1, ttl=1,
-                    client_rate=1, client_window=1, max_concurrent=1, max_queue=1))
+                    client_rate=1, client_window=1, max_concurrent=1, max_queue=1, replay_dir=None))
+
+    def test_replay_dir_needs_a_manifest_and_no_build(self):
+        base = ["serve", "--key", hex(CONST["SECRET"]), "--execute", "--contract", "0x1"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):  # no Scarb.toml
+                attest.make_attester(attest.make_parser().parse_args([*base, "--no-build", "--replay-dir", tmp]))
+            (Path(tmp) / "Scarb.toml").write_text("")
+            with self.assertRaises(SystemExit):  # would build
+                attest.make_attester(attest.make_parser().parse_args([*base, "--replay-dir", tmp]))
+            attester = attest.make_attester(attest.make_parser().parse_args([*base, "--no-build", "--replay-dir", tmp]))
+            self.assertEqual(attester.mode, "execute")
 
 
 if __name__ == "__main__":
