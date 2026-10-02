@@ -10,7 +10,7 @@
 #               snapshot, the split class-hash pins (advisory) and the replay executables
 #
 # Every Cairo build goes through the `scarb` / `snforge` shims of the machine (heavy-build lock): never
-# bypassed. The wait for that lock is measured apart (sampled while a command runs) and is not
+# bypassed. The wait for that lock is measured apart (sampled, or timed by the compile's own flock) and is not
 # part of the time the default run aims at (under 2 minutes).
 set -euo pipefail
 export RAYON_NUM_THREADS=1   # Sierra is not deterministic across compiler threads (docs/proving.md)
@@ -57,27 +57,14 @@ waiting_flock() {   # <pid>: prints the pid of the descendant flock that waits, 
     { pp[$1] = $2; a[$1] = $0 }
     END { for (p in pp) { q = p; while (q in pp) { if (p == root || pp[q] == root) { if (a[p] ~ /flock .*heavy-build/) print p; break } q = pp[q] } } }' | head -n 1
 }
-# run_sampled <cmd...>: output to $tmp/out, status returned, the seconds spent waiting added to lock_wait.
-# With LOCK_CAP=<s> (the compile steps): once the command has waited that long for the lock, its waiting
-# flock (our own descendant, by pid) is stopped, `lock_busy` is set and the status is 99. The shim has no
-# timeout of its own.
-lock_busy=0
-compile_left_to_ci=0
+# run_sampled <cmd...>: output to $tmp/out, status returned, the seconds spent waiting added to lock_wait
+# (the unbounded --full steps; the compile steps use run_held).
 run_sampled() {
-  local pid w=0 rc=0 fl
+  local pid w=0 rc=0
   "$@" > "$tmp/out" 2>&1 &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
-    fl="$(waiting_flock "$pid")"
-    if [ -n "$fl" ]; then
-      w=$((w + 1))
-      if [ "${LOCK_CAP:-0}" -gt 0 ] && [ "$w" -ge "$LOCK_CAP" ]; then
-        kill "$fl" 2>/dev/null || true
-        wait "$pid" 2>/dev/null || true
-        lock_wait=$((lock_wait + w)); lock_busy=1
-        return 99
-      fi
-    fi
+    [ -n "$(waiting_flock "$pid")" ] && w=$((w + 1))
     sleep 1
   done
   wait "$pid" || rc=$?
@@ -85,8 +72,31 @@ run_sampled() {
   return "$rc"
 }
 
-# The locked scarb calls (build) put the subcommand first: the VPS shim takes the lock only then. The compile steps wait at most 90 s for the lock, then are left to CI. Without the lock file (the Mac,
-# or any machine without the shims) nothing waits, and the compile always runs.
+# run_held <cmd...>: the compile steps. The script takes the lock itself, `flock -w 90`, and runs the command
+# under it with HEAVY_BUILD_LOCK_HELD=1 (set only inside the flock: the shims then pass through instead of
+# waiting a second time on the lock held here, as do nested calls). Exit 242 = the lock was not obtained in
+# 90 s and nothing ran (a build failure is any other non-zero status). Nothing is killed; the lock file is
+# touched only through flock. Without the lock file (the Mac) or on Darwin: no flock, the command runs as is.
+lock_busy=0
+compile_left_to_ci=0
+run_held() {
+  local rc=0 stamp="$tmp/acquired" a b
+  rm -f "$stamp"; a="$(now)"
+  if [ "$compile_cap" -gt 0 ]; then
+    flock -w "$compile_cap" -E 242 "$LOCK" bash -c 'date +%s.%N > "$1"; shift; export HEAVY_BUILD_LOCK_HELD=1; exec "$@"' _ "$stamp" "$@" \
+      > "$tmp/out" 2>&1 || rc=$?
+    if [ "$rc" = 242 ]; then
+      lock_wait="$(awk -v w="$lock_wait" -v d="$compile_cap" 'BEGIN { printf "%.1f", w + d }')"; lock_busy=1; return 242
+    fi
+    [ -s "$stamp" ] && lock_wait="$(awk -v w="$lock_wait" -v a="$a" -v g="$(cat "$stamp")" 'BEGIN { printf "%.1f", w + g - a }')"
+  else
+    "$@" > "$tmp/out" 2>&1 || rc=$?
+  fi
+  return "$rc"
+}
+
+# The locked scarb calls (build) put the subcommand first: the VPS shim takes the lock only then. The compile
+# steps hold the lock themselves for at most 90 s of waiting (run_held), then are left to CI.
 compile_cap=90
 if [ "$(uname -s)" = Darwin ] || [ ! -e "$LOCK" ]; then compile_cap=0; fi
 
@@ -96,9 +106,11 @@ line() { printf '%-5s %-44s %s\n' "$1" "$2" "${3:-}"; }
 run() {
   local name="$1" locked="$2"; shift 2
   local a b rc=0; a="$(now)"
-  if [ "$locked" = 1 ]; then run_sampled "$@" || rc=$?; else "$@" > "$tmp/out" 2>&1 || rc=$?; fi
+  if [ "$locked" = held ]; then run_held "$@" || rc=$?
+  elif [ "$locked" = 1 ]; then run_sampled "$@" || rc=$?
+  else "$@" > "$tmp/out" 2>&1 || rc=$?; fi
   b="$(now)"
-  if [ "$rc" = 99 ] && [ "$lock_busy" = 1 ]; then
+  if [ "$rc" = 242 ] && [ "$lock_busy" = 1 ]; then
     [ "$compile_left_to_ci" = 1 ] || echo "heavy lock busy: Cairo compile left to CI"
     compile_left_to_ci=1
   elif [ "$rc" = 0 ]; then
@@ -217,7 +229,7 @@ PY
 # ---------------------------------------------------------------------------- compile
 if [ "$CAIRO" = 1 ] && [ -n "$BUILD" ]; then
   pkgs=(); for c in $BUILD; do pkgs+=(-p "$c"); done
-  LOCK_CAP=$compile_cap run "build $BUILD" 1 scarb build "${pkgs[@]}"
+  run "build $BUILD" held scarb build "${pkgs[@]}"
 elif [ "$CAIRO" = 1 ]; then
   skip_unchanged "build (workspace)"
 else
@@ -226,7 +238,7 @@ fi
 if [ "$REPLAY" = 1 ] && [ "$compile_left_to_ci" = 1 ]; then
   :   # the compile was left to CI above
 elif [ "$REPLAY" = 1 ]; then
-  LOCK_CAP=$compile_cap run "build slingfall_replay" 1 scarb build --manifest-path "$REPLAY"
+  run "build slingfall_replay" held scarb build --manifest-path "$REPLAY"
 elif [ "$CAIRO" = 1 ]; then
   skip_full "build slingfall_replay"
 else
@@ -331,6 +343,6 @@ echo
 if [ "${#skipped_full[@]}" -gt 0 ] && [ "$full" = 0 ] && [ "$CAIRO" = 1 ]; then
   echo "Cairo changed, --full not run: skipped $(IFS=,; echo "${skipped_full[*]}")"
 fi
-echo "prepush: $total s total, of which $lock_wait s waiting for the heavy-build lock (sampled), $own s without"
+echo "prepush: $total s total, of which $lock_wait s waiting for the heavy-build lock (sampled or flock-timed), $own s without"
 if [ "$fails" -gt 0 ]; then echo "prepush: $fails FAILED" >&2; exit 1; fi
 echo "prepush: ok"
