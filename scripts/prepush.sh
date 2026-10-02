@@ -10,7 +10,7 @@
 #               snapshot, the split class-hash pins (advisory) and the replay executables
 #
 # Every Cairo build goes through the `scarb` / `snforge` shims of the machine (heavy-build lock): never
-# bypassed. The wait for that lock is measured apart (a probe before each locked command) and is not
+# bypassed. The wait for that lock is measured apart (sampled while a command runs) and is not
 # part of the time the default run aims at (under 2 minutes).
 set -euo pipefail
 export RAYON_NUM_THREADS=1   # Sierra is not deterministic across compiler threads (docs/proving.md)
@@ -44,16 +44,31 @@ existing() { grep -E "$1" "$tmp/changed" | while read -r f; do [ -f "$f" ] && ec
 now() { echo "$EPOCHREALTIME"; }
 secs() { awk -v a="$1" -v b="$2" 'BEGIN { printf "%.1f", b - a }'; }
 t_start="$(now)"
-lock_wait=0
+lock_wait=0   # seconds
 fails=0
 skipped_full=()
 
-# The wait for the heavy-build lock: a probe that takes and releases it, timed. The shim then takes it
-# for the command itself (the probe does not replace it).
-probe_lock() {
-  [ -e "$LOCK" ] || return 0
-  local a b; a="$(now)"; flock "$LOCK" true; b="$(now)"
-  lock_wait="$(awk -v w="$lock_wait" -v d="$(secs "$a" "$b")" 'BEGIN { printf "%.1f", w + d }')"
+# The wait for the heavy-build lock is measured by sampling: while a command runs, once a second, is one of
+# its descendants a `flock .../heavy-build.lock` (the shim's, still waiting; once it holds the lock flock
+# becomes the real binary)? The command still takes the lock through the shim, as always.
+waiting_on_lock() {   # <pid>
+  ps -eo pid,ppid,args | awk -v root="$1" '
+    { pp[$1] = $2; a[$1] = $0 }
+    END { for (p in pp) { q = p; while (q in pp) { if (pp[q] == root) { if (a[p] ~ /flock .*heavy-build/) f = 1; break } q = pp[q] } }
+          exit !f }'
+}
+# run_sampled <cmd...>: output to $tmp/out, status returned, the seconds spent waiting added to lock_wait.
+run_sampled() {
+  local pid w=0 rc=0
+  "$@" > "$tmp/out" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    waiting_on_lock "$pid" && w=$((w + 1))
+    sleep 1
+  done
+  wait "$pid" || rc=$?
+  lock_wait=$((lock_wait + w))
+  return "$rc"
 }
 
 line() { printf '%-5s %-44s %s\n' "$1" "$2" "${3:-}"; }
@@ -61,9 +76,8 @@ line() { printf '%-5s %-44s %s\n' "$1" "$2" "${3:-}"; }
 # run <name> <locked 0|1> <cmd...>: ok / FAIL, with the last lines of the output on a failure.
 run() {
   local name="$1" locked="$2"; shift 2
-  [ "$locked" = 1 ] && probe_lock
   local a b rc=0; a="$(now)"
-  "$@" > "$tmp/out" 2>&1 || rc=$?
+  if [ "$locked" = 1 ]; then run_sampled "$@" || rc=$?; else "$@" > "$tmp/out" 2>&1 || rc=$?; fi
   b="$(now)"
   if [ "$rc" = 0 ]; then
     local note=""   # classsize skips the CASM figures without `starknet-sierra-compile` on PATH
@@ -232,9 +246,9 @@ if [ "$full" = 1 ]; then
   fi
 
   if [ "$MOVE" = 1 ]; then
-    probe_lock
     a="$(now)"; rc=0
-    out="$(python3 crates/slingfall_split/scripts/pin.py --check 2>&1)" || rc=$?   # `stale:` lines go to stderr
+    run_sampled python3 crates/slingfall_split/scripts/pin.py --check || rc=$?   # `stale:` lines go to stderr
+    out="$(cat "$tmp/out")"   # stdout and stderr both
     b="$(now)"
     if [ "$rc" = 0 ]; then
       line ok "pins (split)" "$(secs "$a" "$b") s"
@@ -286,6 +300,6 @@ echo
 if [ "${#skipped_full[@]}" -gt 0 ] && [ "$full" = 0 ] && [ "$CAIRO" = 1 ]; then
   echo "Cairo changed, --full not run: skipped $(IFS=,; echo "${skipped_full[*]}")"
 fi
-echo "prepush: $total s total, of which $lock_wait s waiting for the heavy-build lock (probe), $own s without"
+echo "prepush: $total s total, of which $lock_wait s waiting for the heavy-build lock (sampled), $own s without"
 if [ "$fails" -gt 0 ]; then echo "prepush: $fails FAILED" >&2; exit 1; fi
 echo "prepush: ok"
