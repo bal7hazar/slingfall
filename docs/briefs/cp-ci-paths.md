@@ -48,20 +48,33 @@ None.
 `T` is the toolchain and workflow set, which triggers every job: `.tool-versions`, `**/Scarb.toml`, `**/Scarb.lock`,
 `.github/workflows/**`. Each row also triggers on `T`.
 
+Shared sets, used below:
+- `PY` (the Python tools and fixtures the services, scripts and tests import or read): `tools/atlantic/**`,
+  `tools/golden/**`, `tools/tracec/**`, `tools/levelc/**`, `fixtures/levels/**`, `fixtures/golden/**`;
+- `CLIENT` (what `npm test` / `npm run build` read): `client/**`, `fixtures/levels/**`, `fixtures/traces/**`,
+  `fixtures/golden/**`, `deploy/sepolia.json`, `deploy/sepolia.env.example`.
+
 | Job | Runs on a PR when any of these changed (besides `T`) | Why (what it reads) |
 |---|---|---|
 | `fmt`, `lint` | `crates/**` | `scarb fmt` / `lint` of the workspace and the replay |
 | `build` | `crates/**`, `tools/classsize/**`, `tools/tracec/**`, `fixtures/levels/**` | workspace build, class sizes, split determinism, one replay execute |
 | `test` (matrix) | `crates/**`, `fixtures/**`, `steps/**`, `scripts/steps.py` | snforge per crate; its logs feed `steps` |
-| `steps` | runs exactly when `test` runs (it `needs: test`) | `scripts/steps.py check` on the test logs |
-| `client` | `client/**` except `client/vm/runner/**`, `deploy/sepolia.json`, `fixtures/levels/**` | lint, unit tests, both builds, the Sepolia smoke |
-| `vm` | `client/vm/**`, `client/src/**`, `client/package*.json`, `crates/**`, `fixtures/levels/**` | runner tests, wasm build, `fetch-executables.sh --build` + diff, client tests |
+| `steps` | exactly when `test` runs: `needs: [changes, test]`, same output as `test` | `scripts/steps.py check` on the test logs |
+| `client` | `CLIENT` | lint, unit tests, both builds, the Sepolia smoke |
+| `vm` | `CLIENT`, `crates/**`, `fixtures/**` | runner tests, wasm build, `fetch-executables.sh --build` + diff, the whole `npm test` (incl. `vm.test.ts` on `fixtures/golden`) |
 | `golden` (matrix) | `crates/**`, `fixtures/**`, `tools/golden/**`, `tools/tracec/**`, `tools/levelc/**` | golden check and fuzz per level |
-| `prove` | `tools/prove/**`, `crates/slingfall_replay/**`, `crates/slingfall_level/**`, `crates/slingfall_rules/**`, `crates/slingfall_game/**`, `crates/slingfall_testing/**`, `fixtures/levels/**`, `fixtures/proofs/**` | stwo proving of one case |
-| `e2e` | `services/**`, `tools/atlantic/**`, `tools/settle/**`, `deploy/**`, `crates/**`, `client/src/chain/**`, `client/package*.json` | attest / prove unit tests, v2 class, the devnet end to end |
-| `play-local` (+ L4's tests) | `scripts/play.sh`, `scripts/play/**`, `deploy/**`, `services/**`, `client/**`, `crates/**` | `play.sh up`, a shot, `down` |
-| `pages` | unchanged: `workflow_dispatch` only | |
+| `prove` | `tools/prove/**`, `tools/tracec/**`, `tools/levelc/**`, `crates/**`, `fixtures/levels/**`, `fixtures/golden/**`, `fixtures/proofs/**` | stwo proving of one case; `prove.py`, `verify.py`, `test_prove.py` import tracec / levelc and read `fixtures/golden` |
+| `e2e` | `services/**`, `deploy/**`, `crates/**`, `tools/settle/**`, `PY`, `fixtures/proofs/**`, `client/src/chain/**`, `client/package*.json` | attest / prove unit tests (`test_prove_service.py` reads `fixtures/proofs/atlantic`), v2 class, `deploy/e2e.sh` (`deploy/outputs.py` imports `tools/golden`, `tools/atlantic`) |
+| `play-local` (+ L4's tests) | `scripts/play.sh`, `scripts/play/**`, `deploy/**`, `services/**`, `crates/**`, `PY`, `CLIENT` | `play.sh up` (attest `--execute`, `prove_local.py` imports `services/prove` and `tools/golden`), a shot, `down` |
+| `pages` | unchanged: `workflow_dispatch` only. **Not** in `all-checks`. | |
 | `all-checks` | always | the summary |
+
+**Docs-only PRs.** The globs above also match prose READMEs inside code folders (`crates/*/README.md`,
+`client/README.md`, `tools/*/README.md`…). `dorny/paths-filter`'s negation does not combine with OR rows under the
+default `predicate-quantifier: some`, so do not use `!` patterns. Instead, the `changes` job outputs `docs_only`: true
+when every changed path ends in `.md` and none of them is a checked file (there is none in slingfall today). Every test
+job's condition is `docs_only == 'false' && <its row> == 'true'`. A PR that mixes a README with code is filtered by
+its code. Drop the `client/vm/runner/**` exclusion idea: `CLIENT` includes it, a safe over-trigger.
 
 These rows are my reading of what each job uses. **Before relying on them, check each one against the job's actual
 steps** (what it builds, reads and runs, including scripts the steps call), and widen a row wherever a job reads more.
@@ -74,26 +87,35 @@ In doubt, trigger, never skip. Report every change to the table, with the reason
    - Use `dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3`, pinned by commit sha as in
      nalgebra-cairo's `ci.yml`, with one filter per row of §4.
    - On `push` to main and on `workflow_dispatch`, every output is `true`.
-2. Each test job gets `needs: changes` and an `if:` on its output. Keep the job's name, so a check that does not run
-   simply reports as skipped.
+2. Each test job gets `needs: changes` and an `if:` on its outputs (§4, docs-only rule). `steps` takes
+   `needs: [changes, test]` and the same output as `test`. Keep each job's name, so a check that does not run simply
+   reports as skipped.
 3. **`all-checks`**:
-   - `if: always()`, and it needs **every** job, including `vm`, `prove`, `e2e` and `play-local`. Today it waits only
+   - `if: always()`, and it needs `changes` and every test job, including `vm`, `prove`, `e2e` and `play-local`, but
+     not `pages`. Today it waits only
      for `fmt`, `lint`, `build`, `test`, `steps`, `golden` and `client`. Widening it to the four others is a change of
      merge gate: do it only if those four are green on main today, and say so; otherwise keep today's set and report.
-   - It passes only when every needed job either passed or was skipped by the paths rule (its `changes` output was
-     false). It fails when any job that ran failed or was cancelled, and when a job was skipped while its output was
-     true (skipped by error, for example because a job it needs failed). Print each job, its result and why.
+   - It fails unless `needs.changes.result` is exactly `success` (if `changes` fails, every output is empty and nothing
+     ran: that must be red).
+   - For each test job, a skip is legitimate only when its output is exactly `'false'` (or `docs_only` is exactly
+     `'true'`). A job whose output is `'true'` must be exactly `success`. Any other combination fails: an empty output, a
+     failure, a cancellation, or a skip while the output was true.
+   - Print each job, its output and its result.
 4. **Retries** on the steps that download the tools (`software-mansion/setup-scarb`, `foundry-rs/setup-snfoundry`):
    one or two retries with a short pause, by a pinned retry action or by repeating the step with `continue-on-error`
    on the first try. Say which. Never retry a test.
-5. **`pages`** gets its own `concurrency` group (for example `pages-${{ github.ref }}`, `cancel-in-progress: false`)
-   at job level, so a later push to main does not replace a pending dispatch.
+5. **A dispatch can no longer be replaced.** GitHub keeps one pending run per concurrency group, and a newer pending
+   run replaces the older one; a job-level group cannot help, since it applies only after the run starts. So the
+   **workflow-level** group separates dispatches:
+   `group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'ci' }}`,
+   with `cancel-in-progress` unchanged. Keep a `pages` job-level group too, `pages-${{ github.ref }}`,
+   `cancel-in-progress: false`.
 6. **L4's tests** run where §1 says, triggered by `scripts/play/**`, `deploy/devnet.sh` and `T`.
 
 ## 6. Verification
 
 Show, with links to the runs of this PR's branch (or a scratch branch of yours, deleted afterwards):
-- a **docs-only change**: every test job skipped, `all-checks` green;
+- a **docs-only change**, including a `crates/*/README.md`: every test job skipped, `all-checks` green;
 - a **client-only change**: `client` (and `vm`, `e2e`, `play-local` as mapped) run, the Cairo jobs skipped,
   `all-checks` green;
 - a **Cairo change** in `crates/slingfall_rules`: the Cairo jobs run;
