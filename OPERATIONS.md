@@ -162,3 +162,7 @@ gas or step table), then a review thread (§2). Squash merge; conventional commi
 - Relayer (owner, 2026-10-02): on Starknet Sepolia the relayer is the admin account, with no dedicated account ("on
   Sepolia there is no real risk"). The question reopens before mainnet, where fees and admin rights are real. This
   authorises no new act: the admin key, its placement on a machine and every deployment remain the owner's.
+- Hosting (owner, 2026-10-02): the attest and prove services are hosted on the project's VPS, bound to 127.0.0.1; the
+  web clients get subdomains later, created by the owner. The subdomain, the Caddy site, the services' system user and
+  the three secrets (attestation key, Atlantic API key, admin account key) are the owner's; no agent can read the
+  secrets.
