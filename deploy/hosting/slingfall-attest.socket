@@ -1,0 +1,14 @@
+# slingfall-attest.socket: systemd holds the attestation service's port from boot (docs/hosting.md
+# "Port and limits"), so no other local process can take it while the service is down; the service
+# receives the listening socket (attest.py serve --systemd-socket). 8557, not scripts/play.sh's 8547.
+
+[Unit]
+Description=Slingfall attestation service, its port (127.0.0.1:8557)
+
+[Socket]
+ListenStream=127.0.0.1:8557
+NoDelay=true
+Backlog=64
+
+[Install]
+WantedBy=sockets.target

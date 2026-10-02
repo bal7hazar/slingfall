@@ -10,8 +10,9 @@
 [Unit]
 Description=Slingfall attestation service (provisional tier)
 Documentation=file:///opt/slingfall/current/docs/hosting.md
+Requires=slingfall-attest.socket
 Wants=network-online.target
-After=network-online.target
+After=network-online.target slingfall-attest.socket
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -30,17 +31,21 @@ Environment=SCARB_CONFIG=/var/lib/slingfall-attest/scarb-config
 Environment=SCARB_OFFLINE=true
 Environment=RAYON_NUM_THREADS=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-# Port 8547 on 127.0.0.1 (the reverse proxy in front); the limits are docs/hosting.md's.
+# The socket 127.0.0.1:8557 comes from slingfall-attest.socket (the reverse proxy in front); the
+# limits are docs/hosting.md's.
 ExecStartPre=/opt/slingfall/current/deploy/hosting/prepare.sh
 ExecStart=/usr/bin/python3 /opt/slingfall/current/services/attest/attest.py serve --execute --no-build \
-    --replay-dir /var/lib/slingfall-attest/work/crates/slingfall_replay --contract ${ATTEST_CONTRACT} --host 127.0.0.1 --port 8547 \
-    --rate 20 --rate-window 3600 --client-rate 120 --client-window 3600 \
+    --replay-dir /var/lib/slingfall-attest/work/crates/slingfall_replay --contract ${ATTEST_CONTRACT} \
+    --systemd-socket --cors-origin ${ATTEST_CORS_ORIGIN} \
+    --rate 20 --rate-window 3600 --client-rate 20 --client-window 3600 --local-rate 60 \
     --max-concurrent 1 --max-queue 4 --ttl 600
 Restart=always
 RestartSec=5
 
-# Resources: sized from one pile10 /attest --execute measured on the VPS (docs/hosting.md).
+# Resources: sized from the largest reference shot (tower) measured on the VPS (docs/hosting.md).
+# An OOM kill fails that one replay (500), not the whole unit.
 MemoryMax=@MEMORY_MAX@
+OOMPolicy=continue
 TasksMax=64
 
 # Hardening.
