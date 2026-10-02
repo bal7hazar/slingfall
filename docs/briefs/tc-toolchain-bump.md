@@ -25,6 +25,8 @@ the build root. Felt counts, CASM, CASM sha256, gas, steps and CASM-side program
   `test_pinned_class_hashes` or the `build` job's output); if CI prints no hash you can read, add a step to `ci.yml`
   that prints them (allowed, §3);
 - a local class-hash difference against CI is expected, not a regression: report both, with both build roots;
+- every pinned class hash records CI's root path beside it (in the pin file's comment or record, and in the report;
+  OPERATIONS.md §5);
 - every hash in the report names its machine and absolute build root.
 
 Read first: `AGENTS.md`, `README.md` (toolchain, commands, one heavy command at a time), `docs/briefs/b6-bump-rapier2d-alpha8.md`
