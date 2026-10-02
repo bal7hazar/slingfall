@@ -25,16 +25,27 @@ read-only; path (b) of its Table 3, chosen by the owner):
 - The contact tick is already predicted, by the chunk cut (`client/src/vm/`; read it).
 
 **Design.**
-- **The start rule is a pure function**, `shouldStart(input) -> boolean`, in `live.ts`. Its input:
-  - the ticks produced so far and the ticks shown so far;
-  - the production rate measured on the chunks already run (ticks per second, from `ChunkReport {ticks, steps, ms}`);
-  - **an estimate of the ticks still to come**. For that estimate, take the largest `ticks_run` of the level's
-    golden cases (`fixtures/golden/*`) times a margin (say which and why), capped by the level's `tick_cap` (read it
-    from the level felts; `cut.ts` skips it today, so parse it in `play.ts` or `live.ts`). Refine the estimate as the
-    shot goes, for example when the pile falls asleep, if that is cheap.
+- **The start rule is a pure function**, `shouldStart(input) -> boolean`, in `live.ts`, and it counts in **Cairo
+  steps**, not ticks: the steps per tick jump 15–20x at the contact, so a rate measured on flight chunks would be 15–20x
+  too optimistic for the rest. Its input:
+  - the ticks produced and the ticks shown so far;
+  - the measured speed in steps per second, from `steps` and `ms` of the **stepping** chunks only (`ChunkReport.ticks`
+    is 0 for `init` and `outputs`: exclude them);
+  - the remaining steps: the remaining ticks times a steps-per-tick estimate for the phase. In flight, the mean of the
+    flight chunks. After the contact, a post-contact figure: the measured mean of the post-contact chunks once there is
+    one; before that, the flight figure times a factor taken from the references (about 20x; measure it and say which).
+  - The contact is detected from the chunk reports: the first chunk whose steps per tick exceed the flight mean by a
+    threshold (say which).
+  - **Before the first stepping chunk there is no rate: the rule holds.**
 
-  Start when the time to produce the remaining ticks at the measured rate is no longer than the time to play
+  Start when the time to produce the remaining steps at the measured speed is no longer than the time to play
   everything not yet shown at real time.
+- **The ticks still to come are per shot.** Take them from single-shot golden cases: `ticks_run` is element 9 of the
+  `outputs` felt array (`OUTPUT_FIELDS`, `client/src/vm/program.ts`), for example `pile10-reference` 0x6b = 107.
+  Multi-shot cases give level totals: use the differences between consecutive shots, or a fixed per-level constant.
+  Apply a margin (say which), and cap by the level's `tick_cap` minus the current tick. `tick_cap` is felt index 5 of
+  `session.level.felts` (`cut.ts` skips it today). The owner's shot (-1022, -63) is in no golden: measure it in the
+  report.
 - **The rule applies from the release on.** On the loaded VPS even the flight is slower than real time (1.0–1.8M
   steps/s against about 2.8M needed). The contact is a lower bound, not the trigger. If you need it, take it from the
   chunk reports (the cut ends the flight chunk at the contact, and the steps per tick then jump 15–20x), not from
@@ -62,8 +73,9 @@ Everything else is forbidden; needs go to "Escalations".
 
 - `client/src/render/live.ts`, `client/src/render/live.test.ts`.
 - `client/src/game/play.ts`, `client/src/game/play.test.ts`.
-- `client/README.md`: rewrite the sentence that says playback slows to the arrival rate (around line 46), and add one
-  paragraph on the start rule.
+- `client/README.md`: rewrite the two places that describe the slow motion (around line 46, and line 88: "live
+  (arrival rate, slow-motion speed)"), and add one paragraph on the start rule. Remove `ArrivalRate` and `liveSpeed`,
+  and their tests, if nothing else uses them; otherwise keep them and say why.
 - `REPORT.md` (at the worktree root, not committed).
 - Not `buffer.ts`, `follow.ts`, `hud.ts`, `scene.ts`, `skin/**`, `stage.ts`, `main.ts`, `controller.ts`, `index.html`,
   `style.css`, `session.ts`, nor `client/vm/**`.
@@ -72,8 +84,12 @@ Everything else is forbidden; needs go to "Escalations".
 
 1. The start rule and the hold, as in §1, with unit tests:
    - the start decision for given inputs;
-   - the never-stall property once started, as a named test with the impact cam off: `playback.speed` is 1 on every
-     `advance` after the start;
+   - the never-stall property once started, as a named test with the impact cam off: with a fake producer that keeps
+     the lead, the head advances by `dt*60` on every `advance` after the start (speed 1 alone is not enough: a dry lead
+     also has speed 1 and a motionless head);
+   - a fake run where the flight chunks are fast and the impact chunk is 15x slower per tick: the rule must not start
+     at the release;
+   - a dry lead is logged with its numbers;
    - the fallback when the lead runs dry;
    - production ending while still holding (a short shot, or a fast machine): the hold releases at once, and the end
      check still fires;
@@ -81,19 +97,28 @@ Everything else is forbidden; needs go to "Escalations".
    - `dispose` during the hold;
    - a second shot that starts with the head at the last frame;
    - pause and scrub during the hold.
-2. **The proof is unchanged.** Record the outputs felts and the frame sequence (ticks and poses) of both pile10 shots
-   on main and on the branch, and require them equal. `session.fire` keeps the same arguments, except an added
-   `onChunk` handler if you need it. The existing `play.test.ts` and `vm.test.ts` pass.
+2. **The proof is unchanged.**
+   - In `play.test.ts`: assert the `session.fire` arguments (the same as main's, except an added `onChunk` handler) and
+     the exact sequence pushed into the buffer, with and without `onChunk`.
+   - For the real run: dump the buffer ticks and the outputs felts of both pile10 shots from the Mac browser run, on main
+     and on the branch, and compare them by hash.
+   - The existing `play.test.ts` and `vm.test.ts` pass.
 3. **Measure on the Mac, headless**, as real output: the wait before play, and the wall time against real time per
    phase (flight, impact, settle), on both pile10 shots: the owner's (-1022, -63) and the reference (-604, -392).
    - The client needs the wasm runner: build it first with `client/vm/scripts/build.sh` (Rust wasm32 and
      wasm-bindgen). This is outside "no Cairo build" and allowed.
    - Use the built client (`PLAY_BUILT=1` if lot PB has merged, otherwise `vite build` and `vite preview`).
-   - Driver: your own short Playwright script from `scripts/play/qa-browser.mjs`, with the `PLAYWRIGHT_MODULE` and
-     the Chromium that lot L2 used on this Mac (`docs/qa/2026-09-30-mac-play.md`). If any of these is missing, report
-     it and install nothing.
+   - Driver: your own short Playwright script. Aim the shot with the keys, as `scripts/play/qa-browser.mjs` does.
+     Sample `#scrub.value`, the HUD tick and `#simulating.hidden` with `requestAnimationFrame` in `page.evaluate`: the
+     page exposes no other hook.
+   - Use the `PLAYWRIGHT_MODULE` and the Chromium that lot L2 used on this Mac (`docs/qa/2026-09-30-mac-play.md`).
+   - `build.sh` downloads `wasm-bindgen-cli` 0.2.100 into `client/vm/tools/bin` if it is not on PATH. That download is
+     allowed, inside the repository's git-ignored tools folder. If any other prerequisite is missing, report it and
+     install nothing.
+   - If PB has not merged, use the fallback: `vite build`, then `vite preview`.
    - The VPS measurement is not yours: I take it after the merge.
-4. The slow motion is gone: no tick plays slower than real time once the head has started (the named test of 1).
+4. The slow motion is gone: no tick plays slower than real time once the head has started (the named test of 1), and
+   the Mac measurement shows **0 dry events** on both pile10 shots.
 
 ## 5. Machine
 
