@@ -250,5 +250,3 @@ Look at:
   Settled: 73.5 min from the proof request to the record (PIE 100 s, Atlantic 71 min, of which SHARP 66
   min, then the relay within a minute), 0.38 STRK for the relayed `submit_settled` on the keccak fact
   (less with the translated one; paid by the relay's account when the service relays).
-
-<!-- cp verify: docs-only -->
