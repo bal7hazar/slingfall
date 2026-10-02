@@ -44,6 +44,8 @@
 # Ports: E2E_DEVNET_PORT (5055, apart from a dev devnet on 5050), E2E_ATTEST_PORT (8548).
 # Everything is written to deploy/out/e2e/.
 set -euo pipefail
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds").
+export RAYON_NUM_THREADS=1
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/deploy/out/e2e"

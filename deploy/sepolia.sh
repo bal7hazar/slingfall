@@ -41,6 +41,8 @@
 #
 # deploy/sepolia.env gets the client's VITE_* variables (addresses only, no key, no private RPC).
 set -euo pipefail
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds").
+export RAYON_NUM_THREADS=1
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export STARKNET_RPC="${STARKNET_RPC:-${STARKNET_RPC_URL:-}}"

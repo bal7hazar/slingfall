@@ -18,11 +18,15 @@ windows into transactions of at most `TX_MAX` steps.
 
 Python 3 standard library only.
 """
+import os
 import re
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds"):
+# every build of this script runs on one.
+os.environ["RAYON_NUM_THREADS"] = "1"
 PACKAGE = Path(__file__).resolve().parents[1]
 FIXTURES = PACKAGE / "fixtures"
 TESTS = PACKAGE / "tests"
