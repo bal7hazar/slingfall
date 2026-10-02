@@ -59,3 +59,5 @@ check a new level with the awake-at-rest probe of `world/tests.cairo`
 
 `snforge test -p slingfall_rules` (the whole-shot tests run 20-40M Cairo steps each; the workspace
 `Scarb.toml` raises snforge's step cap to 400M).
+
+<!-- cp verify: docs-only -->
