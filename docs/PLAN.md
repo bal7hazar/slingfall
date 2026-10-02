@@ -5,7 +5,7 @@ Programme context: `/home/claude/projects/pm/PLAN.md` phase D. Design: `docs/DES
 
 **The MVP's settled path (owner, 2026-10-02).** The Atlantic / SHARP / Satellite path (E3a–E3c, contract v2's settled
 tier on Sepolia) is a test result, not the MVP's path: no Atlantic for the MVP. The MVP's settled tier is contract v3's
-proven tier through SNIP-36, which waits for PROOF2 on Sepolia (E2), then a SNIP-36 proving machine (the owner's to
+proven tier through SNIP-36, which waits for PROOF2 (the Starknet upgrade that verifies proofs in the protocol) on Sepolia (E2), then a SNIP-36 proving machine (the owner's to
 rent). The attestation service (provisional tier) is prepared for hosting on the VPS (HS).
 
 ## Target
@@ -50,7 +50,8 @@ orchestrator before each wave.
 | 6 | S1 ✅ #27 | substeps / tick-rate matrix (×4, ×2, ×1, 30 Hz) on the six levels with the game's own stability criteria (rapier: golden fidelity cannot separate them); switch the default to the cheapest stable setting | Sonnet | G8b |
 | 6 | C1 ✅ #26 | client on Sepolia: `.env.sepolia` (public values), `build:sepolia`, Voyager links, `docs/testers.md`, Pages workflow (manual, owner enables Pages) | Sonnet | E3b |
 | 5 | E3c ✅ #25 | translation: the prover service calls the Satellite's permissionless `translateFactHash` when Atlantic's `…_WITH_TRANSLATION` stalls, so settlements take the Poseidon path (0.79x the attested submit instead of 2.12x); service test + Sepolia check | Sonnet | E3b |
-| 5 | E2 | SNIP-36 round trip on Sepolia (blocked by the class size until rapier CS1 / CS2): `simulate` proven with `snip36 prove virtual-os`, `submit` consuming `proof_facts`; needs a funded Sepolia account and a ≥ 32 GB prover box (owner) | Opus | G7, G4 |
+| 5 | E2 | SNIP-36 round trip on Sepolia (the class size is solved since layout (e), V3 #40 / B6 #43; now blocked by PROOF2, the Starknet upgrade that verifies proofs in the protocol, not yet live on Sepolia): `simulate` proven with `snip36 prove virtual-os`, `submit` consuming `proof_facts`; needs a funded Sepolia account and a ≥ 32 GB prover box (owner) | Opus | G7, G4 |
+| 5 | HS | the attestation service (provisional tier) ready for the owner to host on the VPS: root-owned install tree, key file owned by a dedicated user, 127.0.0.1, `/health`, logging, per-player / per-client / global limits, systemd unit, `docs/hosting.md`; nothing installed (`docs/briefs/hs-hosting-services.md`) | Opus | — |
 | 5 | G9 | client submission flow: Cartridge Controller / get-starknet, prove request (local helper or service), `submit` transaction, validation status reads | Opus | E2, G6b |
 
 Critical path: B0 → G2 → G3 → G4 → G5 → E2 → G9. G6, G1c, G7 run in parallel from wave 1-2.
