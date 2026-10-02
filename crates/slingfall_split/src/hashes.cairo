@@ -42,7 +42,7 @@ pub const STEP_HASH: felt252 = 0x3c420b3e3689244a0c6d399f4b4f8662bd1429e04e11dbf
 
 pub const WORLD_HASH: felt252 = 0x7d40b2eddf6080060620d54a5dccaf02e19181f8f988a5acfc4854c975961f3;
 pub const FALLBACK_GAME_HASH: felt252 =
-    0x12017cd55e705129fb53848d6a8be816a5c45783f55eaa5eaf7a64a9c0ef2a2;
+    0x458b7f5a168f46a124ade6ed56832fdc3d6156b4b4e4417e44b3a0f7bfd5310;
 pub const BUILD_HASH: felt252 = 0x592421400795bf672876d4270c8cd5e53b853f60e841ec24af7c9459ecb5bc0;
 pub const SETTLE_HASH: felt252 = 0x38650b81140f92b1209aab2e798e19d49f75fe93aca1d4191ceb02f7794d029;
 pub const OUTPUTS_HASH: felt252 = 0x4debb40a1fa636c3a68c9c540236ef5caf0c034d413dd86db84a95b76c0a0d6;
@@ -52,7 +52,7 @@ pub const SPLIT_CHAIN_HASH: felt252 =
 /// The bundle hash of layout (e)'s chain (contract v3's `pin_chain`): Poseidon of [`bundle`].
 /// `services/prove/snip36.py` (`own_bundle`) and `deploy/split.ts` (`bundleOf`) compute the same
 /// value from `classes.json`'s order and the constants above (their tests check this one).
-pub const BUNDLE_HASH: felt252 = 0x47835a67bcd21b6dbc0628e31de7b8a4f1a8a13100dc324aba531f90043353;
+pub const BUNDLE_HASH: felt252 = 0x318b7756466e3f8e77a9639afacd6b449673f937e766c1416b7f42fd8179ae;
 
 /// The class hash of the stage classes the game never calls (`ContactPolygonClass`: in
 /// `NarrowPhaseClass` since alpha.8; `SolverClass`, `ForceEventsClass`: `SlimSplitStages` runs the
