@@ -52,9 +52,13 @@ Everything else is forbidden; needs go to "Escalations".
   - the systemd unit `slingfall-attest.service`;
   - an environment file template with placeholders only (`attest.env.example`);
   - `install.sh`, which the owner reads and runs as root. You never run it. It must be idempotent, print what it
-    will do before doing it, never read or print the key file, and copy only from the exact revision the owner names
-    (for example a `git archive` of a given sha), never from an agent-writable tree after the owner has read it.
-- `services/attest/attest.py` and `services/attest/test_attest.py`, only for the deltas of §4.
+    will do before doing it, and never read or print the key file. **Where it comes from:** the agents' clone is
+    agent-writable, objects included, so the owner never reads or runs anything from it. `docs/hosting.md` tells the
+    owner to fetch the revision, as root, by a hash-verified fetch from the GitHub remote into a root-owned directory
+    (a fresh `git clone` then `git checkout <sha>`, or `git fetch origin <sha>`), to read `install.sh` there, and to
+    run it from there. `install.sh` installs from that directory only, and writes a `REVISION` file with the sha.
+- `services/attest/attest.py` and `services/attest/test_attest.py`, only for the deltas of §4; `tools/golden/golden.py`
+  only as §4.5 allows.
 - `docs/hosting.md` (new): the operations note.
 - `REPORT.md` at the worktree root.
 - Not `services/prove/**`, not `scripts/play.sh` (local play must keep working unchanged), not `.github/**`.
@@ -69,15 +73,20 @@ What already exists on main, to keep:
 `play.sh` passes `--rate 0`: that must keep meaning "no limit". The unit passes flags in `ExecStart`; add environment
 variables only where a flag cannot do it.
 
-1. **`/health`**: answers 200 with a small JSON: service name, git sha of the installed code, uptime, and the
+1. **`/health`**: answers 200 with a small JSON: service name, git sha of the installed code (read from the
+   `REVISION` file `install.sh` writes; the installed tree has no `.git`), uptime, and the
    contract address and epoch it last read. It makes no chain call of its own and reads no secret.
 2. **Logging**: one line per request to stdout (journald keeps it): time, method, path, status, duration, and the
    player if any. Never a key, a signature's private input or a full body.
 3. **Rate limits.** The player key is chosen by the caller (`player_of`), so a per-player limit alone does not stop
    a flood of `--execute` replays.
    - Keep the per-player limit.
-   - Add a per-client limit keyed on `X-Forwarded-For` as Caddy sets it, trusted only when the peer is `127.0.0.1`.
+   - Add a per-client limit keyed on `X-Forwarded-For` as Caddy sets it (its last entry), trusted only when the
+     peer is `127.0.0.1`. Local callers are outside this limit; say so in the note.
    - Add a global cap on concurrent and queued replays.
+   - `play.sh` may not change and passes only `--rate 0`: `--rate 0` turns off **every** limit (per player, per client
+     and global), or the new limits default to values local play cannot reach. Choose and say which. A test runs the
+     `play.sh` flag set and shows that many requests from one peer are all served.
    - Prune idle keys, so memory stays bounded.
    - Answer 429 with `Retry-After`.
    - In memory is enough (one process); say so.
@@ -90,11 +99,23 @@ variables only where a flag cannot do it.
    - Preferred: prebuilt replay artefacts plus a `scarb` installed outside `/home` (say how: version, path, by
      whom), with no compile at runtime.
    - If a runtime compile cannot be avoided, its target directory is the service's scratch directory.
+   - The unit's environment names everything `scarb execute --no-build` needs, with nothing under `/home`: `PATH`
+     (the scarb directory), `HOME`, `SCARB_CACHE` and any scarb config directory, in the scratch directory or as an
+     offline, pre-filled cache in the root-owned tree. Say whether scarb writes `target/`, a lock or `Scarb.lock` next
+     to the manifest, and where that goes.
+   - **Prove the read-only run before the owner installs:** copy the tree to a temporary directory, `chmod -R a-w`
+     it, run `attest.py serve --execute --no-build` with `HOME` and `SCARB_CACHE` in a separate scratch directory and a
+     throwaway key, and post one pile10 request. Report the commands and the output.
+   - If `tools/golden/golden.py` must change for this (for example to point at prebuilt artefacts), it is allowed, only
+     for that.
    - Whatever you choose, say what the owner must re-install after a merge touching `services/attest`,
      `tools/golden` or the crates the replay builds.
 6. **systemd unit**:
    - `User=` the dedicated user (a placeholder name the owner chooses, documented);
-   - `Restart=always`, `WantedBy=multi-user.target` (restart on reboot);
+   - `ExecStart=` with `serve --execute --no-build` and the bind, port and limit flags; never `--no-verify` or
+     `--verify-cmd`;
+   - `Restart=always`, `RestartSec=`, a start limit, and `WantedBy=multi-user.target` (restart on reboot);
+   - `MemoryMax=` and `TasksMax=`, sized from the measurement of §4.7;
    - `EnvironmentFile=` the env file;
    - `WorkingDirectory=` inside the root-owned tree;
    - hardening that matches §1: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=true` (nothing under
@@ -106,8 +127,8 @@ variables only where a flag cannot do it.
    - how to install, start, stop and restart, and how to read the logs (`journalctl -u ...`);
    - what to re-install after which merges;
    - how to rotate the key: write the new file, restart, check `/health` and
-     `attest.py pubkey` (through `_FILE`), then the owner's `set_attestation_key` transaction. Expect a short window
-     of rejected attestations;
+     `attest.py pubkey` (through `_FILE`), then the owner's `set_attestation_key` transaction, then restart again (or
+     wait the epoch cache's TTL). Attestations from the first restart to the second are rejected: say so;
    - example Caddy lines for the subdomain later (an example, not a change);
    - the port, every rate-limit flag with its default and why;
    - the memory and CPU of one `/attest --execute` request on the pile10 reference shot, measured on the VPS with a
