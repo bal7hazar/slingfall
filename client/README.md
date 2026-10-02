@@ -41,10 +41,17 @@ aim too, one pull unit per press (Shift: ten), from the last pull released; **En
 **Escape** cancels; every integer pull of the disk is reachable. The dotted arc is the exact
 flight of the pebble, up to the first tick inside a body's box (a display cut, not physics).
 Releasing runs that shot in the worker, from the previous shot's state, with the inputs so far;
-the shot counts as spent at once. Frames play at 60 Hz as they arrive (interpolated for display
-only); when they lag real time (the impact: 3x the Cairo steps per tick of the flight) the
-playback slows to their arrival rate and the HUD says "simulating…"
-(**slow-motion impact**, `src/render/live.ts`). Damaged bodies flash, destroyed ones fade out at
+the shot counts as spent at once. Frames play at 60 Hz (interpolated for display
+only), but not at once: the worker computes the shot ahead and the head holds on the release frame
+(the HUD says "simulating…") until the rest of the shot cannot be produced slower than it plays;
+it then runs at real time to the end, with no slow motion (`src/render/live.ts`, `shouldStart`).
+The rule counts in Cairo steps: from the chunk reports (steps and ms of the stepping chunks) it
+measures the VM's speed and the flight's steps per tick; every tick not yet produced is priced at
+the post-contact prior (the flight mean times `POST_CONTACT_PRIOR`) until a chunk whose steps per
+tick are at least twice the flight mean (the contact) has been measured, and at that chunk's mean
+after; the ticks to come are the level's longest known shot with a margin (`LEVEL_SHOT_TICKS`, keyed
+on the level id), else its tick cap. If a prediction is wrong and the lead runs dry, the head waits
+on the last frame at real-time speed and the event is logged with its numbers (`console.warn`). Damaged bodies flash, destroyed ones fade out at
 their last pose, and the spent pebble fades out at the end of its shot (`src/render/effects.ts`);
 the HUD shows score, shots left, tick and pull. The sling re-arms, and at the level's end the
 result panel opens, only once the worker is done **and** the playback has shown the shot's last
@@ -85,7 +92,7 @@ frame, ticks, steps, seconds, chunks, wasm) and the outputs.
 | `src/aim/arc.ts` | `flightArc`: the exact arc, rapier's substepped free flight (`SUBSTEPS = 4` Euler steps of `dt // 4` per tick, mirrors `SOLVER_ITERATIONS`); the formula is documented at the top of the file |
 | `src/aim/contact.ts` | body AABBs at the settled poses: where the preview stops (display only) |
 | `src/aim/controller.ts` | pointer and arrow-key aiming, the sling and aim overlay drawing |
-| `src/render/` | `buffer` (frames as `f64` columns), `scene` (PixiJS bodies), `camera` (framing), `follow` (the camera following a flight), `playback`, `hud`, `live` (arrival rate, slow-motion speed), `effects` (flashes, fade-outs, spent pebbles) |
+| `src/render/` | `buffer` (frames as `f64` columns), `scene` (PixiJS bodies), `camera` (framing), `follow` (the camera following a flight), `playback`, `hud`, `live` (when the live head may start: `shouldStart`), `effects` (flashes, fade-outs, spent pebbles) |
 | `src/game/session.ts` | `LevelSession`: the shot loop without DOM (`init` once, a shot per release from the previous state, the inputs kept, level over from the state header, outputs, retry) |
 | `src/game/play.ts` | `ShotLoop`: release, frames into the buffer, the playback head, and the gate (re-arm or result only once the shot has been shown) |
 | `src/game/stage.ts` | what one level draws: buffer, scene, effects, camera, aim |

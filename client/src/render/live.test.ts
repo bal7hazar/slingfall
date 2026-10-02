@@ -1,43 +1,73 @@
 import { describe, expect, it } from 'vitest';
 import { TraceBuffer } from './buffer';
 import { Effects, FADE_MS, FLASH_MS } from './effects';
-import { ArrivalRate, LEAD_FRAMES, liveSpeed } from './live';
+import { TICKS_PER_SECOND } from './playback';
+import { expectedShotTicks, ProductionModel, shouldStart, TICKS_MARGIN } from './live';
 import { buildPile10 } from '../trace/synth';
 import type { TraceEvent } from '../trace/types';
 
-describe('ArrivalRate', () => {
-  it('counts the frames of the last second', () => {
-    const rate = new ArrivalRate();
-    expect(rate.fps(0)).toBe(0);
-    for (let t = 0; t <= 500; t += 50) rate.push(t); // 11 frames in 500 ms
-    expect(rate.fps(500)).toBeCloseTo(22);
-    // Two seconds later nothing is in the window.
-    expect(rate.fps(2600)).toBe(0);
-    rate.reset();
-    expect(rate.fps(500)).toBe(0);
+describe('shouldStart', () => {
+  // 150 ticks to play: 2.5 s of real time. Flight ticks cost 65k steps.
+  const base = { produced: 20, shown: 0, expectedTicks: 150, stepsPerSecond: 4e6, flightStepsPerTick: 65_000, postContactStepsPerTick: null };
+
+  it('holds before the first stepping chunk: no rate', () => {
+    expect(shouldStart({ ...base, stepsPerSecond: 0, flightStepsPerTick: 0, produced: 0 })).toBe(false);
   });
 
-  it('keeps a bounded ring when frames arrive much faster than real time', () => {
-    const rate = new ArrivalRate();
-    for (let i = 0; i < 1000; i++) rate.push(i * 0.5);
-    expect(rate.fps(500)).toBeGreaterThan(1000);
+  it('prices the ticks to come at the post-contact prior, not the flight rate, until a contact is measured', () => {
+    // At the flight rate the rest (130 x 65k = 8.5M steps at 4M/s: 2.1 s) would be done within 2.5 s...
+    const flightPriced = ((base.expectedTicks - base.produced) * base.flightStepsPerTick) / base.stepsPerSecond;
+    expect(flightPriced).toBeLessThan(base.expectedTicks / TICKS_PER_SECOND);
+    // ...but the contact is still ahead: at 6x it takes 12.7 s, so the rule holds.
+    expect(shouldStart(base)).toBe(false);
+    // On a machine 8x faster even the prior fits.
+    expect(shouldStart({ ...base, stepsPerSecond: 32e6 })).toBe(true);
+  });
+
+  it('a measured post-contact mean replaces the prior', () => {
+    // The impact was cheap (2x the flight): 130 x 130k = 16.9M steps at 8M/s = 2.1 s <= 2.5 s.
+    const input = { ...base, stepsPerSecond: 8e6 };
+    expect(shouldStart(input)).toBe(false); // the prior (6x) says 6.3 s
+    expect(shouldStart({ ...input, postContactStepsPerTick: 130_000 })).toBe(true);
+    // A measured impact dearer than the prior holds even where the prior would start.
+    expect(shouldStart({ ...input, stepsPerSecond: 32e6, postContactStepsPerTick: 1_000_000 })).toBe(false);
+  });
+
+  it('plays what is not shown yet: a head already ahead needs less lead, a shot longer than expected is not priced', () => {
+    expect(shouldStart({ ...base, stepsPerSecond: 12e6, produced: 100, shown: 0 })).toBe(true);
+    expect(shouldStart({ ...base, stepsPerSecond: 12e6, produced: 100, shown: 100 })).toBe(false);
+    // Produced past the expected total: nothing left to produce.
+    expect(shouldStart({ ...base, produced: 160 })).toBe(true);
   });
 });
 
-describe('liveSpeed', () => {
-  it('plays at real time with a full lead or once the worker is done', () => {
-    expect(liveSpeed(LEAD_FRAMES, true, 5)).toBe(1);
-    expect(liveSpeed(0, false, 0)).toBe(1);
+describe('expectedShotTicks', () => {
+  it('uses the level table with the margin, capped; a level with no entry defaults to the cap', () => {
+    expect(expectedShotTicks(2, 180)).toBe(180); // 151 x 1.25 = 189 -> cap
+    expect(expectedShotTicks(1, 360)).toBe(Math.ceil(150 * TICKS_MARGIN));
+    expect(expectedShotTicks(99, 180)).toBe(180);
+    expect(expectedShotTicks(1, 360, 30)).toBe(Math.ceil(150 * TICKS_MARGIN) + 30);
+    expect(expectedShotTicks(99, 180, 30)).toBe(210);
   });
+});
 
-  it('slows to the arrival rate when the frames lag real time (slow-motion impact)', () => {
-    // 20 frames per second arriving, half the lead: a third of real time times 0.75.
-    expect(liveSpeed(LEAD_FRAMES / 2, true, 20)).toBeCloseTo((20 / 60) * 0.75);
-    // No lead: half the arrival rate, so the lead rebuilds.
-    expect(liveSpeed(0, true, 30)).toBeCloseTo(0.25);
-    // Faster than real time: never above 1.
-    expect(liveSpeed(1, true, 600)).toBe(1);
-    expect(liveSpeed(0, true, 0)).toBe(0);
+describe('ProductionModel', () => {
+  it('excludes init and outputs, detects the contact at 2x the flight mean and splits the means', () => {
+    const m = new ProductionModel();
+    expect(m.push({ ticks: 0, steps: 5e6, ms: 900 })).toBe(false); // init
+    expect(m.stepsPerSecond).toBe(0);
+    expect(m.flightStepsPerTick).toBe(0);
+    m.push({ ticks: 5, steps: 325_000, ms: 100 });
+    m.push({ ticks: 10, steps: 650_000, ms: 100 }); // flight: 65k per tick
+    expect(m.contact).toBe(false);
+    expect(m.push({ ticks: 4, steps: 4 * 97_500, ms: 100 })).toBe(false); // 1.5x: still flight (mean 71.8k)
+    expect(m.push({ ticks: 4, steps: 4 * 150_000, ms: 100 })).toBe(true); // 2.1x of it
+    expect(m.postContactStepsPerTick).toBe(150_000);
+    expect(m.push({ ticks: 4, steps: 4 * 70_000, ms: 100 })).toBe(false);
+    expect(m.flightStepsPerTick).toBeCloseTo((325_000 + 650_000 + 4 * 97_500) / 19);
+    expect(m.postContactStepsPerTick).toBeCloseTo((4 * 150_000 + 4 * 70_000) / 8);
+    expect(m.produced).toBe(27);
+    expect(m.stepsPerSecond).toBeCloseTo((325_000 + 650_000 + 4 * 97_500 + 4 * 150_000 + 4 * 70_000) / 0.5);
   });
 });
 
