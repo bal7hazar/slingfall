@@ -24,8 +24,8 @@ ports are free.
 | | needed for | install |
 |---|---|---|
 | Node 24 (`.tool-versions`: 24.21.0) | the client, `deploy/slingfall.ts` | `asdf plugin add nodejs && asdf install nodejs 24.21.0` |
-| scarb 2.19.4 | the replay, the contract, the proven tier's classes | `asdf plugin add scarb && asdf install scarb 2.19.4` |
-| snforge 0.61.0 | the Cairo tests only (not to play) | `asdf plugin add starknet-foundry && asdf install starknet-foundry 0.61.0` |
+| scarb 2.20.1 | the replay, the contract, the proven tier's classes | `asdf plugin add scarb && asdf install scarb 2.20.1` |
+| snforge 0.64.0 | the Cairo tests only (not to play) | `asdf plugin add starknet-foundry && asdf install starknet-foundry 0.64.0` |
 | Python 3.10+ | both services (standard library only) | macOS: `brew install python`; Linux: the distribution's `python3` |
 | Rust (rustup) | once, to build the browser's Cairo VM (`client/vm/`, a few minutes) | https://rustup.rs; the pinned toolchain installs itself |
 | curl, tar | the devnet's release binary | present on both systems |
