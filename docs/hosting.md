@@ -4,6 +4,12 @@ For the owner: how `services/attest` (the provisional tier, `docs/contract-v2.md
 permanent service on the VPS. Lot HS (`docs/briefs/hs-hosting-services.md`). Every step here is root's, and
 the owner's: no agent runs them.
 
+**Root's shell.** The owner logs in as root directly, over SSH from their own machine (`ssh root@<vps>`). Never
+through `su` or `sudo` typed in the agents' account, nor in a terminal that account runs (herdr, tmux, the `ttyd`
+web terminal): the agents can rewrite that account's shell start-up files, so a password typed there, or the
+root shell it opens, would be theirs. This holds for every section below: "Create", "Install a revision",
+"Rotating the key".
+
 ## Why it is laid out this way
 
 Every agent runs as the same Unix user, which can write its whole home (checkouts, the asdf toolchain). So the
@@ -26,7 +32,7 @@ attestation key must be out of that user's reach, both for reading and for runni
 | `/run/slingfall-attest/attest.sock` | `root:caddy` | 0660 | the service's socket (systemd's; its directory root 0755) |
 | `/opt/slingfall/releases/<sha>/` | root | read-only | one installed revision: code, prebuilt replay, offline scarb cache, `REVISION` |
 | `/opt/slingfall/current` | root | link | the running release |
-| `/opt/slingfall/scarb/scarb-v2.19.4-x86_64-unknown-linux-gnu/` | root | read-only | scarb, the official tarball |
+| `/opt/slingfall/scarb/scarb-v2.20.1-x86_64-unknown-linux-gnu/` | root | read-only | scarb 2.20.1, the official tarball |
 | `/opt/slingfall/.build/` | root | 0755 | `install.sh`'s scratch builds (one directory per run, removed after it) |
 | `/var/lib/slingfall-attest/` | `<user>` | 0700 | scratch: `HOME`, the replay's working copy, scarb's cache and config |
 
@@ -46,9 +52,9 @@ that changed since the running revision:
 cd /root/src/slingfall-$SHA
 OLD="$(cat /opt/slingfall/current/REVISION)"
 # 1. All the Python the service runs with the key (the six directories it puts on sys.path, every file in
-#    them), and what root runs or installs: read in full.
+#    them), what root runs or installs, and every .gitattributes (the root one included): read in full.
 git diff "$OLD" "$SHA" -- services/attest crates/slingfall_contract/tools tools/atlantic tools/golden \
-    tools/levelc tools/tracec deploy/hosting
+    tools/levelc tools/tracec deploy/hosting ':(glob)**/.gitattributes'
 # 2. The Cairo dependencies: read in full.
 git diff "$OLD" "$SHA" -- Scarb.lock crates/slingfall_replay/Scarb.lock
 # 3. The rest of the release: the Cairo crates and the fixtures.
@@ -61,11 +67,16 @@ the modules it imports today: anything placed there could be imported by the ser
 `deploy/hosting` (`install.sh`, `prepare.sh`, the units), which root runs or installs. `install.sh` backs this
 up: it refuses a revision that holds compiled Python (`__pycache__`, `*.pyc`) anywhere, or any importable file
 (`*.py`, `*.so`, ...) in those six directories that is not in its own `PYTHON_FILES` list, so a new module shows
-up in the `install.sh` diff too.
+up in the `install.sh` diff too. The `.gitattributes` files are in it because `git archive`, which `install.sh`
+uses to export the release, applies their `export-subst` (which expands `$Format:...$` placeholders, the commit
+message included) and `export-ignore`: the release could then differ from the reviewed files. `install.sh`
+refuses either attribute on a release path, and checks every exported file against its blob in the commit
+(content and mode), with no file missing or extra: the release is the reviewed bytes.
 
 On the first install there is no previous revision: the owner reads all of those directories in full, for
 example `ls -R services/attest crates/slingfall_contract/tools tools/atlantic tools/golden tools/levelc
-tools/tracec deploy/hosting`, then each file (`less`, or `git show $SHA:<path>`).
+tools/tracec deploy/hosting` and `git ls-files ':(glob)**/.gitattributes'`, then each file (`less`, or
+`git show $SHA:<path>`).
 
 The second command shows the Cairo dependencies: registry packages the programme's orchestrators publish. A bump
 there changes what the replay computes, so what gets signed. The owner reads it in full and checks each changed
@@ -87,6 +98,10 @@ install -d -o root -g root -m 0755 /etc/slingfall
 install -o slingfall-attest -g slingfall-attest -m 0600 /dev/null /etc/slingfall/attest.key
 $EDITOR /etc/slingfall/attest.key
 ```
+
+The key is generated on the owner's own machine and pasted straight into the editor (or generated here as root
+with code not taken from `/home`): never with the repository's tools from an agent's checkout, which the agents
+control.
 
 `install.sh` creates `/opt/slingfall`, the state directory comes from the unit (`StateDirectory=`), and the
 environment file from the template.
@@ -134,14 +149,24 @@ inaccessible, no new privileges, and every process it started killed when it end
 
 Root then takes only regular files from what `nobody` wrote, copied without following links: if the build
 left a symbolic link, a device or a socket among the executables or in the scarb cache, or if either directory
-resolves (`realpath`) outside the build directory, the install is refused.
+resolves (`realpath`) outside the build directory, the install is refused. It also refuses any shared object or
+ELF file there: the service user runs no native code from the build.
+
+That is why `install.sh` makes one deliberate change to the exported files: before the build, it strips the
+replay's `Scarb.toml` of what only its tests use (`[dev-dependencies]`, `allow-prebuilt-plugins`, the snforge
+profile and tool sections). With them, `scarb execute --no-build` loads the prebuilt
+`snforge_scarb_plugin_v0.64.0_x86_64-unknown-linux-gnu.so` from the scarb cache on every replay (measured with
+`strace -f -e trace=openat`, scarb 2.20.1): native code fetched from the registry, run as the key's owner.
+Without them, scarb fetches no plugin, and the replay opens no shared object outside the system's libraries
+(`/lib/x86_64-linux-gnu`) and scarb's own directory (measured the same way: "Resources" below).
 The script copies the five `*.executable.json` and that build's scarb cache into the release, makes the release
 root-owned and read-only, then runs it as the service will (`prepare.sh`, then the replay offline), again as
 `nobody` in a confined unit, and refuses to install unless the pile10 reference shot gives its committed golden
 outputs. Nothing on this VPS is known to run as `nobody`, and agents cannot become it.
 
-scarb is the official release tarball of the version `.tool-versions` pins (2.19.4), checked against the
-release's sha256 (pinned in `install.sh`), extracted by root into `/opt/slingfall/scarb`. The unit's
+scarb is the official release tarball of the version `.tool-versions` pins (2.20.1), checked against the
+sha256 of the release's own `checksums.sha256` (pinned in `install.sh`:
+`https://github.com/software-mansion/scarb/releases/download/v2.20.1/checksums.sha256`, fetched 2026-10-02), extracted by root into `/opt/slingfall/scarb`. The unit's
 environment names everything `scarb execute --no-build` reads, nothing under `/home`: `PATH` (scarb's `bin`
 first, then `/usr/bin:/bin`), `HOME`, `SCARB_CACHE` and `SCARB_CONFIG` (both in the state directory),
 `SCARB_OFFLINE=true`.
@@ -201,9 +226,9 @@ the service at all, and nothing else can take the path while the service is down
 `X-Forwarded-For` only on that socket. Started on TCP instead (`--host`/`--port`, local play), it never reads the
 header: a loopback caller counts as `local` whatever it sends, any other peer by its own address.
 
-A connection idle for 10 s (headers or body not arriving) is closed, a stalled body with 408; at most 32
-connections are open at once and the next is closed at once, so slow connections cannot exhaust the unit's
-`TasksMax=64`. A request body above 16 KiB answers 413 (an `--execute` request is under 1 KiB). Browsers may call
+A connection idle for 10 s (headers or body not arriving), or still sending its request 20 s after it opened
+(however slowly it trickles), is closed, a late body with 408; at most @MAX_CONNECTIONS@ connections are open at
+once and the next is closed at once, so slow connections cannot exhaust the unit's `TasksMax=@TASKS_MAX@`. A request body above 16 KiB answers 413 (an `--execute` request is under 1 KiB). Browsers may call
 only from `ATTEST_CORS_ORIGIN` (the env file: the web client's origin, `https://<subdomain>`).
 
 The limits are in memory (one process: a restart resets them) and answer 429 with `Retry-After`. They are charged
@@ -265,6 +290,9 @@ heavy-build lock: a replay can coincide with an agent's build, within the VPS's 
 
 ## Rotating the key
 
+As root, logged in directly over SSH from the owner's own machine ("Root's shell" above), with the new key
+generated on that machine:
+
 1. Write the new key: `install -o slingfall-attest -g slingfall-attest -m 0600 /dev/null /etc/slingfall/attest.key.new`,
    edit it, then `mv /etc/slingfall/attest.key.new /etc/slingfall/attest.key`.
 2. `systemctl restart slingfall-attest`; `curl -s --unix-socket /run/slingfall-attest/attest.sock http://localhost/health`
@@ -278,12 +306,18 @@ From the first restart until step 5, attestations are rejected by the contract: 
 still holds the old key, then because they carry the old epoch. Attestations signed before the rotation are
 void once the epoch bumps. Plan the rotation for a quiet moment; it takes a minute.
 
-## Caddy, later (an example, not a change)
+## Caddy, when the subdomain exists
 
-When the owner creates the subdomain (Caddy's user must be in the socket's group, `caddy` by default):
+The site's lines are an example; the global options are not: `admin off`, the read timeouts and no
+`trusted_proxies` are part of the service's protection. The service bounds each request too (10 s idle, 20 s in
+all), but the timeouts keep slow clients at Caddy. Caddy's user must be in the socket's group (`caddy` by
+default).
 
 ```caddy
 {
+    # Required: no admin API (the live state), and these timeouts.
+    # Never add trusted_proxies (in the global or the server options) covering loopback or this machine's
+    # addresses (private_ranges included): Caddy would then pass on an X-Forwarded-For a local caller wrote.
     admin off
     servers {
         timeouts {
@@ -302,10 +336,10 @@ attest.<domain> {
 ```
 
 Caddy replaces any `X-Forwarded-For` from an untrusted client with the address it saw, which is what the
-per-client limit reads; the read timeouts keep slow clients at Caddy. **The per-client limit is only as
-trustworthy as Caddy's admin access.** By default Caddy's admin API listens on `127.0.0.1:2019` without
-authentication, so any local user, the agents' included, could replace Caddy's configuration: set any
-`X-Forwarded-For`, lift the body cap, or send the subdomain to another process. On this VPS Caddy's admin API is
-off (`admin off`, the live state since 2026-10-02), and the example keeps it so. With the API off, `caddy reload`
-cannot apply a change: any change to Caddy's configuration, this site included, takes `systemctl restart caddy`. The web client then points `VITE_ATTEST_URL` at `https://attest.<domain>`, and
-`ATTEST_CORS_ORIGIN` is that client's origin.
+per-client limit reads. **The per-client limit is only as trustworthy as Caddy's admin access and its
+`trusted_proxies`.** By default Caddy's admin API listens on `127.0.0.1:2019` without authentication, so any local
+user, the agents' included, could replace Caddy's configuration: set any `X-Forwarded-For`, lift the body cap, or
+send the subdomain to another process. On this VPS Caddy's admin API is off (`admin off`, the live state since
+2026-10-02), and the example keeps it so. With the API off, `caddy reload` cannot apply a change: any change to
+Caddy's configuration, this site included, takes `systemctl restart caddy`. The web client then points
+`VITE_ATTEST_URL` at `https://attest.<domain>`, and `ATTEST_CORS_ORIGIN` is that client's origin.

@@ -128,16 +128,17 @@ check_archive() {
 # --- archive checks: end
 
 # --- replay manifest: begin
-# strip_test_parts MANIFEST: the replay's Scarb.toml without what only its tests use ([dev-dependencies],
-# allow-prebuilt-plugins, the snforge profile and tool sections). With them, scarb loads the prebuilt
+# strip_test_parts MANIFEST: a crate's Scarb.toml without what only its tests use ([dev-dependencies],
+# allow-prebuilt-plugins, the snforge profile and tool settings). With them, scarb loads the prebuilt
 # snforge_scarb_plugin shared object from its cache on every `scarb execute --no-build` (measured with
-# strace): native code fetched from the registry, run as the key's owner. Without them, scarb fetches no
-# plugin and loads no shared object outside its own directory and the system.
+# strace): native code fetched from the registry, run as the key's owner. Applied to every crate of the
+# release (the replay's path dependencies have snforge_std dev-dependencies too), scarb fetches no plugin
+# and loads no shared object outside its own directory and the system.
 strip_test_parts() {
   local m="$1"
   awk '
     /^\[/ { skip = ($0 ~ /^\[dev-dependencies\]/ || $0 ~ /^\[profile\.snforge/ || $0 ~ /^\[tool\.snforge\]/) }
-    /^allow-prebuilt-plugins/ { next }
+    /^allow-prebuilt-plugins/ || /^snforge\.workspace/ { next }
     !skip
   ' "$m" >"$m.stripped" && mv "$m.stripped" "$m"
   ! grep -v '^[[:space:]]*#' "$m" | grep -q snforge || die "$m still names snforge once stripped: update install.sh"
@@ -253,8 +254,11 @@ if [ ! -d "$REL" ]; then
   for d in "${PYTHON_DIRS[@]}"; do
     [ -d "$stage/$d" ] || die "$d (PYTHON_DIRS) is not in the revision: update install.sh"
   done
-  # The one deliberate difference from the reviewed bytes: the replay's manifest loses its test-only parts.
-  strip_test_parts "$stage/crates/slingfall_replay/Scarb.toml"
+  # The one deliberate difference from the reviewed bytes: the crates' manifests lose their test-only parts
+  # (and the replay's Scarb.lock is then the one the build settles, below).
+  for m in "$stage"/crates/*/Scarb.toml; do
+    strip_test_parts "$m"
+  done
   # No compiled Python anywhere, and nothing importable on the service's sys.path but PYTHON_FILES.
   odd="$(find "$stage" \( -name __pycache__ -o -name '*.pyc' -o -name '*.pyo' \) -print -quit)"
   [ -z "$odd" ] || die "the revision holds compiled Python: ${odd#"$stage"/}: refused"
@@ -291,6 +295,10 @@ if [ ! -d "$REL" ]; then
     cp -P --no-preserve=all "$f" "$stage/crates/slingfall_replay/target/dev/"
   done
   cp -RP --no-preserve=all "$build/home/scarb-cache" "$stage/scarb-cache"
+  # The lock file the build settled for the stripped manifests: scarb need not rewrite it at runtime.
+  lock="$build/src/crates/slingfall_replay/Scarb.lock"
+  { [ -f "$lock" ] && [ ! -L "$lock" ]; } || die "$lock: not a regular file"
+  cp -P --no-preserve=all "$lock" "$stage/crates/slingfall_replay/Scarb.lock"
   odd="$(find "$stage" ! -type f ! -type d -print -quit)"
   [ -z "$odd" ] || die "the release holds $odd, not a regular file or directory: refused"
   echo "$SHA" >"$stage/REVISION"
@@ -312,9 +320,10 @@ sys.path.insert(0, "services/attest")
 import attest, golden
 case = next(c for c in json.load(open("fixtures/golden/cases.json"))["cases"] if c["name"] == "pile10-reference")
 want = [int(v, 16) for v in json.load(open("fixtures/golden/pile10-reference.json"))["outputs"]]
-got = attest.scarb_replay("pile10", golden.case_inputs(case), Path(os.environ["REPLAY_DIR"]))
-assert got == want, f"pile10-reference: {got} != {want}"
-print("install.sh: pile10-reference replays to its golden outputs")
+for run in (1, 2):  # twice: the second run uses whatever the first left in the working copy
+    got = attest.scarb_replay("pile10", golden.case_inputs(case), Path(os.environ["REPLAY_DIR"]))
+    assert got == want, f"pile10-reference, run {run}: {got} != {want}"
+print("install.sh: pile10-reference replays to its golden outputs, twice")
 EOF
   mv -T "$stage" "$REL"
   rm -rf "$build"
