@@ -252,13 +252,22 @@ files, a `withdraw_gas` check landing 12 times in one function and 8 in another;
 `RAYON_NUM_THREADS=1`, 6 of 6 builds were identical). Everything this repository hashes, sizes, declares,
 snapshots or measures depends on the exact output, so **every such build runs with `RAYON_NUM_THREADS=1`,
 set by the script itself**, never left to the caller (the machine's shims set 4): `tools/classsize`,
-`crates/slingfall_split/scripts/{pin,heavy}.py`, `scripts/steps.py`, `tools/golden`,
+`crates/slingfall_split/scripts/{pin,heavy,levers,windows}.py`, `crates/slingfall_replay/scripts/measure.py`,
+`tools/prove/prove.py`, `scripts/steps.py`, `tools/golden`, `deploy/{e2e,sepolia,v2}.sh`,
 `client/vm/scripts/fetch-executables.sh`, `deploy/devnet.sh`, `scripts/play.sh`, and the whole CI
 workflow (`env:` of `.github/workflows/ci.yml`). A build typed by hand for a hash (`c1main`, a pin check)
 needs the variable too: `RAYON_NUM_THREADS=1 scarb build ...`. Builds that only run tests may keep more
 threads. CI's `build` job builds the split classes twice from clean and fails if their bytes (hence class
 hashes) differ. Cost: the clean split build takes 105 s on one thread against 44 s on four (VPS, Scarb 2.19.4).
 `c1main`'s program hash on one thread is the pinned Sepolia one, `0x580ef5d1...edf75a`.
+`deploy/devnet.sh` (`proven`) and `scripts/play.sh` reuse split classes already in `target/dev`; run
+`scarb clean` first if they were not built on one thread (a drifted class fails loudly at declaration
+against the pinned hashes).
+
+One thread makes a build reproducible per machine only: a class built on one thread has a different Sierra text
+and class hash on the Mac and on the VPS (same CASM; each machine is stable by itself). So every committed file
+that pins a hash, class bytes, a class size or a declared-class margin is generated and checked on Linux only
+(the VPS or CI), never from a Mac build.
 
 ## Memory model
 

@@ -9,10 +9,14 @@ sizes of code that is not meant to run (a lever may stub a piece out).
 Python 3 standard library only.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds"):
+# every build of this script runs on one.
+os.environ["RAYON_NUM_THREADS"] = "1"
 PACKAGE = Path(__file__).resolve().parents[1]
 ROOT = PACKAGE.parents[1]
 SRC = PACKAGE / "src"

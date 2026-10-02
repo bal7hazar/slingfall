@@ -7,6 +7,8 @@
 #
 #   deploy/v2.sh            V2_COMMIT (default 6bcd1aab, D2) V2_OUT (default deploy/out/v2)
 set -euo pipefail
+# Sierra is not deterministic across compiler threads (docs/proving.md "Deterministic builds").
+export RAYON_NUM_THREADS=1
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMMIT="${V2_COMMIT:-6bcd1aab70c13b50b5655280c4f0aaf68cabdba9}"
