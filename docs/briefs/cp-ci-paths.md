@@ -51,8 +51,11 @@ None.
 Shared sets, used below:
 - `PY` (the Python tools and fixtures the services, scripts and tests import or read): `tools/atlantic/**`,
   `tools/golden/**`, `tools/tracec/**`, `tools/levelc/**`, `fixtures/levels/**`, `fixtures/golden/**`;
-- `CLIENT` (what `npm test` / `npm run build` read): `client/**`, `fixtures/levels/**`, `fixtures/traces/**`,
-  `fixtures/golden/**`, `deploy/sepolia.json`, `deploy/sepolia.env.example`.
+- `CLIENT` (what `npm test` / `npm run build` read): `client/**`, `crates/**`, `fixtures/**`, `services/prove/**`,
+  `deploy/sepolia.json`, `deploy/sepolia.env.example`. The client's tests read Cairo sources and pins
+  (`chain.test.ts` reads `crates/slingfall_contract/src/**`, `crates/slingfall_split/classes.json`,
+  `crates/slingfall_split/src/hashes.cairo`, `services/prove/snip36.py`, `fixtures/proofs/atlantic/**`), traces and
+  golden fixtures.
 
 | Job | Runs on a PR when any of these changed (besides `T`) | Why (what it reads) |
 |---|---|---|
@@ -61,7 +64,7 @@ Shared sets, used below:
 | `test` (matrix) | `crates/**`, `fixtures/**`, `steps/**`, `scripts/steps.py` | snforge per crate; its logs feed `steps` |
 | `steps` | exactly when `test` runs: `needs: [changes, test]`, same output as `test` | `scripts/steps.py check` on the test logs |
 | `client` | `CLIENT` | lint, unit tests, both builds, the Sepolia smoke |
-| `vm` | `CLIENT`, `crates/**`, `fixtures/**` | runner tests, wasm build, `fetch-executables.sh --build` + diff, the whole `npm test` (incl. `vm.test.ts` on `fixtures/golden`) |
+| `vm` | `CLIENT` | runner tests, wasm build, `fetch-executables.sh --build` + diff, the whole `npm test` (incl. `vm.test.ts` on `fixtures/golden`) |
 | `golden` (matrix) | `crates/**`, `fixtures/**`, `tools/golden/**`, `tools/tracec/**`, `tools/levelc/**` | golden check and fuzz per level |
 | `prove` | `tools/prove/**`, `tools/tracec/**`, `tools/levelc/**`, `crates/**`, `fixtures/levels/**`, `fixtures/golden/**`, `fixtures/proofs/**` | stwo proving of one case; `prove.py`, `verify.py`, `test_prove.py` import tracec / levelc and read `fixtures/golden` |
 | `e2e` | `services/**`, `deploy/**`, `crates/**`, `tools/settle/**`, `PY`, `fixtures/proofs/**`, `client/src/chain/**`, `client/package*.json` | attest / prove unit tests (`test_prove_service.py` reads `fixtures/proofs/atlantic`), v2 class, `deploy/e2e.sh` (`deploy/outputs.py` imports `tools/golden`, `tools/atlantic`) |
@@ -86,15 +89,17 @@ In doubt, trigger, never skip. Report every change to the table, with the reason
    and head, after a checkout with enough history). It outputs one boolean per row of §4.
    - Use `dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3`, pinned by commit sha as in
      nalgebra-cairo's `ci.yml`, with one filter per row of §4.
-   - On `push` to main and on `workflow_dispatch`, every output is `true`.
+   - On `push` to main and on `workflow_dispatch`, every row output is `true` and `docs_only` is `false`.
+   - On an empty diff, `docs_only` is `true` (vacuously): every test job is skipped. That is accepted.
 2. Each test job gets `needs: changes` and an `if:` on its outputs (§4, docs-only rule). `steps` takes
    `needs: [changes, test]` and the same output as `test`. Keep each job's name, so a check that does not run simply
    reports as skipped.
 3. **`all-checks`**:
-   - `if: always()`, and it needs `changes` and every test job, including `vm`, `prove`, `e2e` and `play-local`, but
-     not `pages`. Today it waits only
-     for `fmt`, `lint`, `build`, `test`, `steps`, `golden` and `client`. Widening it to the four others is a change of
-     merge gate: do it only if those four are green on main today, and say so; otherwise keep today's set and report.
+   - `if: always()`, and it needs `changes` and every test job, but not `pages`.
+   - **The widening** (approved by the project manager): today `all-checks` waits only for `fmt`, `lint`, `build`,
+     `test`, `steps`, `golden` and `client`. Add `vm`, `prove`, `e2e` and `play-local` **only for those of the four
+     that have a green run on main**: cite that run's URL for each. Keep any that is red or flaky on main out, and
+     name it in the report. Update the `ci.yml` comments that say "not in `all-checks`" to match.
    - It fails unless `needs.changes.result` is exactly `success` (if `changes` fails, every output is empty and nothing
      ran: that must be red).
    - For each test job, a skip is legitimate only when its output is exactly `'false'` (or `docs_only` is exactly
@@ -102,14 +107,21 @@ In doubt, trigger, never skip. Report every change to the table, with the reason
      failure, a cancellation, or a skip while the output was true.
    - Print each job, its output and its result.
 4. **Retries** on the steps that download the tools (`software-mansion/setup-scarb`, `foundry-rs/setup-snfoundry`):
-   one or two retries with a short pause, by a pinned retry action or by repeating the step with `continue-on-error`
-   on the first try. Say which. Never retry a test.
-5. **A dispatch can no longer be replaced.** GitHub keeps one pending run per concurrency group, and a newer pending
-   run replaces the older one; a job-level group cannot help, since it applies only after the run starts. So the
-   **workflow-level** group separates dispatches:
-   `group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'ci' }}`,
-   with `cancel-in-progress` unchanged. Keep a `pages` job-level group too, `pages-${{ github.ref }}`,
-   `cancel-in-progress: false`.
+   one or two retries with a short pause, only through a retry action pinned to a full commit sha (give its name
+   and sha). **Never `continue-on-error`**, nor `if: false`, a narrowed test command or a deleted job: the programme's
+   workflow rule refuses them. If no suitable pinned action exists, leave the retries out and say so. Never retry a
+   test.
+5. **No queued run on main is ever dropped.** GitHub keeps only one pending run per concurrency group, and a newer
+   pending run replaces the older one, even with `cancel-in-progress: false`. So a shared group drops queued runs on
+   main, and a later push can replace a pending dispatch. A job-level group cannot help: it applies only after the run
+   starts. Set the **workflow-level** group so that only pull requests share one:
+   `group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || (github.event_name == 'workflow_dispatch' && github.run_id) || github.sha }}`
+   - a PR: one group per branch, a new push cancels the superseded run;
+   - a push to main: one group per commit, every main commit keeps its full run;
+   - a dispatch: one group per run.
+   Keep `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`, and a `pages` job-level group
+   `pages-${{ github.ref }}`, `cancel-in-progress: false` (the last dispatch on a ref wins over a still-queued earlier
+   one, which is accepted). Check the expression's precedence on a run of each kind, and say so.
 6. **L4's tests** run where §1 says, triggered by `scripts/play/**`, `deploy/devnet.sh` and `T`.
 
 ## 6. Verification
