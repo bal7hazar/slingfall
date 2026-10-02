@@ -85,7 +85,7 @@ run_sampled() {
   return "$rc"
 }
 
-# Every scarb call puts its subcommand first (the VPS shim takes the lock only then). The compile steps wait at most 90 s for the lock, then are left to CI. Without the lock file (the Mac,
+# The locked scarb calls (build) put the subcommand first: the VPS shim takes the lock only then. The compile steps wait at most 90 s for the lock, then are left to CI. Without the lock file (the Mac,
 # or any machine without the shims) nothing waits, and the compile always runs.
 compile_cap=90
 if [ "$(uname -s)" = Darwin ] || [ ! -e "$LOCK" ]; then compile_cap=0; fi
@@ -116,7 +116,7 @@ skip_full() { line skip "$1" "(use --full)"; skipped_full+=("$1"); }
 
 # ---------------------------------------------------------------------------- always
 run "fmt (workspace)" 0 scarb fmt --check --workspace
-run "fmt (replay)" 0 scarb fmt --check --manifest-path "$REPLAY"
+run "fmt (replay)" 0 scarb --manifest-path "$REPLAY" fmt --check   # fmt takes no --manifest-path after it; fmt is not locked
 
 mapfile -t pys < <(existing '\.py$')
 if [ "${#pys[@]}" -gt 0 ]; then run "py_compile (${#pys[@]} changed)" 0 python3 -m py_compile "${pys[@]}"
