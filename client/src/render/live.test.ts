@@ -18,24 +18,24 @@ describe('shouldStart', () => {
     // At the flight rate the rest (130 x 65k = 8.5M steps at 4M/s: 2.1 s) would be done within 2.5 s...
     const flightPriced = ((base.expectedTicks - base.produced) * base.flightStepsPerTick) / base.stepsPerSecond;
     expect(flightPriced).toBeLessThan(base.expectedTicks / TICKS_PER_SECOND);
-    // ...but the contact is still ahead: at 6x it takes 12.7 s, so the rule holds.
+    // ...but the contact is still ahead: at 10x it takes 21 s, so the rule holds.
     expect(shouldStart(base)).toBe(false);
-    // On a machine 8x faster even the prior fits.
-    expect(shouldStart({ ...base, stepsPerSecond: 32e6 })).toBe(true);
+    // On a machine 10x faster even the prior fits (84.5M steps at 40M/s: 2.1 s)..
+    expect(shouldStart({ ...base, stepsPerSecond: 40e6 })).toBe(true);
   });
 
   it('a measured post-contact mean replaces the prior', () => {
     // The impact was cheap (2x the flight): 130 x 130k = 16.9M steps at 8M/s = 2.1 s <= 2.5 s.
     const input = { ...base, stepsPerSecond: 8e6 };
-    expect(shouldStart(input)).toBe(false); // the prior (6x) says 6.3 s
+    expect(shouldStart(input)).toBe(false); // the prior (10x) says 10.4 s
     expect(shouldStart({ ...input, postContactStepsPerTick: 130_000 })).toBe(true);
     // A measured impact dearer than the prior holds even where the prior would start.
     expect(shouldStart({ ...input, stepsPerSecond: 32e6, postContactStepsPerTick: 1_000_000 })).toBe(false);
   });
 
   it('plays what is not shown yet: a head already ahead needs less lead, a shot longer than expected is not priced', () => {
-    expect(shouldStart({ ...base, stepsPerSecond: 12e6, produced: 100, shown: 0 })).toBe(true);
-    expect(shouldStart({ ...base, stepsPerSecond: 12e6, produced: 100, shown: 100 })).toBe(false);
+    expect(shouldStart({ ...base, stepsPerSecond: 16e6, produced: 100, shown: 0 })).toBe(true);
+    expect(shouldStart({ ...base, stepsPerSecond: 16e6, produced: 100, shown: 100 })).toBe(false);
     // Produced past the expected total: nothing left to produce.
     expect(shouldStart({ ...base, produced: 160 })).toBe(true);
   });

@@ -16,7 +16,7 @@ export const IMPACT_RATIO = 2;
  * margin: see `PRIOR_FACTOR` in the report. The repository's figures point to a few times (3x in
  * `client/README.md`, 65k -> 200k+ steps per tick in `vm/sizing.ts`), not 15-20x.
  */
-export const POST_CONTACT_PRIOR = 6;
+export const POST_CONTACT_PRIOR = 10;
 
 /** Ticks of a shot beyond the table's figure, as a multiple (the margin of the per-level table). */
 export const TICKS_MARGIN = 1.25;
