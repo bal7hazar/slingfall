@@ -48,12 +48,17 @@ Everything else is forbidden; needs go to "Escalations".
      `tools/settle`, `tools/levelc`, `scripts/play` → `python3 -m unittest discover -s <dir>` (not in CI; run them
      here, and report their time);
    - compile: `scarb build -p <crate>` for each touched workspace crate **and its dependents** (read the dependency
-     order from the crates' manifests); the replay build if `crates/slingfall_replay/**` changed;
+     order from the crates' manifests). The replay is not a workspace member but depends on `slingfall_level`,
+     `_rules`, `_game` and `_testing`: build it (`scarb --manifest-path crates/slingfall_replay/Scarb.toml build`) when
+     `crates/slingfall_replay/**` or one of those crates changed. If a measured case of §6 exceeds 2 minutes because
+     of the dependents, build only the touched crates by default and the dependents under `--full`, and report both
+     timings: the orchestrator settles it with the numbers;
    - `python3 tools/golden/golden.py to-cairo --check` (CI `golden` job) when `fixtures/**`, `tools/golden/**` or the
      generated Cairo file changed;
    - class sizes, errors (sizes are path-free): `classsize.py check --no-build` when `slingfall_contract` or a crate it
      depends on changed; `classsize.py split --no-build` when `slingfall_split` or a crate it depends on changed (both
-     after the compile step above built them; the CI `build` job's forms);
+     after the compile step above built them; the CI `build` job's forms). When their output says "CASM not checked"
+     (no `starknet-sierra-compile` on PATH), the line reads `ok (CASM not checked)`;
    - class-hash pins, **advisory**: a local build root differs from CI's, so a local pin check cannot tell a stale pin
      from a path difference (OPERATIONS.md §5). When `crates/slingfall_split/**`, a crate it depends on, the root
      manifest or the lockfile changed, print a `warn` line: "split class hashes may move: re-pin from CI's output
@@ -61,9 +66,10 @@ Everything else is forbidden; needs go to "Escalations".
 
    **`--full` adds** (each `skip (use --full)` in the default run, with the same triggers):
    - steps: `python3 scripts/steps.py check` (it runs every crate one by one; CI spreads it over 7 jobs);
-   - pins, advisory: `pin.py --check`; on `stale`, print the pinned value (read from
+   - pins, advisory: `pin.py --check`. Its exit 1 is a `warn` only when its output has `stale:` lines; an exit 1
+     without them (a compile or test failure) is a `FAIL`. On `stale`, print the pinned value (read from
      `crates/slingfall_split/src/hashes.cairo` or `src/probes/hashes.cairo`) next to the new one, as a `warn`;
-   - replay executables: build the replay, then byte-compare
+   - replay executables (same trigger as the replay build): build the replay, then byte-compare
      `crates/slingfall_replay/target/dev/{main_trace,init,step_chunk,outputs}.executable.json` with
      `client/vm/fixtures/replay/`. **Never run `fetch-executables.sh`** in the script (it overwrites tracked files).
 
