@@ -25,8 +25,9 @@ the build root. Felt counts, CASM, CASM sha256, gas, steps and CASM-side program
   `test_pinned_class_hashes` or the `build` job's output); if CI prints no hash you can read, add a step to `ci.yml`
   that prints them (allowed, §3);
 - a local class-hash difference against CI is expected, not a regression: report both, with both build roots;
-- every pinned class hash records CI's root path beside it (in the pin file's comment or record, and in the report;
-  OPERATIONS.md §5);
+- every pinned class hash records CI's root path beside it: a `//` comment above the constants of
+  `crates/slingfall_split/src/hashes.cairo` and `probes/hashes.cairo` naming CI's checkout root, kept by `pin.py`
+  when it rewrites them (allowed, §3), and in the report (OPERATIONS.md §5);
 - every hash in the report names its machine and absolute build root.
 
 Read first: `AGENTS.md`, `README.md` (toolchain, commands, one heavy command at a time), `docs/briefs/b6-bump-rapier2d-alpha8.md`
@@ -43,12 +44,14 @@ contract v2, **only if** the `c1main` program hash measured on 2.20.1 (with a `c
 2.20.1, §4.5) differs from `0x580ef5d1…edf75a` **and** all 11 goldens are bit-identical. If the hash moved and any
 golden differs: send nothing, report.
 
-**When.** Never during the build-up of the PR. Prepare everything in the PR (the new default pin of
-`deploy/slingfall.ts`, the `child-hash-*.json` record, the `docs/proving.md` row), push, get CI green, write
-`REPORT.md`, and stop. The transaction is sent only when the orchestrator prompts you with the line
+**When.** Never during the build-up of the PR. Only when both conditions above hold (so the transaction will be
+sent), prepare in the PR the new default pin of `deploy/slingfall.ts`, the `child-hash-*.json` record and the
+`docs/proving.md` row; otherwise none of them changes. Push, get CI green, write `REPORT.md`, and stop. The transaction is sent only when the orchestrator prompts you with the line
 `Send the pin at <sha>` (after the review, before the merge, at the reviewed head): then run the command, read
-`program` back (`deploy/slingfall.ts program`), and post the transaction hash, its block and the read-back as a PR
-comment, without a new commit. **Never pass `--yes`**: if `guard_jobs` refuses (jobs in `services/prove/out` not
+`program` back (`node deploy/slingfall.ts program --config deploy/sepolia.json`), and post the transaction hash, its
+block and the read-back as a PR comment, without a new commit. The script rewrites the tracked
+`deploy/sepolia.json` (`record()`): leave it uncommitted in the worktree; after the merge you open one follow-up PR
+`chore(sepolia): record the TC pin` with only that file, when the orchestrator prompts you. **Never pass `--yes`**: if `guard_jobs` refuses (jobs in `services/prove/out` not
 known to be settled), send nothing and report. Nothing about v3 or the split classes is deployed on Sepolia.
 
 ## 3. Scope (allowlist)
@@ -66,7 +69,9 @@ Everything else is forbidden; needs go to "Escalations".
 - Generated files, by their tools only: `steps/**` (`scripts/steps.py`), the split pins and `classes.json`
   (`crates/slingfall_split/scripts/pin.py`, `classes.py --measure`), `tools/classsize` outputs, `client/vm/fixtures/**`
   (`fetch-executables.sh --build`), `fixtures/proofs/atlantic/` (one new `child-hash-*.json` record if the hash moved),
-  `deploy/sepolia.json` and the default pin of `deploy/slingfall.ts` (only with the transaction of §2).
+  the default pin of `deploy/slingfall.ts` (only when §2's conditions hold); `deploy/sepolia.json` only in the
+  follow-up PR of §2.
+- `crates/slingfall_split/scripts/pin.py`: only to keep the CI-root comment of §1 when it rewrites the hash files.
 - `fixtures/golden/**`: expected unchanged; never regenerated in this lot.
 - Cairo sources and tests (`crates/**`, `tools/atlantic/c1main`): **only** what the toolchain forces with no change of
   meaning (`scarb fmt` output, a renamed or deprecated item, a new lint under `--deny-warnings`); each edit listed in the
