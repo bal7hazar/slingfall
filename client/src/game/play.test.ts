@@ -373,7 +373,7 @@ describe('ShotLoop: compute ahead, then real time (lot CB)', () => {
     t.loop.release({ x: -604, y: -392 });
     t.run(200);
     expect(t.playback.speed).toBe(0); // nothing measured yet
-    // A fast machine for the flight, an impact 15x dearer per tick than the flight, which the prior (6x) did not expect.
+    // A fast machine for the flight, an impact 15x dearer per tick than the flight, which the prior (10x) did not expect.
     const work = worker(t, [...flight(20), { ticks: 130, stepsPerTick: 15 * FLIGHT }], 40e6);
     const speeds = new Set<number>();
     for (let i = 0; i < 600; i++) {
@@ -483,6 +483,32 @@ describe('ShotLoop: compute ahead, then real time (lot CB)', () => {
     t.vm.finish();
     await t.loop.settled;
     t.run(3000);
+    expect(t.loop.armed).toBe(true);
+  });
+
+  it('a second shot starts early when the lead allows it: shown ticks count from this shot, not from the buffer start', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.vm.finish();
+    await t.loop.settled;
+    t.run(3000);
+    expect(t.loop.armed).toBe(true);
+    const base = t.playback.position; // the previous shot's last frame
+    expect(base).toBeGreaterThan(100);
+    t.loop.release({ x: -150, y: -150 });
+    // At 40M steps/s the prior (130 x 650k steps = 2.6 s) fits the 3 s of the whole shot after the first chunk,
+    // but not the ~0.5 s that an absolute frame index would leave (150 of 180 already 'shown').
+    const work = worker(t, [...flight(20), ...Array.from({ length: 13 }, () => ({ ticks: 10, stepsPerTick: 150_000 }))], 40e6);
+    let startedWhileProducing = false;
+    for (let i = 0; i < 400; i++) {
+      work();
+      await Promise.resolve();
+      t.run(1000 / 60 - 1e-9);
+      // started on the first chunk (20 ticks); an absolute frame index only starts at ~50 produced
+      if (t.playback.speed === 1 && t.buffer.frameCount - 1 - base <= 30) startedWhileProducing = true;
+    }
+    expect(startedWhileProducing).toBe(true);
+    expect(t.loop.dryEvents).toBe(0);
     expect(t.loop.armed).toBe(true);
   });
 

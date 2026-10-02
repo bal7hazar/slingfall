@@ -49,6 +49,8 @@ export class ShotLoop {
   /** The head holds (speed 0) until `shouldStart` says so, or the worker is done. */
   private holding = false;
   private expectedTicks = 0;
+  /** The buffer's last frame at the release: the head's position there is this shot's tick 0. */
+  private baseFrame = 0;
   /** The head caught up with the frames while the worker is still producing (logged once per run-dry). */
   private dry = false;
   /** Run-dry events of the shots so far. */
@@ -87,6 +89,7 @@ export class ShotLoop {
     const info = levelInfo(this.session.level);
     this.expectedTicks = expectedShotTicks(Number(this.session.level.felts[1]), info.tickCap, 0);
     this.playback.seek(this.playback.lastFrame);
+    this.baseFrame = this.playback.lastFrame;
     this.playback.playing = true;
     this.playback.speed = 0;
     const fired = this.session.fire(pull, {
@@ -142,7 +145,7 @@ export class ShotLoop {
     const m = this.model;
     return shouldStart({
       produced: m.produced,
-      shown: Math.floor(this.playback.position),
+      shown: Math.max(Math.floor(this.playback.position) - this.baseFrame, 0),
       expectedTicks: this.expectedTicks,
       stepsPerSecond: m.stepsPerSecond,
       flightStepsPerTick: m.flightStepsPerTick,
