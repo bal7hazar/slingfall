@@ -93,11 +93,18 @@ nothing is started through them.
   (not gas) when a faithful form may cost more; document every divergence in the repository's ADR. Parity is
   measured by a generated `docs/API_PARITY.md` checked in CI; a new closed exclusion reason needs the project manager.
 - **Determinism**: explicit iteration orders, no dict-order dependence; bit-identity proved by goldens and probes.
-  One compiler thread (`RAYON_NUM_THREADS=1`) makes a build reproducible per machine, not across machines: Grim World
-  measured a different Sierra text and class hash for the same class on the Mac and on the VPS, single-threaded, with
-  the same CASM (2026-10-02, cause under investigation). Until the cause is known, every committed file that pins a
-  hash, class bytes, a class size or a declared-class margin is generated and checked on Linux only (the VPS or CI),
-  never from a Mac build. The machine of every pinned or measured hash is stated where it is recorded.
+  One compiler thread (`RAYON_NUM_THREADS=1`) stays the rule for every hashed, sized or measured build.
+- **Build root** (closed 2026-10-02 for Slingfall and Grim World, grimworld #283): the compiler names closure types
+  `{closure@<absolute path>/…cairo:L:C}` and the Sierra type id is the keccak of that name, so every artefact holding a
+  closure type changes with the absolute build root: file bytes, Sierra text sha256, class hash. Sierra felt counts,
+  CASM felts, CASM sha256 and L2 gas do not. The platform is not a cause: a Mac build and a VPS build agree once their
+  roots are normalised.
+  - The reference build root is CI's checkout path. A class hash is pinned only from CI's output, with CI's root path
+    recorded beside it, so that a change of runner path shows as a cause, not a regression.
+  - A class declared on a network uses CI's class artefact, never a local build.
+  - Local builds, on any machine and at any path, check felt counts, CASM and gas only. Gas pins, felt sizes and
+    CASM-side program hashes (such as the game's `c1main` hash) do not depend on the path.
+  - A local class-hash difference against CI is expected, not a regression.
 - **Steps are the budget**: every lot reports the Cairo steps of its hot path; the game's shot budget is
   `slingfall/docs/DESIGN.md` D10; class sizes on the SNIP-36 path stay under 73,728 Sierra and CASM felts (Starknet's
   limit is 81,920), with the margins printed in CI.
