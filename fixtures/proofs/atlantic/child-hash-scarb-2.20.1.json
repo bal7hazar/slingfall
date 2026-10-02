@@ -1,0 +1,16 @@
+{
+  "note": "TC: c1main's program hash after the toolchain bump to Scarb 2.20.1 (Cairo 2.20.0), with the same dependencies as B6 (rapier2d 0.1.0-alpha.8, fixed 0.4.0, glam_core 0.4.1) (docs/proving.md \"Program hash history\"). The compiled program changes (271,833 -> 272,148 felts) with the same outputs, so the Sepolia pin moves with a bit-compatible grace. No Atlantic query was submitted for this record.",
+  "rapier2d_version": "0.1.0-alpha.8",
+  "toolchain": "scarb 2.20.1 (cairo 2.20.0), starknet-foundry 0.64.0",
+  "data_felts": 272148,
+  "child_program_hash": "0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360",
+  "previous": {
+    "toolchain": "scarb 2.19.4 (cairo 2.19.4)",
+    "data_felts": 271833,
+    "child_program_hash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a"
+  },
+  "computed_from": "RAYON_NUM_THREADS=1 scarb --manifest-path tools/atlantic/c1main/Scarb.toml build, then cairo1-run of HerodotusDev/starkware-cairo-vm da8e48c62ab1383f6d7a410e5d2151033e40b544 with tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch (--layout all_cairo --append_return_values --cairo_pie_output) on one_block (--shot=-150,-150), then atlantic.py program-hash --pie. Machine: the VPS (Linux x86_64). The previous hash, re-measured the same way from origin/main d0d0eaa with the 2.19.4 patch, is the pinned one. The program hash is CASM-side and does not depend on the build root.",
+  "date": "2026-10-02",
+  "outputs_check": "golden.py run --check (without --update) on CI, one leg per level: the 11 cases bit-identical (outputs, final_state_hash); the PIE's program output is the same 10 felts with both hashes",
+  "sepolia": "pin_program(new hash, 86,400 s) through deploy/sepolia.sh pin <hash> --bit-compatible, sent only at the reviewed head of the TC pull request; its transaction is recorded there and deploy/sepolia.json by a follow-up pull request"
+}

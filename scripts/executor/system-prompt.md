@@ -43,7 +43,7 @@ Non-negotiable frame:
    Summary · API (public items, exact names) · Step table (net of baseline, winners and losers) ·
    Deviations · Deferred · Escalations · PR URL. Keep it under 600 words; numbers only from what
    you measured.
-8. Toolchain: scarb 2.19.4 / snforge 0.61.0 via asdf (`.tool-versions`), Node 24 for `client/`. Do
+8. Toolchain: scarb 2.20.1 / snforge 0.64.0 via asdf (`.tool-versions`), Node 24 for `client/`. Do
    not install or upgrade anything outside `client/` (and there only what the brief allows). Do not
    read or modify anything outside your worktree except the read-only upstream clones the brief
    names (`/home/claude/projects/rapier-cairo`, ...).

@@ -259,7 +259,7 @@ workflow (`env:` of `.github/workflows/ci.yml`). A build typed by hand for a has
 needs the variable too: `RAYON_NUM_THREADS=1 scarb build ...`. Builds that only run tests may keep more
 threads. CI's `build` job builds the split classes twice from clean and fails if their bytes (hence class
 hashes) differ. Cost: the clean split build takes 105 s on one thread against 44 s on four (VPS, Scarb 2.19.4).
-`c1main`'s program hash on one thread is the pinned Sepolia one, `0x580ef5d1...edf75a`.
+`c1main`'s program hash on one thread is the pinned Sepolia one, `0x580ef5d1...edf75a` (Scarb 2.19.4; Scarb 2.20.1: `0x5dc8c8e2...1360`, lot TC).
 `deploy/devnet.sh` (`proven`) and `scripts/play.sh` reuse split classes already in `target/dev`; run
 `scarb clean` first if they were not built on one thread (a drifted class fails loudly at declaration
 against the pinned hashes).
@@ -398,12 +398,15 @@ program: `tools/atlantic/c1main`; the committed runs: `fixtures/proofs/atlantic/
 arguments, `[len(L), L…, len(I), I…]`): `cairo1-run --append_return_values` only runs a `main` taking
 and returning `Array<felt252>`. It returns the same 10 felts (checked against the goldens).
 
-Reproduce (from the repository root; the fork and PIEs live in the git-ignored `tools/atlantic/out/`):
+Reproduce (from the repository root; the fork and PIEs live in the git-ignored `tools/atlantic/out/`). The fork
+must be on the compiler of the toolchain: since lot TC (Scarb 2.20.1, Cairo 2.20.0) the patch is
+`cairo-vm-cairo-lang-2.20.0.patch` (the 2.19.4 patch with the `cairo-lang-*` crates at `=2.20.0`, no API
+change); `cairo-vm-cairo-lang-2.19.4.patch` rebuilds the programs of Scarb 2.19.4:
 
 ```sh
 git clone https://github.com/HerodotusDev/starkware-cairo-vm tools/atlantic/out/starkware-cairo-vm
 git -C tools/atlantic/out/starkware-cairo-vm checkout da8e48c62ab1383f6d7a410e5d2151033e40b544
-git -C tools/atlantic/out/starkware-cairo-vm apply ../../cairo-vm-cairo-lang-2.19.4.patch
+git -C tools/atlantic/out/starkware-cairo-vm apply ../../cairo-vm-cairo-lang-2.20.0.patch
 cargo +stable build --manifest-path tools/atlantic/out/starkware-cairo-vm/Cargo.toml -p cairo1-run --release
 scarb --manifest-path tools/atlantic/c1main/Scarb.toml build
 python3 tools/tracec/tracec.py args fixtures/levels/one_block.felts.json --shot=-150,-150 --out args.json
@@ -486,6 +489,7 @@ is refused with `'submit: program'` after it.
 | alpha.6 | B4 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` | 2026-09-27 (v1: `set_satellite_config` tx `0x4a77159da8decd6f2659649e642b488d154e737618566e4219ea589845d4bdf`; v2, lot D2: `pin_program(hash, 0)` in the `configure` tx `0x6079548cffbd0d81aae63468e0fb4a36833b0377983982b2e150461eb4fe3b0`) |
 | alpha.7 | B5 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` (the alpha.6 hash) | no transaction: the program hash is unchanged (`fixtures/proofs/atlantic/child-hash-alpha7.json`) |
 | alpha.8 (`fixed` 0.4.0, `glam_core` 0.4.1) | B6 | 271 833 | `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` (the alpha.6 hash) | no transaction: the program hash is unchanged (`fixtures/proofs/atlantic/child-hash-alpha8.json`) |
+| alpha.8 on Scarb 2.20.1 (Cairo 2.20.0) | TC | 272 148 | `0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360` | `pin_program(hash, 86 400)` (`deploy/sepolia.sh pin … --bit-compatible`: same outputs, the 2.19.4 hash valid 24 h more) at the reviewed head of the TC pull request, its transaction recorded there (`fixtures/proofs/atlantic/child-hash-scarb-2.20.1.json`) |
 
 The felt count jumps 26.6 % from alpha.3 to alpha.5 (CC1 + CC2 + LO2 + SH2a: shape casts, the CCD
 solver, Polyline / HeightField), well past a rapier2d MINOR version's usual size drift; none of it
