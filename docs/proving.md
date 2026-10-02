@@ -398,12 +398,15 @@ program: `tools/atlantic/c1main`; the committed runs: `fixtures/proofs/atlantic/
 arguments, `[len(L), L…, len(I), I…]`): `cairo1-run --append_return_values` only runs a `main` taking
 and returning `Array<felt252>`. It returns the same 10 felts (checked against the goldens).
 
-Reproduce (from the repository root; the fork and PIEs live in the git-ignored `tools/atlantic/out/`):
+Reproduce (from the repository root; the fork and PIEs live in the git-ignored `tools/atlantic/out/`). The fork
+must be on the compiler of the toolchain: since lot TC (Scarb 2.20.1, Cairo 2.20.0) the patch is
+`cairo-vm-cairo-lang-2.20.0.patch` (the 2.19.4 patch with the `cairo-lang-*` crates at `=2.20.0`, no API
+change); `cairo-vm-cairo-lang-2.19.4.patch` rebuilds the programs of Scarb 2.19.4:
 
 ```sh
 git clone https://github.com/HerodotusDev/starkware-cairo-vm tools/atlantic/out/starkware-cairo-vm
 git -C tools/atlantic/out/starkware-cairo-vm checkout da8e48c62ab1383f6d7a410e5d2151033e40b544
-git -C tools/atlantic/out/starkware-cairo-vm apply ../../cairo-vm-cairo-lang-2.19.4.patch
+git -C tools/atlantic/out/starkware-cairo-vm apply ../../cairo-vm-cairo-lang-2.20.0.patch
 cargo +stable build --manifest-path tools/atlantic/out/starkware-cairo-vm/Cargo.toml -p cairo1-run --release
 scarb --manifest-path tools/atlantic/c1main/Scarb.toml build
 python3 tools/tracec/tracec.py args fixtures/levels/one_block.felts.json --shot=-150,-150 --out args.json
