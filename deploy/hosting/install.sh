@@ -44,7 +44,7 @@ ETC=/etc/slingfall
 KEY="$ETC/attest.key"
 UNITS=/etc/systemd/system
 BUILD_USER=nobody
-MEMORY_MAX=@MEMORY_MAX_VALUE@ # docs/hosting.md "Resources"
+MEMORY_MAX=6G # docs/hosting.md "Resources": the tower replay measured at 4.2 GB peak
 PORT=8557 # slingfall-attest.socket
 # What the release holds (paths of this commit): the service, the modules it imports, the replay's
 # sources and level fixtures, the note, these files.

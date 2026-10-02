@@ -190,7 +190,7 @@ in this order, so a refused request costs nothing further:
 | 1 | `--client-rate` / `--client-window` | 20 / 3600 s | per client address (an IPv6 client is its /64), sized against the one replay slot below |
 | 1 | `--local-rate` | 60 / 3600 s | every local caller together (127.0.0.1 without the header, or with a header that is not an IP address) |
 | 2 | (the request is parsed) | | a malformed request (400) charges nothing further |
-| 3 | `--max-concurrent` | 1 | replays at once: one replay holds @TOWER_GB@ GB (tower) and a CPU for 14 to @TOWER_S@ s |
+| 3 | `--max-concurrent` | 1 | replays at once: one replay holds 4.2 GB (tower) and a CPU for 14 to 23 s |
 | 3 | `--max-queue` | 4 | replays waiting beyond the running one; the next is refused at once (busy) rather than queued for minutes |
 | 4 | `--rate` / `--rate-window` | 20 / 3600 s | per player, charged only once the gate admits the request; the player is chosen by the caller |
 
@@ -198,8 +198,8 @@ The client is the last entry of `X-Forwarded-For` when the peer is 127.0.0.1 (th
 to the address it saw), else the peer address; the header is ignored from any other peer, and a last entry that
 is not an IP literal counts as local. Idle keys are pruned after a window, and at most 100,000 are kept.
 
-**One service on one slot can be saturated.** A replay holds the only slot for 14 s (pile10) to @TOWER_S@ s
-(tower), so the service attests at most about 250 pile10 replays an hour. With the defaults, one address gets at
+**One service on one slot can be saturated.** A replay holds the only slot for 14 s (pile10) to 23 s
+(tower), so the service attests at most about 250 pile10 replays an hour (about 150 tower ones). With the defaults, one address gets at
 most 20 an hour (under a tenth of that), and local callers 60. About 13 addresses (13 IPv6 /64s, a handful of
 cloud machines) attesting continuously keep the slot busy and the queue full, and every other player then gets
 429 busy until they stop. The limits bound the cost of a flood (memory, CPU), not its reach; for the MVP on
@@ -225,10 +225,14 @@ Maximum resident set size (kbytes): 1890224
 tower, the reference shot, the largest of the golden cases (22.3M Cairo steps):
 
 ```
-@TOWER_TIME@
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:23.36      (the request: 22.89 s)
+User time (seconds): 8.92
+System time (seconds): 11.34
+Percent of CPU this job got: 86%
+Maximum resident set size (kbytes): 4170540
 ```
 
-So `MemoryMax=@MEMORY_MAX@` (the tower replay plus the Python process, with headroom; raise it with
+So `MemoryMax=6G` (the tower replay plus the Python process, with headroom; raise it with
 `--max-concurrent`, by the same again per extra replay), `OOMPolicy=continue` (an OOM kill fails that replay,
 not the unit) and `TasksMax=64` (the HTTP threads and scarb's). The service does not take the agents'
 heavy-build lock: a replay can coincide with an agent's build, within the VPS's 31 GB.
