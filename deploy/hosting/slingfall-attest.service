@@ -1,0 +1,77 @@
+# slingfall-attest: the attestation service of the provisional tier (services/attest/attest.py),
+# installed by deploy/hosting/install.sh (docs/hosting.md). @ATTEST_USER@ is the dedicated system
+# user the owner creates (install.sh --user, default slingfall-attest).
+#
+# Everything it runs is root-owned and read-only: the code and the prebuilt replay under
+# /opt/slingfall/current, scarb under /opt/slingfall/scarb, /usr/bin/python3. It writes only its
+# state directory, where prepare.sh copies the replay's workspace and the offline scarb cache at
+# every start (scarb opens Scarb.lock for writing). Nothing under /home is used (ProtectHome).
+
+[Unit]
+Description=Slingfall attestation service (provisional tier)
+Documentation=file:///opt/slingfall/current/docs/hosting.md
+Requires=slingfall-attest.socket
+Wants=network-online.target
+After=network-online.target slingfall-attest.socket
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@ATTEST_USER@
+Group=@ATTEST_USER@
+EnvironmentFile=/etc/slingfall/attest.env
+WorkingDirectory=/opt/slingfall/current
+# What `scarb execute --no-build` needs, nothing under /home: scarb's directory first on PATH, HOME,
+# the cache and the config in the state directory.
+Environment=PATH=/opt/slingfall/scarb/current/bin:/usr/bin:/bin
+Environment=HOME=/var/lib/slingfall-attest
+Environment=SCARB_CACHE=/var/lib/slingfall-attest/scarb-cache
+Environment=SCARB_CONFIG=/var/lib/slingfall-attest/scarb-config
+Environment=SCARB_OFFLINE=true
+Environment=RAYON_NUM_THREADS=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# The Unix socket /run/slingfall-attest/attest.sock comes from slingfall-attest.socket (only the
+# reverse proxy reaches it); the limits are docs/hosting.md's.
+ExecStartPre=/opt/slingfall/current/deploy/hosting/prepare.sh
+ExecStart=/usr/bin/python3 /opt/slingfall/current/services/attest/attest.py serve --execute --no-build \
+    --replay-dir /var/lib/slingfall-attest/work/crates/slingfall_replay --contract ${ATTEST_CONTRACT} \
+    --systemd-socket --cors-origin ${ATTEST_CORS_ORIGIN} \
+    --rate 20 --rate-window 3600 --client-rate 20 --client-window 3600 --local-rate 60 \
+    --max-concurrent 1 --max-queue 4 --ttl 600
+Restart=always
+RestartSec=5
+
+# Resources: sized from the largest reference shot (tower) measured on the VPS (docs/hosting.md).
+# An OOM kill fails that one replay (500), not the whole unit.
+MemoryMax=@MEMORY_MAX@
+OOMPolicy=continue
+TasksMax=64
+
+# Hardening.
+StateDirectory=slingfall-attest
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/slingfall-attest
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
