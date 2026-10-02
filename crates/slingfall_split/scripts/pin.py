@@ -17,8 +17,8 @@ a class changed without this script fails it.
 
 A class holding a closure has a class hash that depends on the absolute build root (closure type names
 carry it; docs/proving.md "Deterministic builds"): the committed pins are CI's, and the comment
-`// Build root of these class hashes: <root>` above the constants names the root they were computed
-in. A local run records this checkout's root; `--from-log` takes the `pin <class> <hash>` lines of a
+`// Build root of these class hashes:` / `// <root>` above the constants names the root they were
+computed in. A local run records this checkout's root; `--from-log` takes the `pin <class> <hash>` lines of a
 CI log (the failing `test_pinned_class_hashes` / `test_pinned_probe_hashes`) instead of running
 snforge, and records `--root`, CI's checkout root. Python 3 standard library only.
 """
@@ -33,7 +33,7 @@ from pathlib import Path
 os.environ["RAYON_NUM_THREADS"] = "1"
 PACKAGE = Path(__file__).resolve().parents[1]
 PIN = re.compile(r"^pin (\w+) ([0-9a-f]+)$", re.M)
-ROOT_COMMENT = "// Build root of these class hashes: "
+ROOT_COMMENT = "// Build root of these class hashes:"
 MAX_ROUNDS = 5
 
 
@@ -53,11 +53,12 @@ def stale(probes: bool) -> tuple[int, list[tuple[str, str]], str]:
 
 
 def with_root(text: str, root: str) -> str:
-    """`text` with the build-root comment set to `root`, added above the first constant if missing."""
-    line = f"{ROOT_COMMENT}{root}"
-    text, n = re.subn(rf"^{re.escape(ROOT_COMMENT)}.*$", line, text, count=1, flags=re.M)
+    """`text` with the build-root comment (its line, then `// <root>` on the next, as `scarb fmt` keeps
+    it under 100 columns) set to `root`, added above the first constant if missing."""
+    lines = f"{ROOT_COMMENT}\n// {root}\n"
+    text, n = re.subn(rf"^{re.escape(ROOT_COMMENT)}.*\n(?://.*\n)*", lines, text, count=1, flags=re.M)
     if n == 0:
-        text, n = re.subn(r"^pub const ", f"{line}\npub const ", text, count=1, flags=re.M)
+        text, n = re.subn(r"^pub const ", f"{lines}pub const ", text, count=1, flags=re.M)
     if n != 1:
         sys.exit("no constant to put the build-root comment above")
     return text
