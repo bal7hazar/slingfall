@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -230,6 +231,17 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(attest.client_of("198.51.100.7", "203.0.113.9"), "198.51.100.7")
         self.assertEqual(attest.client_of("198.51.100.7", None), "198.51.100.7")
 
+    def test_ipv6_counts_as_its_64(self):
+        a = attest.client_of("127.0.0.1", "2001:db8:1:2::1")
+        self.assertEqual(a, "2001:db8:1:2::/64")
+        self.assertEqual(attest.client_of("127.0.0.1", "2001:db8:1:2:ffff:ffff:ffff:ffff"), a)
+        self.assertNotEqual(attest.client_of("127.0.0.1", "2001:db8:1:3::1"), a)
+        self.assertEqual(attest.client_of("127.0.0.1", "::ffff:203.0.113.9"), "203.0.113.9")
+
+    def test_only_an_ip_literal_is_a_client(self):
+        for bad in ["unknown", "203.0.113.9\r\n 2026-10-02T00:00:00Z POST /attest 200", "203.0.113.9:443", "_hidden"]:
+            self.assertIsNone(attest.client_of("127.0.0.1", bad), bad)  # counted as local
+
 
 class GateTest(unittest.TestCase):
     def test_concurrent_and_queued_then_429(self):
@@ -266,6 +278,30 @@ class GateTest(unittest.TestCase):
         gate.admitted = 1000
         with gate.slot():
             pass
+
+
+class SystemdSocketTest(unittest.TestCase):
+    def test_serves_on_the_passed_socket(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        fd = os.dup(listener.fileno())
+        listener.close()
+        environ = {"LISTEN_PID": str(os.getpid()), "LISTEN_FDS": "1"}
+        sock = attest.systemd_socket(environ, fd)
+        self.assertEqual(environ, {})  # consumed
+        chain = attest.Chain(CONTRACT, None, chain_id=CHAIN_ID, program_hash=PROGRAM, epoch=EPOCH)
+        server = attest.serve(attest.Attester(CONST["SECRET"], chain), "ignored", 0, sock=sock, log=io.StringIO())
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with urllib.request.urlopen(f"http://127.0.0.1:{sock.getsockname()[1]}/health", timeout=10) as r:
+            self.assertEqual(json.loads(r.read())["service"], "slingfall-attest")
+
+    def test_refuses_without_systemd(self):
+        for environ in [{}, {"LISTEN_PID": "1", "LISTEN_FDS": "1"}, {"LISTEN_PID": str(os.getpid()), "LISTEN_FDS": "2"}]:
+            with self.assertRaises(SystemExit):
+                attest.systemd_socket(dict(environ), 99)
 
 
 class KeyTest(unittest.TestCase):
@@ -345,17 +381,19 @@ class ServiceTest(unittest.TestCase):
         return self.replay_outputs
 
     def start(self, command: str | None = None, execute: bool = False, rate: int = 20, client_rate: int = 120,
-              revision: str | None = None) -> str:
+              revision: str | None = None, local_rate: int = 60, cors_origin: str = "*") -> str:
         chain = attest.Chain(CONTRACT, self.rpc, clock=lambda: 0.0)
         executor = attest.Executor(self.replay) if execute else None
-        attester = attest.Attester(CONST["SECRET"], chain, executor, attest.Verifier(command, None, 30),
-                                   attest.RateLimiter(rate, 3600), ttl=TTL,
-                                   clients=attest.RateLimiter(client_rate, 3600), revision=revision)
-        return self.serve(attester)
+        self.attester = attest.Attester(CONST["SECRET"], chain, executor, attest.Verifier(command, None, 30),
+                                        attest.RateLimiter(rate, 3600), ttl=TTL,
+                                        clients=attest.RateLimiter(client_rate, 3600), revision=revision,
+                                        local=attest.RateLimiter(local_rate, 3600))
+        return self.serve(self.attester, cors_origin)
 
-    def serve(self, attester) -> str:
+    def serve(self, attester, cors_origin: str = "*") -> str:
         self.log = io.StringIO()
-        server = attest.ThreadingHTTPServer(("127.0.0.1", 0), attest.make_handler(attester, self.log))
+        self.cors_origin = cors_origin
+        server = attest.ThreadingHTTPServer(("127.0.0.1", 0), attest.make_handler(attester, self.log, cors_origin))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
@@ -371,7 +409,7 @@ class ServiceTest(unittest.TestCase):
                                          headers={"Content-Type": "application/json", **(headers or {})})
         try:
             with urllib.request.urlopen(request, timeout=30) as r:
-                self.assertEqual(r.headers["Access-Control-Allow-Origin"], "*")
+                self.assertEqual(r.headers["Access-Control-Allow-Origin"], self.cors_origin)
                 return r.status, json.loads(r.read()), dict(r.headers)
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read()), dict(e.headers)
@@ -434,6 +472,65 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual([self.post(url, {"level": "pile10", "inputs": p})[0] for p in players[3:] * 3], [200] * 3)
         self.assertIn("client=203.0.113.9", self.log.getvalue())
         self.assertIn("client=local", self.log.getvalue())
+
+    def test_a_malformed_request_leaves_the_players_count(self):
+        url = self.start(execute=True, rate=1)
+        for _ in range(3):
+            self.assertEqual(self.post(url, {"level": "nope", "inputs": INPUTS})[0], 400)
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": INPUTS})[0], 200)
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": INPUTS})[0], 429)
+
+    def test_a_malformed_proof_gives_the_charge_back(self):
+        url = self.start(TRUE_CMD, rate=1)
+        self.assertEqual(self.post(url, {"outputs": GOLDEN, "proof": "not base64!"})[0], 400)
+        self.assertEqual(self.post(url, {"outputs": GOLDEN, "proof": base64.b64encode(b"x").decode()})[0], 200)
+        self.assertEqual(self.post(url, {"outputs": GOLDEN, "proof": base64.b64encode(b"x").decode()})[0], 429)
+
+    def test_local_callers_share_one_cap(self):
+        url = self.start(execute=True, local_rate=2)
+        players = [[hex(CONST["PLAYER"] + i), *INPUTS[1:]] for i in range(4)]
+        answers = [self.post(url, {"level": "pile10", "inputs": p})[0] for p in players[:2]]
+        # Not an IP literal: local too.
+        answers.append(self.post(url, {"level": "pile10", "inputs": players[2]}, {"X-Forwarded-For": "nope"})[0])
+        self.assertEqual(answers, [200, 200, 429])
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": players[3]}, {"X-Forwarded-For": "203.0.113.9"})[0], 200)
+
+    def test_cors_origin(self):
+        url = self.start(execute=True, cors_origin="https://play.example")
+        _, _, headers = self.post_full(url, {"level": "pile10", "inputs": INPUTS})
+        self.assertEqual((headers["Access-Control-Allow-Origin"], headers["Vary"]), ("https://play.example", "Origin"))
+
+    def test_execute_body_is_small(self):
+        url = self.start(execute=True)
+        big = json.dumps({"level": "pile10", "inputs": INPUTS, "pad": "x" * (16 << 10)}).encode()
+        self.assertEqual(self.post(url, big)[0], 413)
+        self.assertEqual(self.runs, [])
+        url = self.start(TRUE_CMD)  # a verify service takes a proof inline
+        self.assertEqual(self.post(url, {"outputs": GOLDEN, "proof": base64.b64encode(b"x" * (32 << 10)).decode()})[0], 200)
+
+    def test_a_busy_answer_leaves_the_players_count(self):
+        release = threading.Event()
+
+        def slow(level, inputs):
+            release.wait(10)
+            return GOLDEN
+
+        chain = attest.Chain(CONTRACT, self.rpc, clock=lambda: 0.0)
+        limiter = attest.RateLimiter(1, 3600)
+        attester = attest.Attester(CONST["SECRET"], chain, attest.Executor(slow), limiter=limiter, ttl=TTL,
+                                   gate=attest.Gate(1, 0))
+        url = self.serve(attester)
+        other = [hex(CONST["PLAYER"] + 1), *INPUTS[1:]]
+        first = threading.Thread(target=lambda: self.post(url, {"level": "pile10", "inputs": INPUTS}))
+        first.start()
+        deadline = time.monotonic() + 10
+        while attester.gate.admitted < 1 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": other})[0], 429)  # busy
+        self.assertEqual(len(limiter._seen.get(int(other[0], 16), [])), 0)
+        release.set()
+        first.join(10)
+        self.assertEqual(self.post(url, {"level": "pile10", "inputs": other})[0], 200)  # its one request is intact
 
     def test_the_global_queue_answers_429(self):
         release = threading.Event()
@@ -596,7 +693,7 @@ class CliTest(unittest.TestCase):
                     key=hex(CONST["SECRET"]), execute="--execute" in modes, verify_cmd="x" if "--verify-cmd" in modes else None,
                     no_verify="--no-verify" in modes, rpc=None, contract="0x1", chain_id=None, program_hash=None,
                     epoch=None, no_build=True, proof_dir=None, timeout=1, rate=1, rate_window=1, ttl=1,
-                    client_rate=1, client_window=1, max_concurrent=1, max_queue=1, replay_dir=None))
+                    client_rate=1, client_window=1, max_concurrent=1, max_queue=1, replay_dir=None, local_rate=1))
 
     def test_replay_dir_needs_a_manifest_and_no_build(self):
         base = ["serve", "--key", hex(CONST["SECRET"]), "--execute", "--contract", "0x1"]
