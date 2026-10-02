@@ -1,0 +1,120 @@
+# TC — toolchain bump of the game: Scarb 2.20.1, starknet-foundry 0.64.0
+
+Profile `impl-opus` (every snapshot, pin and probe is re-measured; a Sepolia re-pin may follow). Lot id
+`tc-toolchain-bump`, branch `feat/tc-toolchain-bump`.
+
+## 1. Goal, context, read first
+
+**Goal.** Move slingfall from Scarb 2.19.4 / starknet-foundry 0.61.0 to **Scarb 2.20.1 / starknet-foundry 0.64.0**,
+with every steps, class-size and hash figure re-measured, the game's results proved bit-identical, and the Sepolia
+`c1main` pin moved (with grace) only if its program hash moved.
+
+**Context.** Owner's D-180: every repository migrates to the latest Scarb, libraries before the game; no release is
+forced by the bump. The game keeps its dependencies (rapier2d `=0.1.0-alpha.8`, fixed 0.4.0, glam_core 0.4.1, from the
+registry): only the toolchain moves. A toolchain bump is its own PR: nothing else ships in it.
+
+**One compiler thread.** The compiler is not deterministic on several threads (D1). Every script of this repository
+already sets `RAYON_NUM_THREADS=1` (D1 #53, D1b #55); export it in your shell too for any direct `scarb` / `snforge`.
+
+**Build path** (Grim World, grimworld #283, relayed by the project manager on 2026-10-02): closure type names carry
+the absolute build path, so the Sierra bytes, Sierra sha256 and class hash of any class holding a closure change with
+the build root. Felt counts, CASM, CASM sha256, gas, steps and CASM-side program hashes (`c1main`) do not. So:
+- felt sizes, margins, steps and the `c1main` program hash are path-free: measure them in your worktree;
+- **class hashes are pinned only from CI's output** (the reference root is CI's checkout path): regenerate the split
+  pins locally to see what moves, then take the committed values from the PR's CI run (the failing
+  `test_pinned_class_hashes` or the `build` job's output); if CI prints no hash you can read, add a step to `ci.yml`
+  that prints them (allowed, §3);
+- a local class-hash difference against CI is expected, not a regression: report both, with both build roots;
+- every pinned class hash records CI's root path beside it: a `//` comment above the constants of
+  `crates/slingfall_split/src/hashes.cairo` and `probes/hashes.cairo` naming CI's checkout root, kept by `pin.py`
+  when it rewrites them (allowed, §3), and in the report (OPERATIONS.md §5);
+- every hash in the report names its machine and absolute build root.
+
+Read first: `AGENTS.md`, `README.md` (toolchain, commands, one heavy command at a time), `docs/briefs/b6-bump-rapier2d-alpha8.md`
+and `docs/briefs/d1-deterministic-builds.md` (the pattern of a bump and of a re-pin), `docs/proving.md` ("Program hash
+history", "Deterministic builds"), `docs/contract-v2.md` (`pin_program`, grace), `tools/classsize/classsize.py`,
+`crates/slingfall_split/scripts/pin.py`, `scripts/steps.py`, `tools/golden/golden.py`, `.github/workflows/ci.yml`.
+rapier-cairo's `docs/briefs/tc1-toolchain-bump.md` is the same migration on the library: read it for the traps.
+
+## 2. Credentials and transactions
+
+`STARKNET_*` in your environment; never print or commit values. Transactions this lot MAY send on Sepolia, and no
+other: **exactly one** `deploy/sepolia.sh pin <new c1main hash> --bit-compatible` (`pin_program`, 86,400 s grace) on
+contract v2, **only if** the `c1main` program hash measured on 2.20.1 (with a `cairo1-run` built on cairo-lang
+2.20.1, §4.5) differs from `0x580ef5d1…edf75a` **and** all 11 goldens are bit-identical. If the hash moved and any
+golden differs: send nothing, report.
+
+**When.** Never during the build-up of the PR. Only when both conditions above hold (so the transaction will be
+sent), prepare in the PR the new default pin of `deploy/slingfall.ts`, the `child-hash-*.json` record and the
+`docs/proving.md` row; otherwise none of them changes. Push, get CI green, write `REPORT.md`, and stop. The transaction is sent only when the orchestrator prompts you with the line
+`Send the pin at <sha>` (after the review, before the merge, at the reviewed head): then run the command, read
+`program` back (`node deploy/slingfall.ts program --config deploy/sepolia.json`), and post the transaction hash, its
+block and the read-back as a PR comment, without a new commit. The script rewrites the tracked
+`deploy/sepolia.json` (`record()`): leave it uncommitted in the worktree; after the merge you open one follow-up PR
+`chore(sepolia): record the TC pin` with only that file, when the orchestrator prompts you. **Never pass `--yes`**: if `guard_jobs` refuses (jobs in `services/prove/out` not
+known to be settled), send nothing and report. Nothing about v3 or the split classes is deployed on Sepolia.
+
+## 3. Scope (allowlist)
+
+Everything else is forbidden; needs go to "Escalations".
+
+- Version pins: `.tool-versions`; every `Scarb.toml` that names the toolchain (`cairo-version`, `starknet`,
+  `snforge_std`, `assert_macros`): root, `crates/*/Scarb.toml`, `crates/slingfall_replay`, `tools/atlantic/c1main`,
+  `client/vm/fixtures/ball_drop`, `deploy/contract`; every `Scarb.lock` regenerated by `scarb`, never by hand.
+- CI: `.github/workflows/ci.yml` only where a version or an option of the new toolchain requires it (the setup actions
+  read `.tool-versions`: check, do not assume), and one step that prints the split class hashes if none does.
+- Text that names the current toolchain (versions only): `README.md`, `CLAUDE.md`, `docs/e2e.md`,
+  `docs/play-local.md`, `client/vm/README.md`, `scripts/executor/system-prompt.md`. Dated records (`docs/qa/**`,
+  `docs/research/**`, older briefs, `fixtures/proofs/atlantic/*.json` of past runs) keep their versions.
+- Generated files, by their tools only: `steps/**` (`scripts/steps.py`), the split pins and `classes.json`
+  (`crates/slingfall_split/scripts/pin.py`, `classes.py --measure`), `tools/classsize` outputs, `client/vm/fixtures/**`
+  (`fetch-executables.sh --build`), `fixtures/proofs/atlantic/` (one new `child-hash-*.json` record if the hash moved),
+  the default pin of `deploy/slingfall.ts` (only when §2's conditions hold); `deploy/sepolia.json` only in the
+  follow-up PR of §2.
+- `crates/slingfall_split/scripts/pin.py`: only to keep the CI-root comment of §1 when it rewrites the hash files.
+- `fixtures/golden/**`: expected unchanged; never regenerated in this lot.
+- Cairo sources and tests (`crates/**`, `tools/atlantic/c1main`): **only** what the toolchain forces with no change of
+  meaning (`scarb fmt` output, a renamed or deprecated item, a new lint under `--deny-warnings`); each edit listed in the
+  report. No test's expected value is edited.
+- The two consumers of the build output pinned to cairo-lang 2.19.4, **only if** 2.20.1 output needs it:
+  `tools/atlantic/cairo-vm-cairo-lang-2.20.1.patch` (new; the 2.19.4 patch stays for the history), the
+  `client/vm/runner/Cargo.toml` and `Cargo.lock` pins of cairo-vm and `cairo-lang-casm`, `client/vm/scripts/vendor.sh`.
+  If no revision of the Herodotus fork or of lambdaclass cairo-vm accepts 2.20.1 output with a port of the size of
+  the 2.19.4 patch (a few API changes), stop that part and escalate; send no transaction.
+- `docs/proving.md`: one row in "Program hash history" if the hash moved; the "Reproduce" lines (patch name); the
+  toolchain named where it is.
+- Not in scope: `docs/PLAN.md` (the orchestrator's, after the merge).
+
+## 4. Work and numeric targets
+
+Measure **before** (2.19.4 / 0.61.0, `origin/main`, in this worktree, before any pin moves) and **after**
+(2.20.1 / 0.64.0):
+
+1. Goldens: `golden.py run` WITHOUT `--update`, 11/11 bit-identical (outputs and `final_state_hash`). A difference stops
+   the lot: push what you have, send no transaction, report the cases, values and cause.
+2. Steps: `scripts/steps.py` snapshots regenerated; table before / after per probe (largest moves first).
+3. Declared classes (`tools/classsize`): Sierra and CASM felts before / after and the margin under 73,728 for every
+   declared class, `WorldClass` first (71,076 CASM at B6). A class above the gate stops the split part: report.
+4. Split pins: class hashes as CI computes them (§1 build path; they will change: new compiler), bundle hash
+   recomputed from them; CI's `test_pinned_class_hashes` and the `build` job's two-clean-builds check pass on the PR.
+5. `c1main`: bytecode felts and program hash on one thread on the VPS (`cairo1-run` of the Herodotus fork,
+   `atlantic.py program-hash`, as in D1). "Before" with the fork on the 2.19.4 patch; "after" with the fork ported
+   to cairo-lang 2.20.1 (§3): a hash taken with a 2.19.4 `cairo1-run` is not a hash of the new toolchain. Report
+   both, with the fork revision and patch of each. The transaction follows §2.
+6. Replay executables and client fixtures rebuilt; `vm`, `e2e`, `play-local`, `prove` CI jobs green.
+
+**Compile drift.** If 2.20.1 fails to compile, panics, or rejects code that 2.19.4 accepted, or an artefact changes
+between two identical single-threaded builds in the same path: reduce it to a minimal case, run it on 2.20.1, report
+it (code, command, output) under Escalations. Never open an upstream issue.
+
+## 5. Machine
+
+The VPS. Heavy commands one at a time, through the shims and the heavy-run lock
+(`crates/slingfall_split/scripts/heavy.py`); at most 2 parallel jobs. Foreground only.
+
+## 6. Definition of done
+
+`AGENTS.md` §6; conventional commits with your model's trailer; push `feat/tc-toolchain-bump`; `gh pr create`;
+`gh pr checks --watch` in the foreground until green, `e2e` included; never merge. `REPORT.md` at the worktree root with
+the tables of §4, the machine and absolute build path of every hash, the transaction (hash, block) if one was sent, and
+every forced source edit. Work autonomously, do not ask questions, do not widen the scope.
