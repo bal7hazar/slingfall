@@ -92,7 +92,7 @@ jobs:
       # root): `Run tests` prints the stale default pins, this step the stale probe pins, each as
       # `pin <class> <hash>` (`crates/slingfall_split/scripts/pin.py --from-log`).
       - name: Probe class hashes (feature probes) and the build root
-        if: matrix.crate == 'slingfall_split'
+        if: always() && matrix.crate == 'slingfall_split'
         working-directory: crates/slingfall_split
         run: |
           echo "build root: $GITHUB_WORKSPACE"
