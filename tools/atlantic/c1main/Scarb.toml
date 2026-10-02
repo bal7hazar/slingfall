@@ -3,7 +3,7 @@ name = "c1main"
 description = "Slingfall `main` for cairo1-run --append_return_values (lot E3a): the program proven through Atlantic."
 version = "0.1.0"
 edition = "2024_07"
-cairo-version = "2.19.4"
+cairo-version = "2.20.0"
 license = "MIT"
 
 # Outside the root workspace, as crates/slingfall_replay: `cairo1-run` runs a gas-free Sierra program

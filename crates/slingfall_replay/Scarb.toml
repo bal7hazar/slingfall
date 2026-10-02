@@ -3,7 +3,7 @@ name = "slingfall_replay"
 description = "Slingfall replay executables: proof build, trace build, chunked build (docs/DESIGN.md D1)."
 version = "0.1.0"
 edition = "2024_07"
-cairo-version = "2.19.4"
+cairo-version = "2.20.0"
 license = "MIT"
 repository = "https://github.com/bal7hazar/slingfall"
 
@@ -20,11 +20,11 @@ rapier2d = "=0.1.0-alpha.8"
 slingfall_game = { path = "../slingfall_game" }
 slingfall_level = { path = "../slingfall_level" }
 slingfall_rules = { path = "../slingfall_rules" }
-cairo_execute = "2.19.4"
+cairo_execute = "2.20.0"
 
 [dev-dependencies]
-snforge_std = "0.61.0"
-assert_macros = "2.19.4"
+snforge_std = "0.64.0"
+assert_macros = "2.20.0"
 slingfall_testing = { path = "../slingfall_testing" }
 
 # Five executables of the same package (`scarb execute --executable-name <name>`), plus the library

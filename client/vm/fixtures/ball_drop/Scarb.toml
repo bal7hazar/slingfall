@@ -3,7 +3,7 @@ name = "ball_drop"
 description = "Stand-in executable for the VM worker until G4 (spike G1b copy of rapier-cairo/examples/ball_drop)."
 version = "0.1.0"
 edition = "2024_07"
-cairo-version = "2.19.4"
+cairo-version = "2.20.0"
 license = "MIT"
 
 # Standalone package, outside the root workspace (an executable needs `enable-gas = false`).
@@ -20,7 +20,7 @@ rapier2d = "=0.1.0-alpha.8"
 rapier_core = "=0.1.0-alpha.8"
 rapier_math = "=0.1.0-alpha.8"
 rapier_dynamics2d = "=0.1.0-alpha.8"
-cairo_execute = "2.19.4"
+cairo_execute = "2.20.0"
 
 [executable]
 sierra = true
