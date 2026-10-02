@@ -28,6 +28,8 @@ assets that cover the game coherently come first; vector shapes from code only f
   (`icon_repeat`, `icon_play`), sliders, and the Kenney Future font (TTF, same licence).
 - Kenney Particle Pack 1.1, https://kenney.nl/assets/particle-pack. CC0 (`License.txt`). Smoke, spark and dirt
   tiles of 512x512.
+- If a Particle Pack file is used, check its README's credits (it names filter-template authors with no licence
+  of their own) for that file's origin, and record it in `client/ASSETS.md`; when in doubt, leave the pack out.
 - **Never copy `preview.png` or `sample.png`**, nor any file that shows the Kenney logo: Kenney reserves its logo.
 - Mapping: timber is Wood, slate is Stone, frost is Glass (pale cyan, reads as ice), and the cores are aliens.
 - Gaps, drawn from code in the pack's palette: the sling, the band and the aim arc (already drawn from code; recolour
@@ -50,14 +52,19 @@ None.
 
 Everything else is forbidden; needs go to "Escalations".
 
+- `client/src/main.ts` and `client/src/game/stage.ts`: only to preload the skin's textures (Pixi `Assets.load` is
+  asynchronous; build the `Scene` once they are loaded), to select the skin, and to take the page background from the
+  skin.
 - `client/public/assets/kenney/**` (new): only the files the game uses (PNG or SVG, plus the font), never a whole
   pack. Each pack's licence file sits beside its files, unchanged.
 - `client/ASSETS.md` (new): one row per file or per family, giving the path, pack and version, source URL, licence,
   and the date fetched; plus a "Credits" line: "Kenney (www.kenney.nl), CC0 1.0".
-- `client/src/render/**`, `client/src/aim/controller.ts` (colours only), `client/index.html`, `client/src/style.css`,
+- `client/src/render/**`, `client/src/aim/controller.ts` (only to take the pebble, the band
+  and the colours from the skin), `client/index.html`, `client/src/style.css`,
   and the client's tests.
 - `docs/captures/m6/**` (new): the captures of §4.
 - `REPORT.md` at the worktree root.
+- A capture script under `docs/captures/m6/` (it may copy the harness of `scripts/play/qa-browser.mjs`).
 - Not `client/vm/**`, not `client/package.json` (no new dependency: Pixi v8 already has sprites, nine-slice and text),
   not the game, the contract or the replay.
 
@@ -69,6 +76,13 @@ an interface such as `bodySprite(material, shape, size, state)`, `ground(extent)
 today's coloured shapes. A query parameter or constant selects the skin, and a test runs both, so swapping the art
 later touches one folder.
 
+**One source of truth.** The controller's pebble and band (`controller.ts` draws its own pebble today with a copy of
+the scene's colour) come from the skin too, so the pebble at the sling and in flight are the same.
+
+**The world is y-flipped** (`scene.ts`: `this.world.scale.set(s, -s)`): every skin sprite is counter-flipped
+(`scale.y = -1` or an equivalent), and the ground strip and background are laid out in that frame. A test, or the
+capture, shows the grass edge on top and the aliens upright.
+
 **Phase A: one level, then stop.**
 1. Implement the Kenney skin for the playfield of `pile10`:
    - blocks by material, with any box size through a **nine-slice** of the plain 140x70 / 70x140 sprite (measure the
@@ -79,8 +93,10 @@ later touches one folder.
    - the pebble;
    - the sling, band and arc recoloured.
    States as today: asleep tint, damage flash, destroyed fade.
-2. Capture it on the VPS with headless Chromium (Playwright's cached browser is under `~/.cache/ms-playwright`; read
-   how lot L3 captured from a fixture): one PNG at rest with the sling, one mid-flight on the reference shot's trace,
+2. Capture it on the VPS with headless Chromium. Use the harness of `scripts/play/qa-browser.mjs` (Playwright comes
+   from `PLAYWRIGHT_MODULE`, since `playwright` is not a client dependency; its browser is cached under
+   `~/.cache/ms-playwright`), against the dev server. Choose each frame deterministically: a fixed tick of the
+   reference trace (`client/public/traces/`) through the scrub range. one PNG at rest with the sling, one mid-flight on the reference shot's trace,
    and one after impact. Save them under `docs/captures/m6/`.
 3. Commit, push, open the PR, and **stop**. Write `REPORT.md` with the captures' paths and what phase B would add.
    Phase B starts only on my line `Phase B` (the capture goes to the owner first). If the owner asks for changes,
