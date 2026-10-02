@@ -61,8 +61,11 @@ Everything else is forbidden; needs go to "Escalations".
 1. Rewrite each call to the directory form: `scarb --manifest-path X/Scarb.toml execute --executable-name ...`
    becomes `(cd X && scarb execute --executable-name ...)`, or `cwd=X` in Python. Paths given to scarb relative to the
    old working directory (for example `--arguments-file`) are made absolute or adjusted for the new one.
-2. The artefact comparison of §1 for each call, done so it cannot be empty: build with the old form, copy `target/`
-   aside (or record each file's sha256), `rm -rf target`, build with the new form, then compare. For an `execute`,
+2. The artefact comparison of §1 for each call, done so it cannot be empty, with `RAYON_NUM_THREADS=1` exported for
+   both builds (the Sierra is not deterministic across compiler threads, so a difference that remains is then a scope
+   difference): build with the old form, copy aside (or record each file's sha256) the `target/` it wrote (the
+   package directory's, and the workspace root's if the old form wrote there), remove that same `target/`, build with
+   the new form, then compare. For an `execute`,
    compare the program output and the resource-usage lines, not the `target/execute/<pkg>/executionN` listing (its
    counter differs). The old-form build runs on the VPS under
    `flock -w <s> ~/orchestrator/heavy-build.lock env HEAVY_BUILD_LOCK_HELD=1 …`, never bare; or both run on the Mac.
