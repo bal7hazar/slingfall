@@ -25,9 +25,8 @@ Everything else is forbidden; needs go to "Escalations".
 - `scripts/prepush.sh` (new), `scripts/install-hooks.sh` (new), `.githooks/pre-push` (new).
 - `AGENTS.md`: one short rule. Run `scripts/install-hooks.sh` once per clone, run `scripts/prepush.sh` (the hook does)
   before every push, never push red, never skip the hook.
-- `README.md`: one line in the commands table.
-- **Not** `.github/workflows/**`. The download retries are a separate lot after the TC lot merges, because TC changes
-  `ci.yml`.
+- **Not** `.github/workflows/**` and **not** `README.md`: the running TC lot changes both. The download retries
+  and the README line are a separate lot after TC merges.
 
 ## 4. Work
 
