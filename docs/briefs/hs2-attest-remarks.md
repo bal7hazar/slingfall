@@ -31,6 +31,13 @@ files.
   needs it).
 - `services/attest/attest.py`, `services/attest/test_attest.py`.
 - `docs/hosting.md`.
+- `deploy/hosting/test_install.sh` (new): tests of `install.sh`'s functions without running the install. It sources
+  the code between the `# --- archive checks: begin/end` and `# --- replay manifest: begin/end` markers into a
+  temporary tree, with git run in a sanitised environment (`env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE
+  -u GIT_COMMON_DIR -u GIT_PREFIX`, never on the real repository). It covers remark 1 (no file outside the private
+  directory), remark 5 (git < 2.40 refused, check-attr failure fails closed), N15 (a multi-line string hiding a table),
+  N16, N18 and N19 (an ELF file under `crates/`). Network-free; it leaves nothing behind. If the permission system
+  refuses `git init` in the temporary tree, say so, and test what you can.
 - `REPORT.md` (not committed).
 
 ## 4. Work
@@ -38,17 +45,19 @@ files.
 The owner's session's remarks (attest-remarks.md):
 1. **install.sh, the `.sorted` files** (around l. 122): root writes files with predictable names in the shared `/tmp`.
    Use one private directory from `mktemp -d` under `/opt/slingfall/.build` for every temporary file of the install,
-   removed at exit. This is also audit note "one mktemp -d".
-2. **The service unit:** add `LimitCORE=0`, `ProtectProc=invisible` and `Environment=PYTHONNOUSERSITE=1` (or run
-   `python3 -I`; say which and why).
+   removed at exit, and `export TMPDIR` to it, so that `sort -z` spills and here-strings use it too. This is also
+   audit note "one mktemp -d".
+2. **The service unit:** add `LimitCORE=0`, `ProtectProc=invisible` and `Environment=PYTHONNOUSERSITE=1`. Not
+   `python3 -I`: it implies `-E`, which would drop the unit's `PYTHONDONTWRITEBYTECODE=1`.
    **Study** a limit on outgoing connections, since the service talks only to the RPC: `IPAddressDeny=any` plus an
    `IPAddressAllow=` for the RPC, or an equivalent. A hostname RPC cannot be allowed by name in systemd. Say what
    works, what it costs the owner (an address to maintain), and either add it as a commented, documented option or
    explain why not.
 3. **attest.py, the RPC failure** (the `raise AttestError(503, f"chain: cannot read {name}: {e}")`, around l. 306): the
    error text reaches the caller and may carry the whole RPC URL, hence a provider key. Answer a fixed message
-   (`chain: cannot read <name>`), and keep the detail only in the log line, with any URL's credentials and query
-   redacted. Add a test where the exception text holds a URL with a key: the answer does not contain it.
+   (`chain: cannot read <name>`). The log line keeps only the exception's type and the RPC's host. Drop the URL's
+   path, query and credentials: providers carry the key in the path (`/v2/<key>`). Add a test where the exception
+   text holds `https://rpc.example/v2/SECRETKEY?k=SECRET`: neither the answer nor the log line contains `SECRET`.
 4. **attest.py, two malformed bodies** (around l. 607 and 789): `{"inputs": {...}}` (an object where a list is
    expected) and deeply nested JSON raise an uncaught exception. Answer 400 for both, with a test each. Bound the
    nesting depth, or catch `RecursionError`.
