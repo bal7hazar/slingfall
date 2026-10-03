@@ -104,6 +104,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from collections import deque
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -146,6 +147,7 @@ IPV6_PREFIX = 64  # an IPv6 client is its /64: one subscriber gets a whole /64
 SD_LISTEN_FDS_START = 3
 CONNECTION_TIMEOUT = 10.0  # seconds a connection may stay idle (headers, body) before it is closed
 REQUEST_DEADLINE = 20.0  # seconds for the whole request line, headers and body, however they trickle
+MAX_JSON_DEPTH = 8  # nested arrays and objects in a body (a request has 2); deeper is refused, 400
 # Open at once; each holds a thread. With the main thread and one replay's 17 (scarb 16 and
 # scarb-execute 1 at most, measured: docs/hosting.md "Resources"), 50 of the unit's TasksMax=64.
 MAX_CONNECTIONS = 32
@@ -153,12 +155,14 @@ CHAIN_TTL = 30.0
 
 
 class AttestError(Exception):
-    """A request the service refuses; `status` is the HTTP status of the answer."""
+    """A request the service refuses; `status` is the HTTP status of the answer, `detail` what only
+    the log gets (never the caller)."""
 
-    def __init__(self, status: int, message: str, retry_after: float | None = None):
+    def __init__(self, status: int, message: str, retry_after: float | None = None, detail: str | None = None):
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
+        self.detail = detail
 
 
 # --------------------------------------------------------------------------- felts
@@ -259,13 +263,33 @@ def rpc_call(url: str, method: str, params) -> object:
     return answer["result"]
 
 
+def rpc_host(url: str | None) -> str:
+    """The host of the RPC URL for the log: no scheme, credentials, port, path or query (providers
+    carry the key in the path, `/v2/<key>`), and the leftmost label masked when there are more than
+    two (some carry it in a subdomain). `?` when there is none or the URL does not parse."""
+    try:
+        host = urlsplit(url or "").hostname
+    except ValueError:
+        return "?"
+    if not host:
+        return "?"
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    labels = host.split(".")
+    return ".".join(["*", *labels[1:]]) if len(labels) > 2 else host
+
+
 class Chain:
     """What the signed message needs from the chain, read through `rpc(method, params)` and cached
-    for `ttl` seconds; fixed values (`--chain-id`, `--program-hash`, `--epoch`) are never read."""
+    for `ttl` seconds; fixed values (`--chain-id`, `--program-hash`, `--epoch`) are never read.
+    `rpc_url` names the RPC in the log only (`rpc_host`)."""
 
     def __init__(self, contract: int, rpc=None, chain_id: int | None = None, program_hash: int | None = None,
-                 epoch: int | None = None, ttl: float = CHAIN_TTL, clock=time.time):
-        self.contract, self.rpc, self.ttl, self.clock = contract, rpc, ttl, clock
+                 epoch: int | None = None, ttl: float = CHAIN_TTL, clock=time.time, rpc_url: str | None = None):
+        self.contract, self.rpc, self.ttl, self.clock, self.rpc_url = contract, rpc, ttl, clock, rpc_url
         self.fixed = {"chain_id": chain_id, "program_hash": program_hash, "epoch": epoch}
         self._cache: dict[str, tuple[float, int]] = {}
         self._lock = threading.Lock()
@@ -303,7 +327,10 @@ class Chain:
             try:
                 value = self._read(name)
             except Exception as e:  # noqa: BLE001  (any RPC failure refuses the request, never signs stale)
-                raise AttestError(503, f"chain: cannot read {name}: {e}") from None
+                # The exception's text may hold the whole RPC URL, hence a provider key: the caller gets a
+                # fixed message, the log the exception's type and the RPC's masked host.
+                raise AttestError(503, f"chain: cannot read {name}",
+                                  detail=f"{type(e).__name__} rpc={rpc_host(self.rpc_url)}") from None
             self._cache[name] = (self.clock(), value)
             return value
 
@@ -604,7 +631,10 @@ class Attester:
     def player_of(self, request: dict) -> int:
         try:
             if self.executor is not None:
-                return parse_felt((request.get("inputs") or [None])[0])
+                inputs = request.get("inputs")
+                if not isinstance(inputs, list) or not inputs:
+                    raise ValueError("inputs: expected the felts of an Inputs")
+                return parse_felt(inputs[0])
             return parse_outputs(request.get("outputs"))[PLAYER_INDEX]
         except (ValueError, TypeError, AttributeError) as e:
             raise AttestError(400, str(e)) from None
@@ -682,6 +712,31 @@ def read_revision(path: Path = REVISION) -> str | None:
         return None
 
 
+def json_depth(value: object) -> int:
+    """The nesting depth of a decoded JSON value (a scalar is 0), walked without recursion."""
+    depth, level = 0, [value]
+    while True:
+        level = [c for c in level if isinstance(c, (list, dict))]
+        if not level:
+            return depth
+        depth += 1
+        level = [v for c in level for v in (c.values() if isinstance(c, dict) else c)]
+
+
+def parse_body(data: bytes) -> object:
+    """A request body's JSON, at most `MAX_JSON_DEPTH` deep (400 otherwise): nothing deeper reaches the
+    code that reads or quotes it."""
+    try:
+        value = json.loads(data)
+    except RecursionError:
+        raise AttestError(400, "body: nested too deeply") from None
+    except ValueError as e:
+        raise AttestError(400, f"body: {e}") from None
+    if json_depth(value) > MAX_JSON_DEPTH:
+        raise AttestError(400, "body: nested too deeply")
+    return value
+
+
 class DeadlineReader(io.RawIOBase):
     """A socket's reading side under two bounds: each `recv` waits at most `idle` seconds, and all of
     them end by `deadline` (`time.monotonic()`), so a client trickling one byte at a time is cut off."""
@@ -731,6 +786,7 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
 
         def answer(self, status: int, body: dict, retry_after: float | None = None) -> None:
             data = json.dumps(body).encode()
+            self.idle()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
@@ -753,7 +809,13 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
+        def idle(self) -> None:
+            # The request is read: the answer is written under the idle timeout, not under what was left
+            # of the deadline when the last read set the socket's timeout (DeadlineReader).
+            self.connection.settimeout(timeout)
+
         def do_OPTIONS(self):  # noqa: N802
+            self.idle()
             self.send_response(204)
             self.cors()
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} OPTIONS {self.path} 204 "
@@ -785,15 +847,13 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
                 if len(data) != length:
                     self.close_connection = True
                     raise AttestError(400, "body: shorter than its Content-Length")
-                try:
-                    request = json.loads(data)
-                except ValueError as e:
-                    raise AttestError(400, f"body: {e}") from None
-                body = attester.handle(request, self.info)
+                body = attester.handle(parse_body(data), self.info)
                 self.info.update(mode=body["mode"], epoch=body["epoch"], message=body["message"])
                 self.answer(200, body)
             except AttestError as e:
                 self.info["error"] = json.dumps(str(e)[:200])
+                if e.detail:
+                    self.info["detail"] = json.dumps(e.detail[:200])
                 self.answer(e.status, {"error": str(e)}, e.retry_after)
 
     Handler.timeout = timeout
@@ -878,7 +938,7 @@ def make_attester(args) -> Attester:
     chain = Chain(int(args.contract, 0), rpc,
                   chain_id=parse_chain_id(args.chain_id) if args.chain_id else None,
                   program_hash=int(args.program_hash, 0) if args.program_hash else None,
-                  epoch=args.epoch)
+                  epoch=args.epoch, rpc_url=rpc_url)
     executor = None
     if args.execute:
         replay_dir = Path(args.replay_dir).resolve() if args.replay_dir else None
