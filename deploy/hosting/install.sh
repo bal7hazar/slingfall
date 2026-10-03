@@ -16,8 +16,8 @@
 #   --yes                do not ask before acting (the plan is printed either way)
 #
 # What it does, in order (each step is skipped when already done, so it can be run again):
-#   1. checks: root; this checkout is root-owned, not group/other-writable, clean, at a commit, with
-#      its git objects inside it (no gitfile, no alternates); the signed tag when asked; the service
+#   1. checks: root; git 2.40 or later; this checkout is root-owned, not group/other-writable, clean, at a
+#      commit, with its git objects inside it (no gitfile, no alternates); the signed tag when asked; the service
 #      user exists; the key file exists with that owner and mode 0600 (stat only: the key is never
 #      read, copied or printed);
 #   2. scarb $SCARB_VERSION, the official release tarball, sha256-checked, into
@@ -30,12 +30,14 @@
 #      unprivileged user `nobody` (never root) in a transient systemd unit (no terminal, private
 #      /tmp, no /home, no /etc/slingfall, its processes killed at the end), in a scratch directory
 #      under the root-owned /opt/slingfall/.build. Only regular files are taken from what it built,
-#      copied without following links. The release is made root-owned and read-only, then checked
+#      copied without following links; the lock it settled must hold only packages of the committed lock,
+#      and the release no shared object or ELF file. The release is made root-owned and read-only, then checked
 #      as the service runs it (pile10 reference shot, again as `nobody`, confined the same way);
 #      /opt/slingfall/current points at it; REVISION holds the sha;
 #   4. /etc/slingfall/attest.env from attest.env.example when it does not exist (never overwritten);
 #   5. /etc/systemd/system/slingfall-attest.{socket,service}, daemon-reload, enable both.
-# It never starts or restarts the service: that is the owner's command at the end.
+# It never starts or restarts the service: that is the owner's command at the end. Every temporary file
+# is in one private directory under /opt/slingfall/.build, removed at exit (TMPDIR points there).
 set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_INDEX_FILE
 
@@ -77,7 +79,7 @@ while [ $# -gt 0 ]; do
     --signed-tag) TAG="$2"; shift 2 ;;
     --signer) SIGNER="$2"; shift 2 ;;
     --yes) YES=1; shift ;;
-    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -85,27 +87,63 @@ done
 die() { echo "install.sh: $*" >&2; exit 1; }
 say() { echo "install.sh: $*"; }
 
+# Every function between `# --- <name>: begin` and `# --- <name>: end` is tested apart, without an install
+# (deploy/hosting/test_install.sh sources these regions).
+
+# --- private tmp: begin
+# private_tmp DIR: one private directory (mktemp -d: 0700, root's) under DIR for every temporary file of the
+# install, its path in `tmpdir` and in the exported TMPDIR (sort's spills, here-documents): root writes no
+# file with a predictable name in the shared /tmp. The install's one EXIT trap removes it.
+private_tmp() {
+  tmpdir="$(mktemp -d "$1/tmp.XXXXXX")"
+  export TMPDIR="$tmpdir"
+}
+# --- private tmp: end
+
+# --- git version: begin
+# check_git: git 2.40 or later, the first with `git check-attr --source` (check_attributes).
+check_git() {
+  local v major minor
+  v="$(git --version)" || die "git --version failed"
+  v="${v#git version }"
+  major="${v%%.*}" minor="${v#*.}"
+  minor="${minor%%.*}"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || die "git: cannot read the version in '$v'"
+  (( major > 2 || (major == 2 && minor >= 40) )) || die "git $v: 2.40 or later is needed (git check-attr --source)"
+}
+# --- git version: end
+
 # --- archive checks: begin
 # git archive is not a byte-exact export: it applies the export-subst and export-ignore attributes of
 # the archived tree's .gitattributes (export-subst expands $Format:...$, the commit message included).
 # check_attributes SRC SHA PATHS...: refuses export-subst or export-ignore set on any path of the commit.
+# It fails closed: each git command's status is checked (files in the private directory, no pipe or
+# process substitution), and check-attr must answer both attributes of every path.
 check_attributes() {
-  local src="$1" sha="$2" path attr value
+  local src="$1" sha="$2" paths attrs path attr value n=0 m
   shift 2
+  paths="$(mktemp "$tmpdir/paths.XXXXXX")"
+  attrs="$(mktemp "$tmpdir/attrs.XXXXXX")"
+  git -C "$src" ls-tree -r -z --name-only "$sha" -- "$@" >"$paths" || die "git ls-tree $sha failed: refused"
+  git -C "$src" check-attr -z --source="$sha" --stdin export-subst export-ignore <"$paths" >"$attrs" \
+    || die "git check-attr failed: refused"
   while IFS= read -r -d '' path && IFS= read -r -d '' attr && IFS= read -r -d '' value; do
     case "$value" in
       unspecified|unset) ;;
       *) die "$path: $attr is set ($value) in the commit's .gitattributes: refused" ;;
     esac
-  done < <(git -C "$src" ls-tree -r -z --name-only "$sha" -- "$@" \
-    | git -C "$src" check-attr -z --source="$sha" --stdin export-subst export-ignore)
+    n=$((n + 1))
+  done <"$attrs"
+  m="$(tr -cd '\0' <"$paths" | wc -c)"
+  { [ "$m" -gt 0 ] && [ "$n" = $((2 * m)) ]; } || die "git check-attr answered $n attributes for $m paths: refused"
+  rm -f "$paths" "$attrs"
 }
 # check_archive SRC SHA STAGE PATHS...: every file extracted into STAGE is the commit's blob, byte for byte
 # and with its mode; no file of the commit is missing and none is extra.
 check_archive() {
   local src="$1" sha="$2" stage="$3" entry meta path mode type blob listed staged extra
   shift 3
-  listed="$(mktemp)" staged="$(mktemp)"
+  listed="$(mktemp "$tmpdir/listed.XXXXXX")" staged="$(mktemp "$tmpdir/staged.XXXXXX")"
   while IFS= read -r -d '' entry; do
     meta="${entry%%$'\t'*}" path="${entry#*$'\t'}"
     read -r mode type blob <<<"$meta"
@@ -134,16 +172,84 @@ check_archive() {
 # strace): native code fetched from the registry, run as the key's owner. Applied to every crate of the
 # release (the replay's path dependencies have snforge_std dev-dependencies too), scarb fetches no plugin
 # and loads no shared object outside its own directory and the system.
+# The lines go by awk; then Python's tomllib reads both files, and the stripped manifest must be the
+# reviewed one minus exactly those keys: a line hidden in a multi-line string cannot become live.
 strip_test_parts() {
   local m="$1"
   awk '
     /^\[/ { skip = ($0 ~ /^\[dev-dependencies\]/ || $0 ~ /^\[profile\.snforge/ || $0 ~ /^\[tool\.snforge\]/) }
     /^allow-prebuilt-plugins/ || /^snforge\.workspace/ { next }
     !skip
-  ' "$m" >"$m.stripped" && mv "$m.stripped" "$m"
-  ! grep -v '^[[:space:]]*#' "$m" | grep -q snforge || die "$m still names snforge once stripped: update install.sh"
+  ' "$m" >"$m.stripped"
+  python3 -I - "$m" "$m.stripped" <<'EOF' || die "$m: the strip changes more than its test-only parts: refused"
+import copy, sys, tomllib
+
+def load(path):
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+def canon(doc):  # the tables the strip may leave empty, or drop once empty
+    tool = doc.get("tool")
+    if isinstance(tool, dict) and tool.get("scarb") == {}:
+        del tool["scarb"]
+    for name in ("profile", "tool"):
+        if doc.get(name) == {}:
+            del doc[name]
+    return doc
+
+reviewed, stripped = load(sys.argv[1]), load(sys.argv[2])
+want = copy.deepcopy(reviewed)
+want.pop("dev-dependencies", None)
+for name in [n for n in want.get("profile", {}) if n.startswith("snforge")]:
+    del want["profile"][name]
+want.get("tool", {}).pop("snforge", None)
+want.get("tool", {}).get("scarb", {}).pop("allow-prebuilt-plugins", None)
+if canon(want) != canon(stripped):
+    sys.exit(f"install.sh: {sys.argv[1]}: the stripped manifest is not the reviewed one minus its test-only parts")
+EOF
+  mv "$m.stripped" "$m"
+  # One process (no pipe a match could cut with SIGPIPE under pipefail): any non-comment line naming snforge.
+  if awk '!/^[[:space:]]*#/ && /snforge/ { found = 1 } END { exit !found }' "$m"; then
+    die "$m still names snforge once stripped: update install.sh"
+  fi
 }
 # --- replay manifest: end
+
+# --- lock comparison: begin
+# check_lock SETTLED COMMITTED: every package of the lock the build settled is in the reviewed, committed lock
+# with the same name, version, source and checksum. scarb 2.20.1 has no --locked, and the stripped manifests
+# drop the dev-dependencies, so the settled lock is a subset of the committed one, never equal to it.
+check_lock() {
+  python3 -I - "$1" "$2" <<'EOF' || die "$1: the build settled packages the committed $2 does not hold: refused"
+import sys, tomllib
+
+def packages(path):
+    with open(path, "rb") as f:
+        return {(p["name"], p["version"], p.get("source"), p.get("checksum")) for p in tomllib.load(f)["package"]}
+
+extra = packages(sys.argv[1]) - packages(sys.argv[2])
+for package in sorted(extra, key=str):
+    print("install.sh: not in the committed lock:", *(v for v in package if v), file=sys.stderr)
+sys.exit(1 if extra else 0)
+EOF
+}
+# --- lock comparison: end
+
+# --- ELF scan: begin
+# refuse_native ROOT DIR...: no shared object and no ELF file under the DIRs (ROOT is cut from the
+# messages). The file list goes through the private directory, its status checked.
+refuse_native() {
+  local root="$1" list f
+  shift
+  list="$(mktemp "$tmpdir/files.XXXXXX")"
+  find "$@" -type f -print0 >"$list" || die "cannot list the files of $*: refused"
+  while IFS= read -r -d '' f; do
+    case "$f" in *.so|*.so.*) die "a shared object, ${f#"$root"/}: refused" ;; esac
+    [ "$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')" != 7f454c46 ] || die "an ELF file, ${f#"$root"/}: refused"
+  done <"$list"
+  rm -f "$list"
+}
+# --- ELF scan: end
 
 # ------------------------------------------------------------------ 1. checks (nothing changes)
 [ "$(id -u)" = 0 ] || die "run as root (the tree it installs must be root-owned)"
@@ -161,6 +267,7 @@ while :; do
 done
 bad="$(find "$SRC" ! -type l \( ! -uid 0 -o -perm /022 \) -print -quit)"
 [ -z "$bad" ] || die "$bad is not root-owned or is group/other-writable: fetch the revision as root"
+check_git
 # The objects `git archive` reads must be this checkout's own: no gitfile, no shared or alternate store.
 [ -d "$SRC/.git" ] && [ ! -L "$SRC/.git" ] || die "$SRC/.git must be a directory (a plain git clone)"
 common="$(cd "$SRC" && cd "$(git rev-parse --git-common-dir)" && pwd -P)"
@@ -245,9 +352,10 @@ as_nobody() {
 
 # ------------------------------------------------------------------ 3. the release
 if [ ! -d "$REL" ]; then
+  private_tmp "$PREFIX/.build"
   stage="$(mktemp -d "$PREFIX/releases/.stage.XXXXXX")"
   build="$(mktemp -d "$PREFIX/.build/run.XXXXXX")"
-  trap 'rm -rf "$stage" "$build"' EXIT
+  trap 'rm -rf "$stage" "$build" "$tmpdir"' EXIT
   check_attributes "$SRC" "$SHA" "${RELEASE_PATHS[@]}"
   git -C "$SRC" archive "$SHA" "${RELEASE_PATHS[@]}" | tar -x -C "$stage"
   check_archive "$SRC" "$SHA" "$stage" "${RELEASE_PATHS[@]}"
@@ -285,23 +393,24 @@ if [ ! -d "$REL" ]; then
   odd="$(find "$built" "$build/home/scarb-cache" ! -type f ! -type d -print -quit)"
   [ -z "$odd" ] || die "the build left $odd, not a regular file or directory: refused"
   # No native code for the service user: no shared object, no ELF file, in what it will run from.
-  while IFS= read -r -d '' f; do
-    case "$f" in *.so|*.so.*) die "the build left a shared object, ${f#"$build"/}: refused" ;; esac
-    [ "$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')" != 7f454c46 ] || die "the build left an ELF file, ${f#"$build"/}: refused"
-  done < <(find "$built" "$build/home/scarb-cache" -type f -print0)
+  refuse_native "$build" "$built" "$build/home/scarb-cache"
   install -d "$stage/crates/slingfall_replay/target/dev"
   for f in "$built"/*.executable.json; do
     [ -f "$f" ] && [ ! -L "$f" ] || die "$f: not a regular file"
     cp -P --no-preserve=all "$f" "$stage/crates/slingfall_replay/target/dev/"
   done
   cp -RP --no-preserve=all "$build/home/scarb-cache" "$stage/scarb-cache"
-  # The lock file the build settled for the stripped manifests: scarb need not rewrite it at runtime.
+  # The lock file the build settled for the stripped manifests: scarb need not rewrite it at runtime. It
+  # holds no package the reviewed, committed lock does not (still the archive's bytes in the stage here).
   lock="$build/src/crates/slingfall_replay/Scarb.lock"
   { [ -f "$lock" ] && [ ! -L "$lock" ]; } || die "$lock: not a regular file"
+  check_lock "$lock" "$stage/crates/slingfall_replay/Scarb.lock"
   cp -P --no-preserve=all "$lock" "$stage/crates/slingfall_replay/Scarb.lock"
   odd="$(find "$stage" ! -type f ! -type d -print -quit)"
   [ -z "$odd" ] || die "the release holds $odd, not a regular file or directory: refused"
   echo "$SHA" >"$stage/REVISION"
+  # The whole release, the archived crates/ that prepare.sh copies included: no native code anywhere.
+  refuse_native "$stage" "$stage"
   chown -R root:root "$stage"
   chmod -R a-w,a+rX "$stage"
   chmod 0755 "$stage"
@@ -326,7 +435,7 @@ for run in (1, 2):  # twice: the second run uses whatever the first left in the 
 print("install.sh: pile10-reference replays to its golden outputs, twice")
 EOF
   mv -T "$stage" "$REL"
-  rm -rf "$build"
+  rm -rf "$build" "$tmpdir"
   trap - EXIT
   say "release $REL installed"
 fi
