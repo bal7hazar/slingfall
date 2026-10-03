@@ -146,15 +146,34 @@ gas or step table), then a review thread (§2). Squash merge; conventional commi
 | Declared classes (SNIP-36 path) | class sizes under the gates with margins; SNIP-36 syscall / builtin check; bit-identity of the split layout against the in-process run |
 | Contract | negative tests for every attack of the research it implements; gas table; class size; `security` audit before any deployment |
 | Client / services | `npm run lint`, `npm test`, `npm run build`; devnet e2e in CI |
-| Release | main CI green at the release commit, CHANGELOG, version policy, dependency order, package dry run, the project manager's written go (the owner's delegation of 2026-09-25) |
+| Release | main CI green at the release commit, CHANGELOG, version policy, dependency order, package dry run, the project manager's publication go (§7) |
+| Brief of a lot | a review; merged at the first review with no blocker and no major, its minors and notes carried into the implementing thread's task text (programme rule, 2026-10-03) |
 | Documents, briefs, plan, status of a track | a short review on another model, like any pull request (the Overseer's ruling of 2026-10-02: a merge with no review is outside the owner's merge rule) |
 | The programme's own documents, written on the project manager's instruction (this file, the programme plan) | none: the standard's no-review path, with the line `Review: none — documents` |
+
+slingfall's `all-checks` gates 11 jobs, each path-gated: a job runs only when its inputs changed; pushes to main run everything (2026-10-03).
 
 ## 7. Releases and deployments
 
 - Registry releases (scarbs.xyz): the project manager gives the go in writing on the owner's behalf (delegation of
   2026-09-25) under the conditions above; the orchestrator publishes in dependency order, verifying each package
   against the registry, and tags.
+- **Release commit off main** (2026-10-03, project manager, with the Overseer's reading of the standard): when a
+  package's manifest cannot be published as it stands, because it lists unpublished `[dev-dependencies]` (test helpers
+  kept off the registry by the package-size rule), the release commit goes on a branch `release/<version>` cut from a
+  commit of `main`. Its whole diff is the removal of the `[dev-dependencies]` of the published crates. It is reviewed
+  by another model like any PR, and its CI is green. The publication go names that commit; the archives are built from
+  a clean checkout detached at it; the tag goes on it; the branch is kept and never merged. `main` keeps its
+  dev-dependencies. The release record on `main` names the release commit and says why it is off main. Reversed when
+  the helpers are published, or when scarb accepts unpublished dev-dependencies.
+- **Flags**: `scarb publish` never runs with `--allow-dirty`, `--no-verify` or `--index` (the standard's rule). If
+  verification fails without `--no-verify`, the exact error goes to the Overseer as a platform request; nothing is
+  published meanwhile.
+- **The project manager's checklist** before a go, run by the project manager in a clean clone: the commit is on
+  `main` (or is a release commit as above, whose diff the project manager reads), with green checks; its review left
+  no blocker and no major; the archive built from a checkout detached exactly at that commit (the archive embeds the
+  checkout's HEAD) has the sha256 of the request. Several packages of one release may share one request and one go
+  message naming every row (package, version, commit, sha256).
 - Starknet Sepolia: a deployment or an admin transaction happens only inside a brief that names it, with the
   transactions listed one by one; mainnet is reserved to the owner.
 - The hosted client (GitHub Pages) is redeployed by a manual dispatch of the CI workflow after a merge that changes
