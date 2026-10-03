@@ -53,6 +53,12 @@ The in-session Agent tool is used only for short read-only research.
   quota: fewer threads, and warn with the figure.
 - The Mac (12 cores, 64 GB) takes the heavy suites: a nalgebra build peaks at 11 GB, rapier's whole-shot tests near
   20 GB.
+- **Memory cap** (organisation rule, 2026-10-03, after a VPS incident where an uncapped `scarb build --test` reached
+  16.7 GB and filled the machine): a test file is kept small enough that its build stays well under 8 GB (split a
+  golden or table file before it grows that far). Any build or test that may pass 8 GB runs on the Mac, or on the VPS
+  only under a hard cap, `prlimit --as=8589934592 -- /usr/bin/time -v <command>`, never uncapped. A peak-memory
+  measure is always capped that way. Known heavy suites (nalgebra builds ~11 GB, rapier whole-shot tests ~20 GB) run
+  on the Mac.
 - The VPS (Hostinger, 8 vCPU / 31 GB, shared with the owner's other programmes) runs one heavy suite at a time:
   `scarb` / `snforge` go through the shims that serialise heavy subcommands behind `~/orchestrator/heavy-build.lock`
   (rapier: a per-project lock for crate-scoped builds plus the shared heavy lock). `scarb prove` (Stwo) needs more
