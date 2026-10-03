@@ -827,9 +827,26 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
                 return self.answer(404, {"error": "not found"})
             self.answer(200, attester.health())
 
+        def drain(self) -> None:
+            # A body within the limit is read before the refusal goes out: closing on unread bytes resets
+            # the connection, and the client would see a broken pipe instead of its answer. Over the limit,
+            # or not within the deadline, the connection is closed as it is.
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                return
+            if not 0 < length <= attester.max_body:
+                return
+            try:
+                while length and (chunk := self.rfile.read(min(length, 1 << 16))):
+                    length -= len(chunk)
+            except OSError:  # TimeoutError included
+                self.close_connection = True
+
         def do_POST(self):  # noqa: N802
             if self.path != "/attest":
                 return self.answer(404, {"error": "not found"})
+            read = False
             try:
                 attester.charge_client(self.client())
                 try:
@@ -840,6 +857,7 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
                     raise AttestError(400 if length <= 0 else 413, "body: missing or too large")
                 try:
                     data = self.rfile.read(length)
+                    read = True
                 except TimeoutError:
                     self.close_connection = True
                     raise AttestError(408, f"body: not received within {timeout:.0f} s, or the request took "
@@ -854,6 +872,8 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
                 self.info["error"] = json.dumps(str(e)[:200])
                 if e.detail:
                     self.info["detail"] = json.dumps(e.detail[:200])
+                if not read:
+                    self.drain()
                 self.answer(e.status, {"error": str(e)}, e.retry_after)
 
     Handler.timeout = timeout
