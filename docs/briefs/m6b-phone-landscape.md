@@ -39,22 +39,34 @@ None.
 
 1. **The overlay:**
    - It shows on a phone in portrait: `(orientation: portrait) and (max-width: 600px) and (pointer: coarse)`. The
-     coarse pointer keeps a narrow desktop window, with its mouse, out; say how you checked that. 600 px matches
-     `main.ts`'s NARROW query.
+     coarse pointer keeps a narrow desktop window, with its mouse, out. 600 px matches `main.ts`'s NARROW query.
+   - **One source of truth:** `orientation.ts` evaluates the query (`matchMedia`) and sets a class on `<body>`.
+     `style.css` shows the overlay from that class, never from its own media query, so the overlay and the pause can
+     never disagree.
    - It covers the scene with a short message and an icon drawn in CSS or SVG inline, using the UI Pack's font and
      palette. No new asset.
    - It pauses the live playback while shown. On return to landscape it resumes **only if the playback was playing when
      the overlay appeared**, so a pause the user chose before rotating stays paused. A shot in flight keeps its frames:
      only the head waits.
-   - While it shows, the scene is **inert**: `inert` on the scene and the controls (or an equivalent), and the
-     keyboard handlers (`Space`, `Enter`, the arrows) do nothing. No aim, no shot, no Play or Retry.
-   - Unit tests in `orientation.test.ts`: show and hide on the query; the resume rule (was playing → resumes; was
-     paused → stays paused); the key handlers ignored while shown.
+   - **The mechanism, pinned:** set the playback's playing flag directly. Save it when the overlay appears, set it to
+     false, and on return set it back to the saved value. **Never call `togglePlay()` / `Playback.toggle()`**: at the
+     end of a finished trace it restarts from 0, so a rotation would replay a finished shot.
+   - While it shows, everything but the overlay is **inert**: `inert` on every interactive sibling of the overlay:
+     `#app` (the scene), `#controls`, `#result` (Retry, Copy inputs, the wallet's Connect and Submit), `#banner`, and the
+     chain strip. Or put them under one wrapper and make that inert. The keyboard handlers (`Space`, `Enter`, the
+     arrows) do nothing: no aim, no shot, no Play or Retry.
+   - Unit tests in `orientation.test.ts`, with a mocked `matchMedia`:
+     - a coarse-pointer portrait shows the overlay; a fine-pointer narrow portrait (a desktop window) does not;
+     - the resume rule: was playing, it resumes; was paused, it stays paused; a finished trace is not restarted;
+     - the key handlers are ignored while it shows;
+     - every interactive sibling, `#result` included, is inert while it shows.
    - Accessible: `role="dialog"` or `status`, readable text, no motion that ignores `prefers-reduced-motion`.
-2. **Landscape phone captures** at 915×412: pile10 at rest and after the impact, and the interface. In `capture.mjs`,
-   the phone flows (rest, impact, interface) move from 412×915 to 915×412, with a touch, coarse-pointer context. Replace
-   the old 412×915 captures of those flows; they would now show only the overlay. Add the new ones to
-   `docs/captures/m6/` and `captures.txt`, naming the ticks.
+2. **Landscape phone captures** at 915×412. In `capture.mjs`, the phone flows (rest, the impact of all six levels,
+   the interface) move from 412×915 to 915×412, in a context with `hasTouch: true` and `isMobile: true` (coarse pointer).
+   **Delete every old `*-412x915.png`** from `docs/captures/m6/`, since they would now show only the overlay. Rewrite
+   `captures.txt` with the new ones, naming the ticks.
+   Also capture one **narrow desktop window** (for example 500×900, fine pointer, no touch): the overlay must not show.
+   That is the checkable proof of the query.
 3. **Fit at 412 px height:** check that the HUD, the hint, the bottom bar and the result panel all fit and stay readable
    at 915×412, and fix what does not, in `style.css`. A capture of the result panel open at 915×412 shows it.
 4. **A portrait capture** at 412×915 showing the overlay, in a coarse-pointer context.
