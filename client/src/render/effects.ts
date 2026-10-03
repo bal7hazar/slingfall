@@ -1,5 +1,8 @@
 import { ABSENT, type TraceBuffer } from './buffer';
-import type { TraceEvent } from '../trace/types';
+import type { LevelBody, TraceEvent } from '../trace/types';
+
+/** Starting hp per material (docs/DESIGN.md D12, as the levels set it): a body is worn under half of it. */
+export const MATERIAL_HP: Readonly<Record<string, number>> = { timber: 100, slate: 300, frost: 40, core: 30 };
 
 /** A damaged body flashes this long, ms of display time. */
 export const FLASH_MS = 180;
@@ -17,6 +20,9 @@ const FADE_LOOKBACK = 8;
 export class Effects {
   private readonly buffer: TraceBuffer;
   private readonly events: readonly TraceEvent[];
+  /** Half the starting hp of each level body, by handle (a body of unknown material never wears). */
+  private readonly halfHp = new Map<number, number>();
+  private hp = new Float64Array(0);
   private flashAt = new Float64Array(0);
   private fadeAt = new Float64Array(0);
   private fadeFrame = new Int32Array(0);
@@ -25,9 +31,13 @@ export class Effects {
   private cursor = 0;
   private tick = -1;
 
-  constructor(buffer: TraceBuffer, events: readonly TraceEvent[]) {
+  constructor(buffer: TraceBuffer, events: readonly TraceEvent[], bodies: readonly LevelBody[] = []) {
     this.buffer = buffer;
     this.events = events;
+    for (const b of bodies) {
+      const hp = MATERIAL_HP[b.material];
+      if (hp !== undefined && b.kind !== 'static') this.halfHp.set(b.handle, hp / 2);
+    }
   }
 
   /** Starts the effects of the events up to `tick`, displayed at frame index `frame`, at time `now`. */
@@ -37,9 +47,11 @@ export class Effects {
       this.cursor = 0;
       this.flashAt.fill(-Infinity);
       this.fadeAt.fill(-Infinity);
-      // Events already passed start no effect after a seek back.
+      this.hp.fill(Infinity);
+      // Events already passed start no effect after a seek back (their hp still counts).
       while (this.cursor < this.events.length && this.events[this.cursor].tick <= tick) {
         const event = this.events[this.cursor++];
+        if (event.kind === 'damage') this.setHp(event.handle, event.hp);
         if (event.kind === 'shot_end') this.spendPebbles(event.tick, -Infinity);
       }
     }
@@ -51,6 +63,7 @@ export class Effects {
       const slot = this.buffer.slotOfHandle.get(event.handle);
       if (slot === undefined) continue;
       if (event.kind === 'damage') {
+        this.hp[slot] = event.hp;
         this.flashAt[slot] = now;
       } else {
         this.fadeAt[slot] = now;
@@ -62,6 +75,18 @@ export class Effects {
   /** Whether the slot flashes at `now`. */
   flashing(slot: number, now: number): boolean {
     return slot < this.flashAt.length && now - this.flashAt[slot] < FLASH_MS;
+  }
+
+  /** Whether the body of `slot` is worn: its hp (from the `damage` events) is under half its material's. */
+  worn(slot: number): boolean {
+    if (slot >= this.hp.length) return false;
+    const half = this.halfHp.get(this.buffer.handles[slot]);
+    return half !== undefined && this.hp[slot] < half;
+  }
+
+  /** When the fade of `slot` started (display time, ms; -Infinity if it has not): tells a new destruction. */
+  fadeStart(slot: number): number {
+    return slot < this.fadeAt.length ? this.fadeAt[slot] : -Infinity;
   }
 
   /** Opacity of a destroyed body at `now` (0 once faded, or when not destroyed). */
@@ -93,6 +118,11 @@ export class Effects {
     }
   }
 
+  private setHp(handle: number, hp: number): void {
+    const slot = this.buffer.slotOfHandle.get(handle);
+    if (slot !== undefined) this.hp[slot] = hp;
+  }
+
   private lastPresent(slot: number, frame: number): number {
     const state = this.buffer.columns[slot].state;
     for (let i = frame, stop = Math.max(0, frame - FADE_LOOKBACK); i >= stop; i--) {
@@ -110,6 +140,7 @@ export class Effects {
       next.set(a);
       return next;
     };
+    this.hp = grow(this.hp, Infinity, (k) => new Float64Array(k));
     this.flashAt = grow(this.flashAt, -Infinity, (k) => new Float64Array(k));
     this.fadeAt = grow(this.fadeAt, -Infinity, (k) => new Float64Array(k));
     this.fadeFrame = grow(this.fadeFrame, -1, (k) => new Int32Array(k));

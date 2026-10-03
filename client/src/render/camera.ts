@@ -36,13 +36,15 @@ export function boundsOf(level: TraceLevel): Rect {
   };
 }
 
-/** The largest camera that shows all of `bounds` inside the screen minus `insets`, centred. */
+/** The largest camera that shows all of `bounds` inside the screen minus `insets`, centred (or, with
+ * `alignBottom`, standing on the bottom edge of the area). */
 export function fitCamera(
   bounds: Rect,
   width: number,
   height: number,
   insets: Insets = { top: 0, bottom: 0 },
   margin = 0.03,
+  alignBottom = false,
 ): Camera {
   const availableW = Math.max(1, width * (1 - 2 * margin));
   const availableH = Math.max(1, height - insets.top - insets.bottom - 2 * margin * height);
@@ -52,7 +54,9 @@ export function fitCamera(
   const centreX = (bounds.minX + bounds.maxX) / 2;
   const centreY = (bounds.minY + bounds.maxY) / 2;
   const areaCentreY = insets.top + (height - insets.top - insets.bottom) / 2;
-  return { scale, offsetX: width / 2 - centreX * scale, offsetY: areaCentreY + centreY * scale };
+  // `alignBottom`: spare height goes above the bounds (sky), not below them (plain earth).
+  const offsetY = alignBottom ? height - insets.bottom - margin * height + bounds.minY * scale : areaCentreY + centreY * scale;
+  return { scale, offsetX: width / 2 - centreX * scale, offsetY };
 }
 
 export function worldToScreen(camera: Camera, x: number, y: number): { x: number; y: number } {
@@ -137,7 +141,7 @@ function shapeReach(shape: Shape): number | null {
 
 /**
  * The camera of `rect` that also keeps `padPx` pixels of screen around `anchor` (room for a full
- * drag in every direction, `fullPullPixels`). The pad in metres depends on the scale it produces,
+ * drag in every direction (half of it downwards), `fullPullPixels`). The pad in metres depends on the scale it produces,
  * so the rectangle is grown and refitted a few times (the scale only shrinks; three rounds leave
  * it within a pixel on the screens measured, `render.test.ts`).
  */
@@ -149,11 +153,12 @@ export function frameCamera(
   height: number,
   insets: Insets = { top: 0, bottom: 0 },
 ): Camera {
-  let camera = fitCamera(rect, width, height, insets);
+  let camera = fitCamera(rect, width, height, insets, undefined, true);
   for (let round = 0; round < 3; round++) {
     const pad = padPx / camera.scale;
-    const grown = union(rect, { minX: anchor.x - pad, minY: anchor.y - pad, maxX: anchor.x + pad, maxY: anchor.y + pad });
-    camera = fitCamera(grown, width, height, insets);
+    // Half the room below the anchor: the ground is there, and plain earth is not worth the screen.
+    const grown = union(rect, { minX: anchor.x - pad, minY: anchor.y - pad / 2, maxX: anchor.x + pad, maxY: anchor.y + pad });
+    camera = fitCamera(grown, width, height, insets, undefined, true);
   }
   return camera;
 }

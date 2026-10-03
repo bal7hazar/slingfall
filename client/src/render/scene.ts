@@ -1,74 +1,35 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container } from 'pixi.js';
 import { ABSENT, ASLEEP, TraceBuffer } from './buffer';
 import { UNITS_PER_METRE, type Camera } from './camera';
 import type { Effects } from './effects';
-import { fixedToNumber, type LevelBody, type Shape, type TraceLevel } from '../trace/types';
+import { fixedToNumber, type TraceLevel } from '../trace/types';
+import type { Skin } from './skin';
 
-/** Placeholder flat colours per material (docs/DESIGN.md D12 names) until real assets exist. */
-export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
-  timber: 0xb07d48,
-  slate: 0x66727f,
-  frost: 0x9fd8e8,
-  core: 0xe0554b,
-  ground: 0x3a4150,
-};
-export const PEBBLE_COLOUR = 0xe8b64c;
-const FALLBACK_COLOUR = 0x9a9a9a;
+/** Display-only debris of a destroyed body: thrown up and out, falls under gravity, fades (scene units, s). */
+interface Piece {
+  view: Container;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  spin: number;
+  born: number;
+}
+const DEBRIS_PIECES = 3;
+const DEBRIS_LIFE_MS = 900;
+const DEBRIS_GRAVITY = 980;
 
-/** D12: the pebble is a ball of radius 0.25 m (raw 0.25 * 2^32). */
-const PEBBLE_SHAPE: Shape = { type: 'ball', radius: String(2 ** 30) };
+/** D12: the pebble is a ball of radius 0.25 m. */
+export const PEBBLE_RADIUS_METRES = 0.25;
 
 const AWAKE_TINT = 0xffffff;
-const ASLEEP_TINT = 0x8a8f99;
 /** A damaged body flashes red (`Effects`). */
 const FLASH_TINT = 0xff6a5c;
-const OUTLINE = 0x14161b;
 
 const u = (metres: number): number => metres * UNITS_PER_METRE;
 
-/** Draws a shape in body-local coordinates, in scene units (centimetres). */
-function drawShape(g: Graphics, shape: Shape, colour: number, extent: number): void {
-  switch (shape.type) {
-    case 'ball':
-      g.circle(0, 0, u(fixedToNumber(shape.radius)));
-      break;
-    case 'cuboid': {
-      const hx = u(fixedToNumber(shape.hx));
-      const hy = u(fixedToNumber(shape.hy));
-      g.rect(-hx, -hy, 2 * hx, 2 * hy);
-      break;
-    }
-    case 'polygon':
-      g.poly(shape.vertices.flatMap((v) => [u(fixedToNumber(v.x)), u(fixedToNumber(v.y))]));
-      break;
-    case 'halfspace': {
-      // The half-plane below its boundary, cut to `extent` around the body.
-      const nx = fixedToNumber(shape.normal.x);
-      const ny = fixedToNumber(shape.normal.y);
-      const tx = -ny * extent;
-      const ty = nx * extent;
-      const dx = -nx * extent;
-      const dy = -ny * extent;
-      g.poly([tx, ty, -tx, -ty, -tx + dx, -ty + dy, tx + dx, ty + dy]);
-      break;
-    }
-  }
-  g.fill(colour);
-  if (shape.type !== 'halfspace') g.stroke({ width: u(0.03), color: OUTLINE });
-}
-
-function bodyGraphics(body: LevelBody | undefined, extent: number): Graphics {
-  const g = new Graphics();
-  if (body) {
-    drawShape(g, body.shape, MATERIAL_COLOURS[body.material] ?? FALLBACK_COLOUR, extent);
-  } else {
-    drawShape(g, PEBBLE_SHAPE, PEBBLE_COLOUR, extent);
-  }
-  return g;
-}
-
 /**
- * The PixiJS scene of a trace: one `Graphics` per body, flat-coloured, drawn once. `update`
+ * The PixiJS scene of a trace: one view per body, from the skin (`render/skin/`), built once. `update`
  * moves them from the buffer with linear interpolation between frames (display only) and dims the
  * sleeping ones; it allocates nothing. The scene is in centimetres, y up: `world` carries the
  * camera transform.
@@ -80,18 +41,26 @@ export class Scene {
 
   private readonly level: TraceLevel;
   private readonly buffer: TraceBuffer;
+  private readonly skin: Skin;
   private readonly extent: number;
-  private readonly sprites: Graphics[] = [];
+  private readonly sprites: Container[] = [];
   private readonly tints: number[] = [];
+  private readonly worn: boolean[] = [];
+  /** `Effects.fadeStart` of the last destruction that threw debris, per slot. */
+  private readonly burst: number[] = [];
+  private readonly pieces: Piece[] = [];
+  private readonly debrisLayer = new Container();
+  private seed = 1;
 
-  constructor(level: TraceLevel, buffer: TraceBuffer) {
+  constructor(level: TraceLevel, buffer: TraceBuffer, skin: Skin) {
     this.level = level;
+    this.skin = skin;
     this.buffer = buffer;
     const b = level.bounds;
     const w = fixedToNumber(b.max_x) - fixedToNumber(b.min_x);
     const h = fixedToNumber(b.max_y) - fixedToNumber(b.min_y);
     this.extent = u(Math.hypot(w, h));
-    this.world.addChild(this.overlay);
+    this.world.addChild(this.debrisLayer, this.overlay);
     this.syncSprites();
   }
 
@@ -107,6 +76,7 @@ export class Scene {
    */
   update(position: number, effects?: Effects, now = 0): void {
     this.syncSprites();
+    this.moveDebris(now);
     const { frameCount, columns } = this.buffer;
     if (frameCount === 0) return;
     const last = frameCount - 1;
@@ -134,16 +104,63 @@ export class Scene {
       // A body gone at the next frame stays where it was until then.
       const t = c.state[g] === ABSENT ? 0 : a;
       sprite.position.set(u(c.x[f] + (c.x[g] - c.x[f]) * t), u(c.y[f] + (c.y[g] - c.y[f]) * t));
+      if (effects !== undefined) {
+        const worn = effects.worn(slot);
+        if (this.worn[slot] !== worn) {
+          this.worn[slot] = worn;
+          this.skin.wear?.(sprite, worn);
+        }
+        this.throwDebris(slot, effects, sprite, now);
+      }
       const re = c.re[f] + (c.re[g] - c.re[f]) * t;
       const im = c.im[f] + (c.im[g] - c.im[f]) * t;
       sprite.rotation = Math.atan2(im, re);
       const tint =
-        effects !== undefined && effects.flashing(slot, now) ? FLASH_TINT : state === ASLEEP ? ASLEEP_TINT : AWAKE_TINT;
+        effects !== undefined && effects.flashing(slot, now) ? FLASH_TINT : state === ASLEEP ? this.skin.palette.asleep : AWAKE_TINT;
       if (this.tints[slot] !== tint) {
         this.tints[slot] = tint;
         sprite.tint = tint;
       }
     }
+  }
+
+  /** Debris from where a body was destroyed, once per destruction (`Effects.fadeStart` changes). */
+  private throwDebris(slot: number, effects: Effects, at: Container, now: number): void {
+    const start = effects.fadeStart(slot);
+    if (start === this.burst[slot]) return;
+    this.burst[slot] = start;
+    const body = slot < this.buffer.levelSlotCount ? this.level.bodies.find((b) => b.handle === this.buffer.handles[slot]) : undefined;
+    if (body === undefined || start === -Infinity || !this.skin.debris) return;
+    for (let i = 0; i < DEBRIS_PIECES; i++) {
+      const view = this.skin.debris(body.material, i);
+      const r1 = this.random();
+      const r2 = this.random();
+      view.position.copyFrom(at.position);
+      this.debrisLayer.addChild(view);
+      this.pieces.push({ view, x: at.x, y: at.y, vx: (r1 - 0.5) * 500, vy: 150 + r2 * 250, spin: (r1 - r2) * 8, born: now });
+    }
+  }
+
+  /** Moves the debris along its fall and drops what has faded. */
+  private moveDebris(now: number): void {
+    for (let i = this.pieces.length - 1; i >= 0; i--) {
+      const p = this.pieces[i];
+      const age = (now - p.born) / 1000;
+      if (age < 0 || age * 1000 >= DEBRIS_LIFE_MS) {
+        p.view.destroy();
+        this.pieces.splice(i, 1);
+        continue;
+      }
+      p.view.position.set(p.x + p.vx * age, p.y + p.vy * age - 0.5 * DEBRIS_GRAVITY * age * age);
+      p.view.rotation = p.spin * age;
+      p.view.alpha = 1 - (age * 1000) / DEBRIS_LIFE_MS;
+    }
+  }
+
+  /** A small deterministic generator (display only): the same trace throws the same debris. */
+  private random(): number {
+    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
+    return this.seed / 2 ** 32;
   }
 
   /** Removes the scene from the stage and frees its sprites (a new level or a retry). */
@@ -157,10 +174,12 @@ export class Scene {
       const slot = this.sprites.length;
       const handle = this.buffer.handles[slot];
       const body = this.level.bodies.find((b) => b.handle === handle);
-      const sprite = bodyGraphics(body, this.extent);
+      const sprite = body ? this.skin.body(body, this.extent) : this.skin.pebble(PEBBLE_RADIUS_METRES);
       sprite.visible = false;
       this.sprites.push(sprite);
       this.tints.push(AWAKE_TINT);
+      this.worn.push(false);
+      this.burst.push(-Infinity);
       this.world.addChildAt(sprite, this.world.children.length - 1); // below the overlay
     }
   }

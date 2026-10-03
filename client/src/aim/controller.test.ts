@@ -184,11 +184,12 @@ describe('pile10 framing, measured', () => {
     const anchor = { x: fixedToNumber(level.sling_anchor.x), y: fixedToNumber(level.sling_anchor.y) };
     const camera = frameCamera(frameRect(level), anchor, full, width, height, insets);
     const a = worldToScreen(camera, anchor.x, anchor.y);
-    // A full drag in any direction stays on the play area.
+    // A full drag stays on the play area to the sides and upwards; downwards half of it does (M6: the frame keeps
+    // half the room below the anchor, the ground is there and plain earth is not worth the screen).
     expect(a.x - full).toBeGreaterThanOrEqual(-1);
     expect(a.x + full).toBeLessThanOrEqual(width + 1);
     expect(a.y - full).toBeGreaterThanOrEqual(-1);
-    expect(a.y + full).toBeLessThanOrEqual(height - 44 + 1);
+    expect(a.y + full / 2).toBeLessThanOrEqual(height - 44 + 1);
     // Old: fitCamera on the 60 x 50 m bounds gave 6-20 px per metre and 24-61 pull units per px.
     expect(1024 / full).toBeLessThan(10.5);
     expect(camera.scale).toBeGreaterThan(9);
