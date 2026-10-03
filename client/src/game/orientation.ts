@@ -108,3 +108,12 @@ export function pageGuard(playback: PlayingFlag, onChange?: (shown: boolean) => 
     onChange,
   });
 }
+
+/** The Space key's handler: Play / Pause (`toggle`), except while the overlay shows or when typing in a field. */
+export function spaceToggles(toggle: () => void): (event: KeyboardEvent) => void {
+  return (event) => {
+    if (event.code !== 'Space' || shown || (event.target as HTMLElement | null)?.tagName === 'INPUT') return;
+    event.preventDefault();
+    toggle();
+  };
+}

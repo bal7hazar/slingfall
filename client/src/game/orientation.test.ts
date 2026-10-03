@@ -2,13 +2,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AimController, type KeySurface, type PointerSurface } from '../aim/controller';
 import { Playback } from '../render/playback';
-import { OVERLAY_CLASS, OrientationGuard, PHONE_PORTRAIT, INERT_SELECTORS, overlayShown, pageGuard } from './orientation';
+import { OVERLAY_CLASS, OrientationGuard, PHONE_PORTRAIT, INERT_SELECTORS, overlayShown, pageGuard, spaceToggles } from './orientation';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LevelHeader, parseTraceLine } from '../trace/lines';
 import type { Graphics } from 'pixi.js';
-import type { Camera } from '../render/camera';
+import { worldToScreen, type Camera } from '../render/camera';
+import { fixedToNumber } from '../trace/types';
 
 /** A `matchMedia` of the test: it knows the facts of the device and evaluates the three terms of the query. */
 function device(facts: { portrait: boolean; width: number; coarse: boolean }) {
@@ -40,7 +41,9 @@ const PAGE = `<div id="app"></div><div class="top"><div id="chain-info"><a href=
 beforeEach(() => {
   document.body.innerHTML = PAGE;
 });
+const guards: OrientationGuard[] = [];
 afterEach(() => {
+  for (const guard of guards.splice(0)) guard.dispose(); // `shown` is module-level
   document.body.className = '';
 });
 
@@ -56,6 +59,7 @@ function guarded(facts: { portrait: boolean; width: number; coarse: boolean }, p
     inert: () => INERT_SELECTORS.flatMap((s) => [...document.querySelectorAll<HTMLElement>(s)]),
     onChange: (shown) => changes.push(shown),
   });
+  guards.push(guard);
   return { d, playback, guard, changes };
 }
 
@@ -94,6 +98,7 @@ describe('the overlay and its query', () => {
 
   it('builds the guard of the page from window.matchMedia', () => {
     const guard = pageGuard(new Playback(() => 1));
+    guards.push(guard);
     expect(guard.shown).toBe(false); // happy-dom: no phone
     guard.dispose();
   });
@@ -158,6 +163,26 @@ describe('the inert page', () => {
   });
 });
 
+describe('the Space key under the overlay', () => {
+  const space = (target: unknown = null) => ({ code: 'Space', target, preventDefault() {} }) as unknown as KeyboardEvent;
+
+  it('toggles the playback in landscape, not while the overlay shows, not in a field', () => {
+    let toggles = 0;
+    const handler = spaceToggles(() => toggles++);
+    const t = guarded({ portrait: false, width: 915, coarse: true });
+    handler(space());
+    expect(toggles).toBe(1);
+    handler(space({ tagName: 'INPUT' }));
+    expect(toggles).toBe(1);
+    t.d.rotate({ portrait: true, width: 412 });
+    handler(space());
+    expect(toggles).toBe(1);
+    t.d.rotate({ portrait: false, width: 915 });
+    handler(space());
+    expect(toggles).toBe(2);
+  });
+});
+
 describe('the keys under the overlay', () => {
   const root = (path: string) => resolve(dirname(fileURLToPath(import.meta.url)), '../../..', path); // not `new URL`: vite takes it for an asset in this environment
   function level() {
@@ -175,6 +200,33 @@ describe('the keys under the overlay', () => {
     }
     removeEventListener() {}
   }
+
+  it('ends a drag that was going when the phone turned to portrait without a shot', () => {
+    const traceLevel = level();
+    const handlers = new Map<string, (event: PointerEvent) => void>();
+    const canvas = {
+      addEventListener: (type: string, l: (event: PointerEvent) => void) => handlers.set(type, l),
+      removeEventListener() {},
+      getBoundingClientRect: () => ({ left: 0, top: 0 }),
+      setPointerCapture() {},
+    } as unknown as PointerSurface;
+    const graphics = new Proxy({}, { get: () => () => graphics }) as unknown as Graphics;
+    const camera = { scale: 10, offsetX: 0, offsetY: 0 } as Camera;
+    const released: unknown[] = [];
+    const aim = new AimController({ canvas, camera: () => camera, fullPullPx: () => 200, graphics, level: traceLevel, onRelease: (p) => released.push(p) });
+    // Grab exactly at the anchor, then drag far to the left.
+    const anchor = worldToScreen(camera, fixedToNumber(traceLevel.sling_anchor.x), fixedToNumber(traceLevel.sling_anchor.y));
+    const at = (x: number, y: number) => ({ pointerId: 1, pointerType: 'touch', clientX: x, clientY: y }) as PointerEvent;
+    const t = guarded({ portrait: false, width: 915, coarse: true });
+    handlers.get('pointerdown')!(at(anchor.x, anchor.y));
+    handlers.get('pointermove')!(at(anchor.x - 150, anchor.y));
+    expect(aim.current).not.toEqual({ x: 0, y: 0 }); // a real pull, not a zero one that would only cancel
+    expect(aim.current).toBeDefined();
+    t.d.rotate({ portrait: true, width: 412 });
+    handlers.get('pointerup')!(at(anchor.x - 150, anchor.y));
+    expect(released).toEqual([]);
+    expect(aim.current).toBeUndefined();
+  });
 
   it('ignores the arrows and Enter while it shows, and takes them back after', () => {
     const traceLevel = level();

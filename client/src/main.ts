@@ -4,7 +4,7 @@ import type { Pull } from './aim/pull';
 import { chainConfig, explorerLink } from './chain/config';
 import { SubmitPanel } from './chain/panel';
 import { inputsFelts, shortFelt } from './chain/slingfall';
-import { overlayShown, pageGuard } from './game/orientation';
+import { overlayShown, pageGuard, spaceToggles } from './game/orientation';
 import { ShotLoop } from './game/play';
 import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
@@ -152,11 +152,7 @@ async function main(): Promise<void> {
   };
   ui.play.addEventListener('click', togglePlay);
   ui.scrub.addEventListener('input', () => playback.seek(Number(ui.scrub.value)));
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'Space' || overlayShown() || (event.target as HTMLElement | null)?.tagName === 'INPUT') return;
-    event.preventDefault();
-    togglePlay();
-  });
+  window.addEventListener('keydown', spaceToggles(togglePlay));
 
   let shownFrame = -1;
   let shownReleases = -1;

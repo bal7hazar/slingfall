@@ -192,7 +192,9 @@ export class AimController {
   private readonly onUp = (event: PointerEvent): void => {
     if (event.pointerId !== this.pointerId) return;
     this.pointerId = undefined;
-    this.release();
+    // A drag still going when the phone turned to portrait (game/orientation.ts) ends without a shot.
+    if (overlayShown()) this.cancel();
+    else this.release();
   };
 
   private readonly onCancel = (event: PointerEvent): void => {
