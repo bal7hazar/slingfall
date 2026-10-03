@@ -1,5 +1,6 @@
 // Captures of the M6 skin (docs/briefs/m6-art-kenney.md): every level after a shot, the interface, one scene at rest
-// per orientation, on desktop (1280x800) and at a narrow mobile width (412x915), and the frame times of a shot's
+// per orientation, on desktop (1280x800) and on a phone in landscape (915x412, touch: M6b, docs/briefs/m6b-phone-landscape.md),
+// the overlay of a phone in portrait (412x915) and of a narrow desktop window (500x900, mouse: no overlay), and the frame times of a shot's
 // playback, flat skin against Kenney skin. Headless Chromium against a dev server of `client/` with the wasm runner
 // built (`client/vm/scripts/build.sh`, under the heavy lock): the real replay runs in the page's worker.
 //   (cd client && npm run dev -- --port 5199 &)
@@ -19,7 +20,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const browser = await pw.chromium.launch({ headless: true });
 
 const DESKTOP = { width: 1280, height: 800 };
-const MOBILE = { width: 412, height: 915 };
+// A phone: touch and a coarse pointer (the overlay's query needs it), in landscape. In portrait it gets the overlay.
+const MOBILE = { width: 915, height: 412, hasTouch: true, isMobile: true };
+const PORTRAIT = { width: 412, height: 915, hasTouch: true, isMobile: true };
+const NARROW_DESKTOP = { width: 500, height: 900 }; // fine pointer: the overlay must not show
 /** The pull of the reference shot (scripts/play/qa-browser.mjs) and the shots tried per level until one scores. */
 const PULLS = ['-1022,-63', '-900,-200', '-1000,-330', '-800,-100'];
 // WORN=level:pull;pull;pull takes one extra desktop capture (`<level>-worn-1280x800.png`, after the last shot) and only that.
@@ -31,7 +35,8 @@ const INTERFACE = process.env.INTERFACE;
 const LEVELS = ['pile10', 'cores3', 'tower', 'bridge', 'twin', 'one_block'].filter((l) => !ONLY || ONLY.includes(l));
 
 async function open(viewport, query) {
-  const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  const { width, height, hasTouch = false, isMobile = false } = viewport;
+  const context = await browser.newContext({ viewport: { width, height }, hasTouch, isMobile, deviceScaleFactor: 1 });
   const page = await context.newPage();
   const log = { errors: [], lines: [] };
   page.on('pageerror', (e) => log.errors.push(e.message));
@@ -77,6 +82,18 @@ for (const vp of ONLY || INTERFACE ? [] : [DESKTOP, MOBILE]) {
   const file = shotName('rest', 'pile10', vp);
   await page.screenshot({ path: path.join(outDir, file) });
   report.push(`${file}: at rest, errors: ${log.errors.join('; ') || 'none'}`);
+  await context.close();
+}
+
+// 1b. The overlay: a phone in portrait shows it; a narrow desktop window (mouse) does not.
+for (const [vp, expected] of ONLY || INTERFACE ? [] : [[PORTRAIT, true], [NARROW_DESKTOP, false]]) {
+  const { context, page, log } = await open(vp, 'level=pile10&skin=kenney');
+  await sleep(1200);
+  const shown = await page.evaluate(() => document.body.classList.contains('rotate-phone') && getComputedStyle(document.querySelector('#rotate')).display !== 'none');
+  const file = shotName(expected ? 'overlay' : 'no-overlay', 'pile10', vp);
+  await page.screenshot({ path: path.join(outDir, file) });
+  report.push(`${file}: overlay ${shown ? 'shown' : 'not shown'} (expected: ${expected ? 'shown' : 'not shown'}), errors: ${log.errors.join('; ') || 'none'}`);
+  if (shown !== expected) throw new Error(`${file}: the overlay is ${shown ? 'shown' : 'not shown'}`);
   await context.close();
 }
 

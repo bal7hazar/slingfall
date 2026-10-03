@@ -294,6 +294,30 @@ canvas {
   }
 }
 
+/* A phone in landscape (M6b, 412 px high): the target stands on the right, so the result panel moves to the sky over the
+   sling, small, instead of covering the blocks it reports on. */
+@media (max-height: 500px) {
+  .result {
+    left: 8px;
+    right: auto;
+    width: min(340px, 45%);
+    top: 46px;
+    padding: 6px 10px;
+  }
+
+  .result h2 {
+    font-size: 15px;
+  }
+
+  .result p {
+    margin-bottom: 4px;
+  }
+
+  .result-buttons {
+    margin-top: 6px;
+  }
+}
+
 /* The Kenney skin's interface (M6, docs/briefs/m6-art-kenney.md): UI Pack buttons and icon, Kenney Future,
    panels in the palette of src/render/skin/palette.ts (text #1f3a44 over the pale sky, the same dark teal as bars).
    `?skin=flat` keeps everything above as it was. Files and licence: ASSETS.md. */
@@ -429,4 +453,68 @@ body[data-skin='kenney'] .submit {
   body[data-skin='kenney'] .controls {
     gap: 6px;
   }
+}
+
+/* "Rotate your phone" (M6b, src/game/orientation.ts): shown only from the class the module sets on <body>, never from a
+   media query of its own, so the overlay and the pause cannot disagree. The scene and the controls are `inert` under it. */
+.rotate {
+  display: none;
+}
+
+body.rotate-phone .rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  box-sizing: border-box;
+  text-align: center;
+  background: #14161b;
+  color: #e6e8ee;
+}
+
+.rotate-icon {
+  color: #9fd8e8;
+  animation: tilt 1.6s ease-in-out infinite alternate;
+}
+
+.rotate-phone-body {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+}
+
+.rotate-title {
+  margin: 8px 0 0;
+  font-size: 22px;
+}
+
+.rotate-text {
+  margin: 0;
+  max-width: 24em;
+  opacity: 0.85;
+}
+
+@keyframes tilt {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-90deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-icon {
+    animation: none;
+  }
+}
+
+body[data-skin='kenney'].rotate-phone .rotate {
+  background: #1f3a44;
+  color: #eaf6fa;
 }
