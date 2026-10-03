@@ -14,7 +14,7 @@ rent). The attestation service (provisional tier) is prepared for hosting on the
 the Cairo libraries. No game lot runs until the hold lifts.
 
 **State at the hold** (main at `839a5d3`), the lots merged since v1.42:
-- toolchain Scarb 2.20.1 / Cairo 2.20.0 / snforge 0.64.0 (TC #59);
+- toolchain Scarb 2.20.1 / Cairo 2.20.0 / snforge 0.64.0 (TC #59, pin recorded in #72);
 - pre-push check (PP #66);
 - local play: L4 #68 and PB #74;
 - client: Kenney skin, phase A (M6 #67); compute ahead, no slow motion (CB #75); phones in landscape (M6b #87);
@@ -34,7 +34,8 @@ the Cairo libraries. No game lot runs until the hold lifts.
 **First game lot after the hold (BM, decided by the PM, 2026-10-03):**
 - Context: the `bridge` reference pull (-463, -552) first touches a block at shot tick 120, which is exactly
   `PEBBLE_FLIGHT_CAP` (cap 119 loses). `twin` shot 2 (-543, -472) touches at tick 119.
-- Re-pick the `bridge` reference pull to (-770, -359) (contact at tick 62), and re-pick `twin` shot 2.
+- Re-pick the `bridge` reference pull, preferring (-770, -359) (contact at tick 62), and re-pick `twin` shot 2 the same way
+  (its new pull is to be measured).
 - Add a guard test: every reference shot touches at least 20 ticks before `PEBBLE_FLIGHT_CAP`.
 - The cap stays 120; no re-pin. The goldens and documents that hold the bridge pull are listed in the measurement
   (orchestrator's library, `t-0107`).
