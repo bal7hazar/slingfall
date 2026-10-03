@@ -420,6 +420,8 @@ python3 tools/atlantic/atlantic.py fact <query-id> --golden fixtures/golden/one_
 python3 tools/atlantic/atlantic.py check-fact <integrityFactHash> --keccak <sharpFactHash>
 ```
 
+CI checks the pin: its `program-hash` job (`tools/atlantic/program-hash.sh`) runs these steps up to the hash and fails when it differs from `CHILD_PROGRAM_HASH` (`deploy/slingfall.ts`), `program.current` (`deploy/sepolia.json`) or the latest `child-hash-*.json` record.
+
 ### Fact formula
 
 Every step is re-derived by `tools/atlantic/encoding.py` and tested against the committed runs
