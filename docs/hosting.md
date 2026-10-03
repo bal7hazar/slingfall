@@ -416,7 +416,24 @@ repository). **GitHub Pages stays as it is:** `ci.yml`'s `pages` job is untouche
 What is the owner's: the DNS record of the subdomain, the Caddy site below, and the restart of Caddy. What an
 agent runs, as the `claude` user and never as root: `scripts/site-deploy.sh`.
 
-### Once, as root
+### The owner's steps
+
+All as root, in Root's shell (above): no `sudo` typed in the agents' account. In this order.
+
+#### 1. The DNS record
+
+An A (and AAAA, if the VPS has an IPv6 address) record of `slingfall.bal7hazar.com` to the VPS, the same as
+`attest.` and `grimworld.`. Check that it answers before step 4:
+
+```sh
+dig +short slingfall.bal7hazar.com A
+dig +short slingfall.bal7hazar.com AAAA
+```
+
+DNS comes first because Caddy asks Let's Encrypt for the certificate when it starts with the new site: a failed
+ACME validation (no record yet) counts against Let's Encrypt's per-hostname failure limit.
+
+#### 2. The ACL
 
 Caddy (user `caddy`) must be able to read the site. `/home/claude` is `drwxr-x---`, and Grim World's site already
 needs the same line, so it may be done:
@@ -427,7 +444,7 @@ setfacl -m u:caddy:x /home/claude          # execute on that one directory, for 
 
 `~/site` and `~/site/slingfall` need `o+x` (the script creates the second one, and makes every release `a+rX`).
 
-### The Caddy site
+#### 3. The Caddy site
 
 Add it to `/etc/caddy/Caddyfile` (there is no conf.d), next to the attestation service's site and Grim World's:
 
@@ -443,9 +460,9 @@ slingfall.bal7hazar.com {
     @hashed path_regexp ^/assets/.+-[A-Za-z0-9_-]{8,}\.(js|css)$
     header @hashed Cache-Control "public, max-age=31536000, immutable"
 
-    # The page, and what the worker and the page load by a fixed name: always revalidated (a 304 when
-    # unchanged). The wasm runner (/vm/pkg/) is among them.
-    @revalidate path / /index.html /vm/* /levels/* /traces/*
+    # The page, and what the worker and the page load by a fixed name (the wasm runner in /vm/pkg/, the
+    # unhashed sprites and the favicon too): always revalidated (a 304 when unchanged).
+    @revalidate path / /index.html /favicon.svg /vm/* /levels/* /traces/* /assets/kenney/*
     header @revalidate Cache-Control "no-cache"
 }
 ```
@@ -455,9 +472,16 @@ slingfall.bal7hazar.com {
 - No fallback to `index.html`: the client has no routes (one page, the levels are `?level=` or in-page state),
   so an unknown path is a 404.
 - The build uses the base `/` (`VITE_BASE` is not set); the Sepolia build inlines `https://attest.bal7hazar.com`.
-- Caddy's admin API is off (`admin off`, see "Caddy, when the subdomain exists" below), so `caddy reload` cannot
-  apply a change: a change to the Caddyfile takes `sudo caddy validate --config /etc/caddy/Caddyfile` and then
-  `sudo systemctl restart caddy`.
+
+#### 4. Validate and restart
+
+```sh
+caddy validate --config /etc/caddy/Caddyfile
+systemctl restart caddy
+```
+
+Caddy's admin API is off (`admin off`, see "Caddy, when the subdomain exists" above), so `caddy reload` cannot
+apply a change: any change to the Caddyfile takes a restart.
 
 ### Deploy, roll back, read the log
 
@@ -468,21 +492,24 @@ scripts/site-deploy.sh <commit>       # any commit of the checkout
 
 It builds from a clean `git archive` export of the commit (never the working tree): the wasm runner
 (`client/vm/scripts/build.sh`, a Rust build, no Cairo, a few minutes the first time because the export is clean),
-`npm ci`, `npm run build:sepolia`, then `scripts/smoke-sepolia.mjs` as CI does. It stops before copying if
-`dist/vm/pkg/*.wasm` is missing (a plain `vite build` only warns about that). It copies `dist/` to
+`npm ci`, `npm run build:sepolia` (with no `VITE_*` variable of the caller's shell: `env -i`, so a value
+exported for local play cannot reach the public bundle), then `scripts/smoke-sepolia.mjs` as CI does. It stops before copying if
+`dist/vm/pkg/*.wasm` is missing (a plain `vite build` only warns about that) or if the bundle does not inline
+`.env.sepolia`'s `VITE_ATTEST_URL`. It copies `dist/` to
 `/home/claude/site/slingfall/releases/<sha>-<UTC time>/` and flips `current` atomically (a symlink made under a
 temporary name, then `mv -T`). It runs under `flock` on `deploy.lock`, keeps the last five releases (it removes
 only directories named `<40 hex>-<UTC time>`, each by its exact name) and installs no timer and no service.
-A failed run leaves `current` where it was.
+A failed run leaves `current` where it was; a run that finds the lock held exits with 75.
 
 ```sh
 cd /home/claude/site/slingfall
 cat deployed                          # the sha of `current`
 tail deploy.log                       # one line per run: time, sha, result, duration
 ls -1t releases                       # newest first
-# Roll back: point `current` at an older release, atomically.
-ln -sfn releases/<older-release> current.tmp && mv -T current.tmp current
+# Roll back: point `current` at an older release, atomically, under the deploy lock.
+flock -w 30 deploy.lock sh -c 'ln -sfn releases/<older-release> current.tmp && mv -T current.tmp current'
 ```
 
-A rollback changes `current` only: `deployed` still names the sha of the last deploy. Caddy needs no restart for
+A rollback changes `current` only: `deployed` still names the sha of the last deploy, and the next deploy's
+prune never removes the release `current` points at. Caddy needs no restart for
 either, since it reads the files on each request.

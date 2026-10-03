@@ -19,7 +19,7 @@
 # SLINGFALL_SITE_ROOT (default ~/site/slingfall), SLINGFALL_SITE_KEEP (releases kept, default 5).
 set -euo pipefail
 
-SITE_ROOT=${SLINGFALL_SITE_ROOT:-$HOME/site/slingfall}
+SITE_ROOT=$(realpath -m -- "${SLINGFALL_SITE_ROOT:-$HOME/site/slingfall}")
 KEEP=${SLINGFALL_SITE_KEEP:-5}
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ref=${1:-}
@@ -31,14 +31,16 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$SITE_ROOT/dep
 
 # One run at a time.
 exec 9>"$SITE_ROOT/deploy.lock"
-flock -n 9 || { log "skip: another run holds the lock"; echo "another run holds the lock" >&2; exit 0; }
+flock -n 9 || { log "skip: another run holds the lock"; echo "another run holds the lock" >&2; exit 75; }
 
 start=$(date +%s)
 sha=-
 step=start
 work=
+rel=
 trap 'rc=$?
   [ -z "$work" ] || rm -rf -- "$work"
+  [ -z "$rel" ] || rm -rf -- "$rel.tmp"
   if [ $rc -ne 0 ]; then log "sha=$sha result=FAILED(step=$step,rc=$rc) duration=$(($(date +%s) - start))s"; fi' EXIT
 
 t() { # t <label> <command...>: run one step and print its duration
@@ -66,18 +68,22 @@ git archive "$sha" | tar -x -C "$work"
 client=$work/client
 
 t wasm "$client/vm/scripts/build.sh"
-(
-  cd "$client"
-  t install npm ci --no-audit --no-fund
-  unset VITE_BASE
-  t build npm run build:sepolia
-)
+# The public build takes nothing from the caller's shell: a VITE_* variable there wins over client/.env.sepolia
+# (docs/testers.md has people export VITE_ATTEST_URL=127.0.0.1:...), and would be inlined in the public bundle.
+clean_env=(env -i PATH="$PATH" HOME="$HOME")
+t install "${clean_env[@]}" npm --prefix "$client" ci --no-audit --no-fund
+t build "${clean_env[@]}" npm --prefix "$client" run build:sepolia
 dist=$client/dist
 [ -f "$dist/index.html" ] || { echo "no $dist/index.html" >&2; exit 1; }
 # vite build only warns when client/vm/pkg is missing: the hosted page would say "VM not built".
 step=check
 compgen -G "$dist/vm/pkg/*.wasm" >/dev/null || { echo "no dist/vm/pkg/*.wasm: the wasm runner is not in the build" >&2; exit 1; }
 (cd "$client" && node scripts/smoke-sepolia.mjs "$dist" /)
+# The bundle inlines the hosted attestation URL of .env.sepolia as VITE_ATTEST_URL (the bundles also hold
+# loopback literals, the devnet defaults of src/chain/config.ts, so the value is checked, not the absence).
+attest=$(sed -n 's/^VITE_ATTEST_URL=//p' "$client/.env.sepolia")
+[ -n "$attest" ] || { echo "client/.env.sepolia has no VITE_ATTEST_URL" >&2; exit 1; }
+grep -lF -- "VITE_ATTEST_URL:\`$attest\`" "$dist"/assets/*.js >/dev/null || { echo "no bundle inlines VITE_ATTEST_URL=$attest" >&2; exit 1; }
 
 step=publish
 # A release has a unique name, <sha>-<UTC time>: a redeploy of the same sha never touches the release
@@ -92,12 +98,13 @@ ln -sfn "releases/$name" "$SITE_ROOT/current.tmp"
 mv -T "$SITE_ROOT/current.tmp" "$SITE_ROOT/current"
 echo "$sha" >"$SITE_ROOT/deployed"
 
-# Prune after the switch: keep the newest $KEEP releases, never the one `current` points at, and only
+# Prune after the switch: keep the newest $KEEP releases, never the one `current` points at (a rollback
+# may have moved it), and only
 # directories named <sha>-<UTC time> (each removed by its exact name).
 step=prune
 cd "$SITE_ROOT/releases"
 ls -1t | grep -E '^[0-9a-f]{40}-[0-9]{8}T[0-9]{6}Z$' | tail -n +$((KEEP + 1)) | while read -r old; do
-  [ "$old" = "$name" ] || rm -rf -- "$old"
+  [ "$old" = "$name" ] || [ "$old" = "$(basename -- "$(readlink "$SITE_ROOT/current")")" ] || rm -rf -- "$old"
 done
 
 step=done
