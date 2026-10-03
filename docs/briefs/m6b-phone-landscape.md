@@ -26,8 +26,9 @@ None.
 
 - `client/index.html`: the overlay element.
 - `client/src/style.css`: its look and the orientation query.
-- `client/src/main.ts`: only to pause the playback while the overlay shows, and to resume after (the playback's own
-  pause, as the Play button uses it). No timing logic changes: CB's rule in `live.ts` / `play.ts` is untouched.
+- `client/src/game/orientation.ts` (new) and its test: the overlay's logic as a small pure module, testable.
+- `client/src/main.ts`: only to wire that module (the query listener, the pause and resume, the inert scene). No timing
+  logic changes: CB's rule in `live.ts` / `play.ts` is untouched.
 - `client/src/render/camera.ts`, only for the portrait-framing alternative of §1.
 - Tests in `client/src/**/*.test.ts` for what you add.
 - `docs/captures/m6/` (new captures, and `captures.txt`; `capture.mjs` may gain the new viewport).
@@ -37,18 +38,28 @@ None.
 ## 4. Work
 
 1. **The overlay:**
-   - It shows when a phone-sized screen is in portrait (`(orientation: portrait) and (max-width: <the NARROW
-     breakpoint of main.ts>)`). Desktop windows narrower than tall do not get it, unless they are phone-sized.
+   - It shows on a phone in portrait: `(orientation: portrait) and (max-width: 600px) and (pointer: coarse)`. The
+     coarse pointer keeps a narrow desktop window, with its mouse, out; say how you checked that. 600 px matches
+     `main.ts`'s NARROW query.
    - It covers the scene with a short message and an icon drawn in CSS or SVG inline, using the UI Pack's font and
      palette. No new asset.
-   - It pauses the live playback while shown, and resumes it on return to landscape. A shot in flight keeps its frames:
+   - It pauses the live playback while shown. On return to landscape it resumes **only if the playback was playing when
+     the overlay appeared**, so a pause the user chose before rotating stays paused. A shot in flight keeps its frames:
      only the head waits.
+   - While it shows, the scene is **inert**: `inert` on the scene and the controls (or an equivalent), and the
+     keyboard handlers (`Space`, `Enter`, the arrows) do nothing. No aim, no shot, no Play or Retry.
+   - Unit tests in `orientation.test.ts`: show and hide on the query; the resume rule (was playing → resumes; was
+     paused → stays paused); the key handlers ignored while shown.
    - Accessible: `role="dialog"` or `status`, readable text, no motion that ignores `prefers-reduced-motion`.
-2. **Landscape phone captures** at 915×412: pile10 at rest and after the impact. Add them to `docs/captures/m6/` and
-   `captures.txt`, naming the ticks.
+2. **Landscape phone captures** at 915×412: pile10 at rest and after the impact, and the interface. In `capture.mjs`,
+   the phone flows (rest, impact, interface) move from 412×915 to 915×412, with a touch, coarse-pointer context. Replace
+   the old 412×915 captures of those flows; they would now show only the overlay. Add the new ones to
+   `docs/captures/m6/` and `captures.txt`, naming the ticks.
 3. **Fit at 412 px height:** check that the HUD, the hint, the bottom bar and the result panel all fit and stay readable
    at 915×412, and fix what does not, in `style.css`. A capture of the result panel open at 915×412 shows it.
-4. **A portrait capture** at 412×915 showing the overlay.
+4. **A portrait capture** at 412×915 showing the overlay, in a coarse-pointer context.
+5. If you propose the portrait-framing alternative of §1 instead, measure its frame time against M6's figures
+   (`docs/captures/m6/frame-times.json`, same method), and capture it.
 
 ## 5. Machine
 
