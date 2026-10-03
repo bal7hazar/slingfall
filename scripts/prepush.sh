@@ -158,6 +158,8 @@ pytest_dir tools/prove env -u PROVE_RUN python3 tools/prove/test_prove.py
 pytest_dir tools/settle python3 -m unittest discover -s tools/settle
 pytest_dir tools/levelc python3 -m unittest discover -s tools/levelc
 pytest_dir scripts/play python3 -m unittest discover -s scripts/play
+# install.sh's functions, from its marked regions (no install, no network, a fake git).
+pytest_dir deploy/hosting bash deploy/hosting/test_install.sh
 
 # ---------------------------------------------------------------------------- Cairo: what to build
 # The crate graph is read from the manifests. `plan` prints shell assignments:

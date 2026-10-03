@@ -31,6 +31,9 @@ Environment=SCARB_CONFIG=/var/lib/slingfall-attest/scarb-config
 Environment=SCARB_OFFLINE=true
 Environment=RAYON_NUM_THREADS=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+# No user site-packages on sys.path: the service user's HOME (the state directory) is its own to write.
+# Not `python3 -I`: it implies -E, which would drop PYTHONDONTWRITEBYTECODE.
+Environment=PYTHONNOUSERSITE=1
 # The Unix socket /run/slingfall-attest/attest.sock comes from slingfall-attest.socket (only the
 # reverse proxy reaches it); the limits are docs/hosting.md's.
 ExecStartPre=/opt/slingfall/current/deploy/hosting/prepare.sh
@@ -72,6 +75,16 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
 UMask=0077
+# No core dump (the process holds the key in memory); the other users' processes hidden from /proc.
+LimitCORE=0
+ProtectProc=invisible
+
+# Optional, off by default: outgoing connections to the RPC's addresses only (docs/hosting.md "Outgoing
+# connections"). systemd filters by address, never by name: the owner keeps the RPC's current addresses
+# here, and the local resolver's when the RPC is a hostname; a stale list answers every request 503.
+# Unix sockets (the reverse proxy's) are not filtered.
+#IPAddressDeny=any
+#IPAddressAllow=127.0.0.53/32 <the RPC's addresses>
 
 [Install]
 WantedBy=multi-user.target

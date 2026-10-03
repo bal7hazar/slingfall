@@ -20,6 +20,10 @@ attestation key must be out of that user's reach, both for reading and for runni
   (the service, the modules it imports, the prebuilt replay) and scarb under `/opt/slingfall/scarb`;
 - it writes only its state directory `/var/lib/slingfall-attest` (`ReadWritePaths`); `ProtectHome=true`:
   nothing under `/home` is used;
+- its process leaves no core dump (`LimitCORE=0`: it holds the key in memory), sees no other user's process
+  (`ProtectProc=invisible`), and Python adds no user site-packages from that state directory
+  (`PYTHONNOUSERSITE=1`; not `python3 -I`, which would drop `PYTHONDONTWRITEBYTECODE`). A drop-in that sets the
+  same three is compatible with the unit;
 - it listens on a Unix socket held by systemd from boot (`slingfall-attest.socket`,
   `/run/slingfall-attest/attest.sock`) that only root and the reverse proxy's group can open: the agents' user
   cannot reach the service, and no other process can take the socket while the service is down.
@@ -33,7 +37,7 @@ attestation key must be out of that user's reach, both for reading and for runni
 | `/opt/slingfall/releases/<sha>/` | root | read-only | one installed revision: code, prebuilt replay, offline scarb cache, `REVISION` |
 | `/opt/slingfall/current` | root | link | the running release |
 | `/opt/slingfall/scarb/scarb-v2.20.1-x86_64-unknown-linux-gnu/` | root | read-only | scarb 2.20.1, the official tarball |
-| `/opt/slingfall/.build/` | root | 0755 | `install.sh`'s scratch builds (one directory per run, removed after it) |
+| `/opt/slingfall/.build/` | root | 0755 | `install.sh`'s scratch builds and its private temporary directory (`tmp.*`, 0700; one of each per run, removed after it) |
 | `/var/lib/slingfall-attest/` | `<user>` | 0700 | scratch: `HOME`, the replay's working copy, scarb's cache and config |
 
 `<user>` is a name the owner chooses; `slingfall-attest` by default (`install.sh --user` otherwise).
@@ -80,7 +84,11 @@ tools/tracec deploy/hosting` and `git ls-files ':(glob)**/.gitattributes'`, then
 
 The second command shows the Cairo dependencies: registry packages the programme's orchestrators publish. A bump
 there changes what the replay computes, so what gets signed. The owner reads it in full and checks each changed
-package's version against the programme's publishing records. The third command's `--stat` covers only the Cairo
+package's version against the programme's publishing records. `install.sh` holds the build to it: the lock the
+build settles (the stripped manifests, "Who builds the replay" below) may hold only packages of the committed
+`crates/slingfall_replay/Scarb.lock`, with the same version, source and checksum, or the install is refused. A
+crate's `Scarb.toml` that asks for another version shows in the third command's `--stat` only, and that check
+refuses it. The third command's `--stat` covers only the Cairo
 crates and the fixtures: they run inside the Cairo VM and decide what gets signed, not what runs natively; the
 pile10 golden check of `install.sh` catches a change that reaches that shot, not every change.
 
@@ -130,7 +138,8 @@ Check the last three together: `/health` alone is answered by whatever holds the
 systemd from boot, so `ss` lists `systemd` and the service's `python3` (the pid of `MainPID`), nothing else.
 `install.sh --proxy-group` names the reverse proxy's group (default `caddy`), the socket's group.
 
-`install.sh` refuses a checkout that is not root-owned, is group- or other-writable, has local changes, lives
+`install.sh` needs git 2.40 or later (`git check-attr --source`; the VPS has 2.43) and refuses an older one.
+It refuses a checkout that is not root-owned, is group- or other-writable, has local changes, lives
 under `/home`, or reads its git objects from outside itself (a gitfile, a shared or alternate object store). It
 validates `--user` and `--proxy-group`, never reads the key (it checks the file's owner and mode with `stat`), never starts or
 restarts the service, and is idempotent: a release already installed is kept, `current` is re-pointed. A
@@ -146,15 +155,21 @@ them; neither root nor the key's owner runs that). The build runs in a transient
 --uid=nobody --pipe --wait --collect`): no terminal, a private `/tmp`, no `/home`, `/etc/slingfall`
 inaccessible, no new privileges, and every process it started killed when it ends. Its scratch directory
 (`HOME`, scarb cache, sources) is under the root-owned `/opt/slingfall/.build`, not a world-writable `/var/tmp`.
+Root's own temporary files (its checks' lists, sort's spills, here-documents) are in one private directory
+there too (`mktemp -d`, `TMPDIR` points at it), never in the shared `/tmp`, and the script's exit removes it.
 
 Root then takes only regular files from what `nobody` wrote, copied without following links: if the build
 left a symbolic link, a device or a socket among the executables or in the scarb cache, or if either directory
 resolves (`realpath`) outside the build directory, the install is refused. It also refuses any shared object or
-ELF file there: the service user runs no native code from the build.
+ELF file there, and again in the whole release before it is made root-owned (the archived `crates/` that
+`prepare.sh` copies included): the service user runs no native code from the build or the revision.
 
 That is why `install.sh` makes one deliberate change to the exported files: before the build, it strips every
 crate's `Scarb.toml` of what only the tests use (`[dev-dependencies]`, `allow-prebuilt-plugins`, the snforge
-profile and tool settings), and the release keeps the `Scarb.lock` the build then settles. With those parts,
+profile and tool settings), and the release keeps the `Scarb.lock` the build then settles (a subset of the
+committed one, checked: "Trust" above). The strip goes line by line, then Python's `tomllib` reads both
+manifests: the stripped one must be the reviewed one minus exactly those keys, so a table hidden in a
+multi-line string cannot come alive. With those parts,
 `scarb execute --no-build` loads the prebuilt `snforge_scarb_plugin_v0.64.0_x86_64-unknown-linux-gnu.so` from the
 scarb cache on every replay (measured with `strace -f -e trace=openat`, scarb 2.20.1): native code fetched from the
 registry, run as the key's owner. Without them, scarb fetches no plugin, and the replay opens no shared object
@@ -205,7 +220,9 @@ journalctl -u slingfall-attest --since today | grep ' 429 '
 
 Every request logs one line: time (UTC), method, path, status, duration, client (`local` for a caller on the
 machine itself) and player; an attestation adds its mode, epoch and message hash, a refusal its reason. Never a
-key, a signature input or a body. The unit restarts the service 5 s after any exit, at most 5 times in 300 s.
+key, a signature input or a body. When the RPC fails, the caller gets `503 chain: cannot read <name>` and the
+log adds the exception's type and the RPC's host (`detail="URLError rpc=*.example.net"`): never its URL, whose
+path, query or leftmost label may carry the provider's key. Grep the log for `detail=` to diagnose. The unit restarts the service 5 s after any exit, at most 5 times in 300 s.
 Past that, systemd also fails the socket unit and closes the socket; recover both, then check who holds it:
 
 ```sh
@@ -261,6 +278,27 @@ Sepolia that is accepted, and the numbers can be tuned in the unit's `ExecStart`
 
 `--rate 0` turns every limit off (per player, per client, local and the queue's): that is local play's flag
 (`scripts/play.sh`), never the hosted service's. Replays then still run `--max-concurrent` at a time.
+
+## Outgoing connections
+
+The service opens one kind of outgoing connection: to the RPC (`STARKNET_RPC_URL`), for the chain id, the
+program, the epoch and the latest block. The replay runs offline (`SCARB_OFFLINE=true`). The unit could hold it
+to that: `IPAddressDeny=any` with `IPAddressAllow=` the RPC's addresses (systemd's cgroup filter; Unix sockets,
+the reverse proxy's included, are not filtered). It is in the unit as a commented, optional block, not on,
+because:
+
+- systemd allows addresses and prefixes, never a hostname. A hostname RPC needs its current addresses in the
+  unit, and the local resolver's too (`127.0.0.53/32` with systemd-resolved: `/etc/resolv.conf` says which).
+- Hosted RPCs sit behind CDNs whose addresses change without notice. The owner then keeps that list by hand, and
+  a stale list answers every attestation `503 chain: cannot read ...` until it is updated and the unit
+  restarted. Allowing the CDN's whole ranges keeps it working but lets much of the internet back in.
+- What it would stop: a compromised service (or code it runs) sending the key anywhere but the RPC. The
+  service runs only root-owned, reviewed code ("Trust" above), so this is a second line, not the first.
+
+It suits an RPC on a fixed address (a node of the owner's, a devnet): uncomment both lines, list the addresses,
+`systemctl daemon-reload && systemctl restart slingfall-attest`. An equivalent that keeps hostnames, a local
+forward proxy with a hostname allowlist, would need the service to speak to it (a code change), so it is not
+offered here.
 
 ## Resources
 
@@ -323,23 +361,32 @@ void once the epoch bumps. Plan the rotation for a quiet moment; it takes a minu
 
 ## Caddy, when the subdomain exists
 
-The site's lines are an example; the global options are not: `admin off`, the read timeouts and no
-`trusted_proxies` are part of the service's protection. The service bounds each request too (10 s idle, 20 s in
-all), but the timeouts keep slow clients at Caddy. Caddy's user must be in the socket's group (`caddy` by
-default).
+The site's lines are an example; two global options are not: `admin off` and no `trusted_proxies` are part of
+the service's protection. Caddy's user must be in the socket's group (`caddy` by default).
+
+The read timeouts are optional, and the owner does not set them for now. The service already bounds each request
+itself: a connection idle for 10 s, or still sending its request 20 s after it opened, is closed
+(`DeadlineReader`, "Socket and limits" above), so a slow client holds one of its 32 connections for 20 s at most.
+`read_header` and `read_body` would only stop such clients at Caddy instead. They cannot be scoped to this site:
+they are server options (`servers [<listener>] { timeouts { ... } }`), and a server is a listener address, which
+every site on `:443` shares, the `ttyd` web terminal included. Set there, they apply to every request of every
+site: headers not received within 5 s, or a request body not received within 10 s in all (an upload, any
+site's), and Caddy drops the request. Caddy's per-request `timeouts` directive is experimental, bounds only
+stalls in a body (not headers, not a total), and needs a global idle timeout turned off; it is not used here.
 
 ```caddy
 {
-    # Required: no admin API (the live state), and these timeouts.
+    # Required: no admin API (the live state).
     # Never add trusted_proxies (in the global or the server options) covering loopback or this machine's
     # addresses (private_ranges included): Caddy would then pass on an X-Forwarded-For a local caller wrote.
     admin off
-    servers {
-        timeouts {
-            read_header 5s
-            read_body 10s
-        }
-    }
+    # Optional, not set for now: they apply to every site on this server, the web terminal included (above).
+    # servers {
+    #     timeouts {
+    #         read_header 5s
+    #         read_body 10s
+    #     }
+    # }
 }
 
 attest.<domain> {
