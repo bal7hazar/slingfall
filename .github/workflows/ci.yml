@@ -238,9 +238,23 @@ jobs:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
           attempt_delay: 10000
-      # No retry here: setup-snfoundry is a composite action and wretry.action runs only JavaScript and Docker
-      # actions (wrapped, every test leg failed in seconds).
+      # No wretry here: setup-snfoundry is a composite action and wretry.action runs only JavaScript and Docker
+      # actions (wrapped, every test leg failed in seconds). Retry in the three-step form of nexus #69 instead: two
+      # attempts that may fail, then a last attempt with the same action and inputs, without continue-on-error, that
+      # runs only when both earlier attempts failed (outcome, not conclusion: conclusion hides the failure).
       - uses: foundry-rs/setup-snfoundry@v6
+        id: snf1
+        continue-on-error: true
+      - if: steps.snf1.outcome == 'failure'
+        run: sleep 10
+      - uses: foundry-rs/setup-snfoundry@v6
+        id: snf2
+        if: steps.snf1.outcome == 'failure'
+        continue-on-error: true
+      - if: steps.snf1.outcome == 'failure' && steps.snf2.outcome == 'failure'
+        run: sleep 10
+      - uses: foundry-rs/setup-snfoundry@v6
+        if: steps.snf1.outcome == 'failure' && steps.snf2.outcome == 'failure'
       - name: Run tests
         env:
           CRATE: ${{ matrix.crate }}
