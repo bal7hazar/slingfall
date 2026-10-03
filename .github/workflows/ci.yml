@@ -245,16 +245,12 @@ jobs:
       - uses: foundry-rs/setup-snfoundry@v6
         id: snf1
         continue-on-error: true
-        with:
-          starknet-foundry-version: 0.0.0-does-not-exist
       - if: steps.snf1.outcome == 'failure'
         run: sleep 10
       - uses: foundry-rs/setup-snfoundry@v6
         id: snf2
         if: steps.snf1.outcome == 'failure'
         continue-on-error: true
-        with:
-          starknet-foundry-version: 0.0.0-does-not-exist
       - if: steps.snf1.outcome == 'failure' && steps.snf2.outcome == 'failure'
         run: sleep 10
       - uses: foundry-rs/setup-snfoundry@v6
