@@ -8,7 +8,7 @@
   "verifier": "Stub",
   "attestation_key": "0x66ca673bb9a69e143f1072eda143886e2349baf4c996f200b06f7e3d4ddbf4",
   "program": {
-    "current": "0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41361",
+    "current": "0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360",
     "pins": [
       {
         "program_hash": "0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a",
