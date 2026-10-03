@@ -6,8 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Only pull requests share a group (one per branch: a new push cancels the superseded run). A push to main
+# gets a group per commit and a dispatch one per run, so that GitHub's single pending slot per group never
+# replaces a queued main run or a queued dispatch.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || (github.event_name == 'workflow_dispatch' && github.run_id) || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -19,27 +22,171 @@ env:
   REPLAY: crates/slingfall_replay/Scarb.toml
 
 jobs:
+  changes:
+    # Which jobs a pull request concerns (the owner's rule: a test runs only when files related to it
+    # changed). Computed from the changed paths, never from a label. On a push to main and on a dispatch
+    # every row is true and docs_only false: the full CI. A change to the toolchain or the workflow
+    # (`toolchain` below) triggers every row. `docs_only` is true when every changed path ends in `.md`
+    # (no CI job reads a .md as a checked artefact today); it is false when the file list is unavailable.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ github.event_name == 'pull_request' && steps.docs.outputs.docs_only == 'true' }}
+      cairo: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cairo == 'true' }}
+      build: ${{ github.event_name != 'pull_request' || steps.filter.outputs.build == 'true' }}
+      test: ${{ github.event_name != 'pull_request' || steps.filter.outputs.test == 'true' }}
+      client: ${{ github.event_name != 'pull_request' || steps.filter.outputs.client == 'true' }}
+      golden: ${{ github.event_name != 'pull_request' || steps.filter.outputs.golden == 'true' }}
+      prove: ${{ github.event_name != 'pull_request' || steps.filter.outputs.prove == 'true' }}
+      e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.e2e == 'true' }}
+      play: ${{ github.event_name != 'pull_request' || steps.filter.outputs.play == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Docs only (every changed path is a .md)
+        id: docs
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docs_only=false
+          # --no-renames: a rename lists both the old and the new path (renaming code to .md is not docs-only).
+          if files=$(git diff --no-renames --name-only "$BASE...$HEAD"); then
+            echo "changed paths:"; echo "$files"
+            # An empty list is vacuously docs-only; any path that is not a .md makes it false.
+            if [ -z "$(printf '%s\n' "$files" | grep -v -e '^$' | grep -v -e '\.md$' || true)" ]; then docs_only=true; fi
+          else
+            echo "::warning::the changed-file list is unavailable: docs_only=false"
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            toolchain: &toolchain
+              - '.tool-versions'
+              - 'Scarb.toml'
+              - 'Scarb.lock'
+              - '**/Scarb.toml'
+              - '**/Scarb.lock'
+              - '.github/workflows/**'
+            cairo:
+              - *toolchain
+              - 'crates/**'
+            build:
+              - *toolchain
+              - 'crates/**'
+              - 'tools/classsize/**'
+              - 'tools/tracec/**'
+              - 'fixtures/levels/**'
+            test:
+              - *toolchain
+              - 'crates/**'
+              - 'fixtures/**'
+              - 'steps/**'
+              - 'scripts/steps.py'
+            client:
+              - *toolchain
+              - 'client/**'
+              - 'crates/**'
+              - 'fixtures/**'
+              - 'services/prove/**'
+              - 'deploy/sepolia.json'
+              - 'deploy/sepolia.env.example'
+            golden:
+              - *toolchain
+              - 'crates/**'
+              - 'fixtures/**'
+              - 'tools/golden/**'
+              - 'tools/tracec/**'
+              - 'tools/levelc/**'
+            prove:
+              - *toolchain
+              - 'tools/prove/**'
+              - 'tools/tracec/**'
+              - 'tools/levelc/**'
+              - 'crates/**'
+              - 'fixtures/levels/**'
+              - 'fixtures/golden/**'
+              - 'fixtures/proofs/**'
+            e2e:
+              - *toolchain
+              - 'services/**'
+              - 'deploy/**'
+              - 'crates/**'
+              - 'tools/settle/**'
+              - 'tools/atlantic/**'
+              - 'tools/golden/**'
+              - 'tools/tracec/**'
+              - 'tools/levelc/**'
+              - 'fixtures/levels/**'
+              - 'fixtures/golden/**'
+              - 'fixtures/proofs/**'
+              - 'client/src/chain/**'
+              - 'client/package*.json'
+            play:
+              - *toolchain
+              - 'scripts/play.sh'
+              - 'scripts/play/**'
+              - 'deploy/**'
+              - 'services/**'
+              - 'crates/**'
+              - 'tools/atlantic/**'
+              - 'tools/golden/**'
+              - 'tools/tracec/**'
+              - 'tools/levelc/**'
+              - 'fixtures/levels/**'
+              - 'fixtures/golden/**'
+              - 'client/**'
+              - 'fixtures/**'
+              - 'services/prove/**'
+              - 'deploy/sepolia.json'
+              - 'deploy/sepolia.env.example'
+
   fmt:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.cairo == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       - run: scarb fmt --check --workspace
       - run: scarb --manifest-path "$REPLAY" fmt --check
 
   lint:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.cairo == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       - run: scarb lint --workspace --deny-warnings
       - run: scarb --manifest-path "$REPLAY" lint --deny-warnings
 
   build:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       - run: scarb build --workspace
       - name: Registry class within the Starknet class limits
         run: python3 tools/classsize/classsize.py check --no-build
@@ -67,6 +214,8 @@ jobs:
   test:
     # One job per crate; the `steps` job checks the snapshot on the merged logs.
     name: test (${{ matrix.crate }})
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -74,7 +223,13 @@ jobs:
         crate: [slingfall_testing, slingfall_level, slingfall_rules, slingfall_game, slingfall_contract, slingfall_split, slingfall_replay]
     steps:
       - uses: actions/checkout@v7
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
+      # No retry here: setup-snfoundry is a composite action and wretry.action runs only JavaScript and Docker
+      # actions (wrapped, every test leg failed in seconds).
       - uses: foundry-rs/setup-snfoundry@v6
       - name: Run tests
         env:
@@ -104,7 +259,9 @@ jobs:
           path: snforge-${{ matrix.crate }}.log
 
   steps:
-    needs: test
+    # Exactly when `test` runs: same output; a skipped `test` skips this job too.
+    needs: [changes, test]
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -121,6 +278,8 @@ jobs:
         run: python3 scripts/steps.py diff --from-log snforge.log >> "$GITHUB_STEP_SUMMARY"
 
   client:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.client == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -149,6 +308,11 @@ jobs:
     # here as in `vm` (the hosted page runs the Cairo replay in the browser); the optional
     # repository variable SLINGFALL_PROVE_URL (a public prover service, with CORS) is inlined.
     if: github.event_name == 'workflow_dispatch'
+    # Its own group on the ref: the last dispatch wins over a still-queued earlier one, and no push to main
+    # can replace a pending dispatch (the workflow-level group is per run for a dispatch).
+    concurrency:
+      group: pages-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -195,7 +359,9 @@ jobs:
 
   vm:
     # cairo-vm wasm worker (client/vm/README.md): runner unit tests, wasm build, then the client
-    # tests that run the wasm (bit-exact chunk chaining). Optional: not in `all-checks`.
+    # tests that run the wasm (bit-exact chunk chaining).
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.client == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -216,7 +382,11 @@ jobs:
         working-directory: client/vm/runner
         run: cargo test -j 4 --lib
       # The committed client executables must be what crates/slingfall_replay builds (lot G4c).
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       - name: Committed executables are up to date
         run: |
           client/vm/scripts/fetch-executables.sh --build
@@ -236,6 +406,8 @@ jobs:
     # step ceiling; `fuzz`: a fixed-seed input fuzz. One job per level fixture and kind (`scarb
     # execute` costs ~10 s per call), so that no leg nears the 8 minutes of cores3's former single leg.
     name: golden (${{ matrix.level }}, ${{ matrix.kind }})
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.golden == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -244,7 +416,11 @@ jobs:
         kind: [check, fuzz]
     steps:
       - uses: actions/checkout@v7
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       - if: matrix.kind == 'check'
         run: python3 tools/golden/golden.py to-cairo --check
       - run: scarb --manifest-path "$REPLAY" build
@@ -260,9 +436,11 @@ jobs:
     # verify (cached by rev and patches), prove one_block-miss (2.8M steps, ~7 GiB) with the
     # canonical_small preprocessed trace, re-verify it and check its outputs against the golden,
     # then the tamper tests. ~3 min with the build cached, ~13 min cold (the prover build alone is
-    # ~9.5 min on the runner's 4 cores): optional, not in `all-checks`. The measurement legs of
+    # ~9.5 min on the runner's 4 cores). The measurement legs of
     # the pull request (pile10 / cores3 chunked, fixtures/proofs/) were a matrix on this job.
     name: prove (one_block-miss)
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.prove == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -288,7 +466,11 @@ jobs:
             ~/.cargo/git
             tools/prove/vendor
           key: stwo-cairo-467d5c6-${{ hashFiles('tools/prove/*.patch', 'tools/prove/setup.sh') }}
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       - run: scarb --manifest-path "$REPLAY" build
       - name: Decoding tests
         run: python3 tools/prove/test_prove.py
@@ -311,7 +493,9 @@ jobs:
   e2e:
     # Lot G9 (docs/e2e.md): attest.py unit tests, then deploy/e2e.sh on a local starknet-devnet
     # (release binary): deploy, replay the pile10 reference shot for the devnet account, attest,
-    # submit, best / leaderboard, the nullifier. Optional: not in `all-checks` (external devnet).
+    # submit, best / leaderboard, the nullifier.
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -330,12 +514,20 @@ jobs:
       # Contract v2's class on Sepolia was compiled by Scarb 2.19.4, and another compiler gives another
       # class hash: deploy/v2.sh builds it here with 2.19.4 (checked against deploy/sepolia.json), and
       # deploy/e2e.sh reuses that build. Then the toolchain of .tool-versions for everything else.
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
-          scarb-version: 2.19.4
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
+          with: |
+            scarb-version: 2.19.4
       - name: Contract v2's class (Scarb 2.19.4, as declared on Sepolia)
         run: deploy/v2.sh
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       - run: scarb --version
       - run: scarb --manifest-path "$REPLAY" build
       - name: End to end on the devnet
@@ -351,14 +543,20 @@ jobs:
     # (PLAY_NO_VM=1: nothing here opens the page), then the page's own calls through the dev server
     # (scripts/play/check.ts: provisional, proven by the fake SNIP-36 prover, settled on the
     # FakeSatellite by the relay, both boards), `status`, `down`, and a second `up` from the saved
-    # devnet state. Optional: not in `all-checks` (external devnet).
+    # devnet state. L4's shell tests (the devnet shim, the play instance) run first.
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.play == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       PLAY_NO_VM: 1
     steps:
       - uses: actions/checkout@v7
-      - uses: software-mansion/setup-scarb@v1
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
       # The replay is a nested workspace: its target is not in setup-scarb's cache.
       - uses: actions/cache@v4
         with:
@@ -371,6 +569,11 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - name: doctor
         run: scripts/play.sh doctor
+      # L4's shell tests (lot L4: the devnet shim and the play instance), before the cold up.
+      - name: Devnet shim and play instance tests
+        run: |
+          bash scripts/play/test_devnet_shim.sh
+          bash scripts/play/test_play_instance.sh
       - name: up (cold)
         run: scripts/play.sh up
       - name: A shot through the page's calls (provisional, proven, settled)
@@ -391,14 +594,45 @@ jobs:
           path: target/play/*.log
 
   all-checks:
-    # The single required check: green only when every job above is.
+    # The single required check, always run so that `gh pr checks` always returns a result. Green when `changes`
+    # succeeded and every job either succeeded or was skipped by the path rule: a job whose output is exactly
+    # 'true' must be `success`, one whose output is exactly 'false' (or docs_only 'true') must be `skipped`;
+    # anything else (an empty output, a failure, a cancellation, a skip while the output was true) fails.
+    # `pages` (dispatch only) is not in it. vm, prove, e2e and play-local joined it after three green runs
+    # on main each (docs/briefs/cp-ci-paths.md).
     if: always()
-    needs: [fmt, lint, build, test, steps, golden, client]
+    needs: [changes, fmt, lint, build, test, steps, golden, client, vm, prove, e2e, play-local]
     runs-on: ubuntu-latest
     steps:
-      - name: Every job succeeded
+      - name: Every job that had to run succeeded, every skip was by the rule
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          CHANGES: ${{ needs.changes.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          # job:output:result
+          JOBS: >-
+            fmt:${{ needs.changes.outputs.cairo }}:${{ needs.fmt.result }}
+            lint:${{ needs.changes.outputs.cairo }}:${{ needs.lint.result }}
+            build:${{ needs.changes.outputs.build }}:${{ needs.build.result }}
+            test:${{ needs.changes.outputs.test }}:${{ needs.test.result }}
+            steps:${{ needs.changes.outputs.test }}:${{ needs.steps.result }}
+            golden:${{ needs.changes.outputs.golden }}:${{ needs.golden.result }}
+            client:${{ needs.changes.outputs.client }}:${{ needs.client.result }}
+            vm:${{ needs.changes.outputs.client }}:${{ needs.vm.result }}
+            prove:${{ needs.changes.outputs.prove }}:${{ needs.prove.result }}
+            e2e:${{ needs.changes.outputs.e2e }}:${{ needs.e2e.result }}
+            play-local:${{ needs.changes.outputs.play }}:${{ needs.play-local.result }}
         run: |
-          echo "results: $RESULTS"
-          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
+          fail=0
+          echo "changes: result=$CHANGES docs_only=$DOCS_ONLY"
+          [ "$CHANGES" = success ] || { echo "::error::changes did not succeed"; fail=1; }
+          case "$DOCS_ONLY" in true | false) ;; *) echo "::error::docs_only is '$DOCS_ONLY'"; fail=1 ;; esac
+          for entry in $JOBS; do
+            job=${entry%%:*}; rest=${entry#*:}; out=${rest%%:*}; res=${rest#*:}
+            if [ "$DOCS_ONLY" = true ]; then want=skipped
+            elif [ "$out" = true ]; then want=success
+            elif [ "$out" = false ]; then want=skipped
+            else want="a known output"; fi
+            if [ "$res" = "$want" ]; then verdict=ok; else verdict=FAIL; fail=1; fi
+            printf '%-11s output=%-6s result=%-9s want=%s %s\n' "$job" "${out:-<empty>}" "$res" "$want" "$verdict"
+          done
+          exit "$fail"
