@@ -230,7 +230,7 @@ deploy/sepolia.sh pin <hash> --bit-compatible   # a re-pin, the previous program
 
 `client/.env.sepolia` holds the client's public Sepolia values (`VITE_NETWORK=sepolia`,
 `VITE_SLINGFALL_ADDRESS` of `deploy/sepolia.json`, `VITE_STARKNET_RPC_URL` the public RPC,
-`VITE_PROVE_URL` and `VITE_ATTEST_URL` empty); `deploy/sepolia.env.example` lists them for your own
+`VITE_PROVE_URL` empty, `VITE_ATTEST_URL` the hosted `https://attest.bal7hazar.com`); `deploy/sepolia.env.example` lists them for your own
 build (`VITE_RPC_URL`, the name `deploy/devnet.sh` writes, still works; `VITE_STARKNET_RPC_URL` wins).
 
 ```sh
@@ -256,7 +256,7 @@ and the attestation public key, from the admin account `0x59b1a0…3753` (Braavo
 |---|---|
 | `Slingfall` v2 | `0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02`, block 15 729 982 |
 | class | `0x256e46a924bc9e435d8de5015fd6ec1b1bbe0e1eaf84d887a75961ea82a749f` |
-| verifier / key / epoch | `Stub` (both tiers) / `0x66ca673bb9a69e143f1072eda143886e2349baf4c996f200b06f7e3d4ddbf4` / 1 |
+| verifier / key / epoch | `Stub` (both tiers) / `0x1d569abbfe59185d5bc5a95a24cc53d13a40838a1df8e40cd9a89e05d120a1d` / 2 (rotated, `set_attestation_key` `0x702c0989…7efe2e`, block 16 007 385; epoch 1 was `0x66ca673b…bf4` at deploy) |
 | program | `current_program` = c1main alpha.6 `0x580ef5d1…edf75a`, `program_valid_until` = `u64::MAX` |
 | `satellite_config` | Atlantic bootloader `0x288ba129…b668f09`, SHARP bootloader `0x5ab580b0…2db07`, Satellite `0x421cd95f…676e` (v1's constants) |
 | levels | the six fixture levels, same hashes as v1, active; `expire_delay` 86 400 s |
@@ -300,6 +300,26 @@ attestation service `attest.py serve --execute` on 127.0.0.1, key from the envir
 `submit` `0x29b3289b…1651`: 5,494,931 L2 gas, 864 L1 data gas, **0.118 STRK**; one `LevelValidated
 {settled: false, program_hash: alpha.6}`; `best` provisional, the live board `[(admin, 5200)]`, the
 settled board empty.
+
+**Provisional tier, hosted service (AT, 2026-10-03)** (the `tower-reference` golden case of the admin account,
+never submitted before; `deploy/outputs.py`, then `attest.py request --url https://attest.bal7hazar.com`
+from the VPS, the service at revision 3efb4ef in `--execute` mode, key epoch 2). The hosted key
+`0x1d569abb…120a1d` equals `attestation_key()` read on chain. `attempt` was `none` before the `submit`:
+
+| stage | seconds |
+|---|--:|
+| `POST /attest` (hosted service, TLS, the replay re-executed with `scarb execute`, 22.3M steps, and signed) | 21.7 |
+| sign, send and inclusion of `submit(outputs, [program_hash, expiry, r, s])`, to the receipt (one measure: `node deploy/slingfall.ts submit`, fee estimation included) | 6.7 |
+| **request attestation → provisional record on chain** | **28.4** (plus about 3 s between the two commands) |
+
+`submit` [`0x29309c28…6e6d`](https://sepolia.voyager.online/tx/0x29309c280b9ee6894185135fca3aafb3c85e38a8d575e55c77e94008f6cfe6d), block 16 008 085: 5,494,931 L2 gas,
+864 L1 data gas, **0.1126 STRK**; one `LevelValidated {settled: false, score: 6200, won: true,
+program_hash: 0x5dc8c8e2…1360}`; `best` of the admin on `tower` is that record (provisional), `attempt` reads
+`attested`. Against D2 (local service, pile10): the gas is identical (the contract's cost does not depend on
+the level) and the fee is 5% lower (0.1126 against 0.1182 STRK, the gas price of the day); the attestation is
+slower, 21.7 s against 12.2 s, since tower is 22.3M steps against pile10's 8.7M. The replay itself took 235 s
+wall on the VPS, 4.2 GB peak, of which most is the first build under the heavy lock (`deploy/outputs.py` reports
+its own run at 20 s).
 
 **Settled tier, relayed** (the same attempt; `prove_service.py serve --relay --no-translate` on 127.0.0.1,
 relayer = the admin account; `POST /prove` from a script, as the page does):
