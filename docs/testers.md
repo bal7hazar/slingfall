@@ -18,7 +18,7 @@ Nothing here needs a private key in a file. Wallet keys stay in your wallet; the
 |---|---|
 | network | Starknet Sepolia (`SN_SEPOLIA`) |
 | contract `Slingfall` | **v2** `0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02` ([Voyager](https://sepolia.voyager.online/contract/0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02)), deployed 2026-09-27 at block 15 729 982 (lot D2) |
-| verifier | **Stub**: both tiers open. *Provisional*: `submit` with an attestation of the key `0x66ca673bb9a69e143f1072eda143886e2349baf4c996f200b06f7e3d4ddbf4` (epoch 1); *settled*: `submit_settled` on a Herodotus Atlantic proof, its fact on the Satellite |
+| verifier | **Stub**: both tiers open. *Provisional*: `submit` with an attestation of the key `0x1d569abbfe59185d5bc5a95a24cc53d13a40838a1df8e40cd9a89e05d120a1d` (epoch 2, rotated 2026-10-03); *settled*: `submit_settled` on a Herodotus Atlantic proof, its fact on the Satellite |
 | engine release | `c1main` rapier2d alpha.6, `0x580ef5d1896ce36ddc0309eed11218303ed39d1c30ad8ccea4d194be3edf75a` (`current_program`, no grace: the first pin) |
 | levels | `bridge`, `cores3`, `one_block`, `pile10`, `tower`, `twin` (hashes in `deploy/sepolia.json`, the same as v1's) |
 | v1 (retired) | `0x4b645fe7cf06775c99c61148097b3aecabb67eacfd2937e0431affef5000ae2` (lot E3b, `verifier = Satellite`): its six levels are deactivated (`set_level_active(false)`), its records stay readable; `deploy/sepolia.json` keeps it under `"v1"` |
@@ -99,10 +99,15 @@ python3 services/attest/attest.py serve --execute --contract <address> --rpc <RP
 (`--verify-cmd "python3 tools/prove/verify.py"` checks a proof you bring instead, through the panel's
 "proof path" field; `--no-verify` signs anything and is for a private devnet only, never expose it.)
 The service allows 20 requests per player per hour (`--rate`). Point the page at it with
-`VITE_ATTEST_URL=http://127.0.0.1:8547` (the default). **Submit** sends the level, the inputs and the
+`VITE_ATTEST_URL=http://127.0.0.1:8547` (the default of a build with no value). The Sepolia build
+(`client/.env.sepolia`) points at the hosted service, `https://attest.bal7hazar.com`, which allows only
+the origin `https://slingfall.bal7hazar.com`: `npm run dev:sepolia` on `localhost` gets a CORS refusal for
+the provisional step. To test from localhost, run the service above and export
+`VITE_ATTEST_URL=http://127.0.0.1:8547` before `npm run dev:sepolia` (the shell wins over the file); that
+service must hold the key the contract registers, or the `submit` fails. **Submit** sends the level, the inputs and the
 outputs to `/attest`, then `submit(outputs, [program_hash, expiry, r, s])` through the wallet; the
-panel shows the transaction, your best and both boards, and the tier **Provisional (attested)**. The
-service answers CORS for any origin, so a page served from elsewhere can call a service on
+panel shows the transaction, your best and both boards, and the tier **Provisional (attested)**. A local service
+answers CORS for any origin (`--cors-origin` default `*`), so a page served from elsewhere can call a service on
 `127.0.0.1` (see the browser limits under "Hosted build").
 
 A provisional record that is never settled can be expired by anyone after 24 h: it then leaves the
