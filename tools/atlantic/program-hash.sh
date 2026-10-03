@@ -4,6 +4,7 @@
 #
 #   tools/atlantic/program-hash.sh fork    # build cairo1-run (the fork's binary is copied to out/cairo1-run)
 #   tools/atlantic/program-hash.sh check   # build c1main, run one_block, hash the PIE, compare with the pins
+#   tools/atlantic/program-hash.sh key     # the cache key of the fork's binary: FORK_REV, RUST_TOOLCHAIN, the patch's sha256
 #
 # `check` exits 1 when the computed hash differs from `CHILD_PROGRAM_HASH` (deploy/slingfall.ts) or
 # `program.current` (deploy/sepolia.json), or when no fixtures/proofs/atlantic/child-hash-*.json records it
@@ -21,6 +22,11 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/out"
 FORK="$OUT/starkware-cairo-vm"
 BIN="$OUT/cairo1-run"
+
+# The only place that names the revision, the toolchain and the patch: CI keys its cache on this line.
+key() {
+  echo "cairo1-run-${FORK_REV:0:7}-rust${RUST_TOOLCHAIN}-$(sha256sum "$HERE/$PATCH" | cut -c1-16)"
+}
 
 fork() {
   if [ -x "$BIN" ]; then
@@ -119,5 +125,6 @@ PY
 case "${1:-}" in
   fork) fork ;;
   check) check ;;
-  *) echo "usage: $0 fork|check" >&2; exit 2 ;;
+  key) key ;;
+  *) echo "usage: $0 fork|check|key" >&2; exit 2 ;;
 esac

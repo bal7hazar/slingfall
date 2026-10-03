@@ -614,12 +614,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+      # The key comes from the script, the one place that names the fork's revision, toolchain and patch.
+      - name: Cache key of the fork's binary
+        id: key
+        run: echo "key=$(tools/atlantic/program-hash.sh key)" >> "$GITHUB_OUTPUT"
       # Restore and save apart, so that the build is cached even when a later step fails.
       - uses: actions/cache/restore@v4
         id: fork
         with:
           path: tools/atlantic/out/cairo1-run
-          key: cairo1-run-da8e48c-rust1.94.0-${{ hashFiles('tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch') }}
+          key: ${{ steps.key.outputs.key }}
       - name: Build cairo1-run (the fork, patched for the toolchain's compiler)
         if: steps.fork.outputs.cache-hit != 'true'
         run: tools/atlantic/program-hash.sh fork
@@ -627,7 +631,7 @@ jobs:
         if: steps.fork.outputs.cache-hit != 'true'
         with:
           path: tools/atlantic/out/cairo1-run
-          key: cairo1-run-da8e48c-rust1.94.0-${{ hashFiles('tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch') }}
+          key: ${{ steps.key.outputs.key }}
       - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
