@@ -73,10 +73,11 @@ class FakeRpc:
         self.now = EXPIRY - TTL
         self.calls: list[str] = []
         self.down = False
+        self.error = OSError("connection refused")  # raised while `down`
 
     def __call__(self, method: str, params):
         if self.down:
-            raise OSError("connection refused")
+            raise self.error
         if method == "starknet_chainId":
             self.calls.append(method)
             return hex(CHAIN_ID)
@@ -181,6 +182,29 @@ class ChainTest(unittest.TestCase):
         with self.assertRaises(attest.AttestError) as e:
             attest.Chain(CONTRACT, rpc).context()
         self.assertEqual(e.exception.status, 503)
+
+    def test_an_rpc_failure_never_quotes_the_url(self):
+        # urllib's errors (and the RPC's own) may quote the configured URL, its key in the path or query.
+        rpc = FakeRpc()
+        rpc.down = True
+        rpc.error = urllib.error.URLError("https://rpc.example/v2/SECRETKEY?k=SECRET: refused")
+        with self.assertRaises(attest.AttestError) as e:
+            attest.Chain(CONTRACT, rpc, rpc_url="https://rpc.example/v2/SECRETKEY?k=SECRET").get("epoch")
+        self.assertEqual((e.exception.status, str(e.exception)), (503, "chain: cannot read epoch"))
+        self.assertEqual(e.exception.detail, "URLError rpc=rpc.example")
+
+    def test_rpc_host(self):
+        for url, host in [
+            ("https://tok123.rpc.example.net/v2/KEY", "*.rpc.example.net"),  # a token in the leftmost label
+            ("https://rpc.example/v2/SECRETKEY?k=SECRET", "rpc.example"),
+            ("http://user:SECRET@localhost:5050/rpc", "localhost"),
+            ("http://10.0.0.1:9545/SECRET", "10.0.0.1"),
+            ("http://[::1]:5050", "::1"),
+            ("http://[SECRET/v2", "?"),  # urlsplit raises ValueError
+            ("SECRET", "?"),
+            (None, "?"),
+        ]:
+            self.assertEqual(attest.rpc_host(url), host, url)
 
 
 class RateLimiterTest(unittest.TestCase):
@@ -804,6 +828,58 @@ class ServiceTest(unittest.TestCase):
         status, body = self.post(url, {"outputs": GOLDEN})
         self.assertEqual(status, 503)
         self.assertIn("chain", body["error"])
+
+    def test_an_rpc_failure_answers_and_logs_no_secret(self):
+        """The answer is fixed; the log keeps the exception's type and the RPC's host, its leftmost label
+        masked past two labels, never the URL's path, query or credentials; a malformed URL still 503."""
+        for rpc_url, logged in [("https://rpc.example/v2/SECRETKEY?k=SECRET", "rpc=rpc.example"),
+                                ("https://tok123.rpc.example.net/v2/KEY", "rpc=*.rpc.example.net"),
+                                ("http://[SECRET/v2", "rpc=?")]:
+            self.rpc.down = True
+            self.rpc.error = urllib.error.URLError(f"{rpc_url}: SECRET connection refused")
+            chain = attest.Chain(CONTRACT, self.rpc, clock=lambda: 0.0, rpc_url=rpc_url)
+            url = self.serve(attest.Attester(CONST["SECRET"], chain, verifier=attest.Verifier(None, None, 30)))
+            status, body = self.post(url, {"outputs": GOLDEN})
+            self.assertEqual((status, body), (503, {"error": "chain: cannot read chain_id"}))
+            log = self.log.getvalue()
+            self.assertIn(f'detail="URLError {logged}"', log)
+            for secret in ("SECRET", "tok123", "KEY", "/v2"):
+                self.assertNotIn(secret, log)
+
+    def test_malformed_bodies_are_400(self):
+        """An object where a list is expected, and JSON nested deeper than the service reads, whatever its depth
+        (past the decoder's own recursion limit too): 400, nothing run."""
+        deep = lambda n: b"[" * n + b"]" * n  # noqa: E731
+        bodies = [{"level": "pile10", "inputs": {"0": "0x1"}}, {"level": "pile10", "inputs": {}},
+                  {"level": "pile10", "inputs": "0x1"}, deep(attest.MAX_JSON_DEPTH + 1), deep(500), deep(8000),
+                  b'{"level": "pile10", "inputs": ' + deep(200) + b"}"]
+        url = self.start(execute=True)
+        for body in bodies:
+            status, answer = self.post(url, body)
+            self.assertEqual(status, 400, (str(body)[:60], answer))
+        url = self.start(TRUE_CMD)  # a 64 MiB body: past the decoder's recursion limit
+        for body in [{"outputs": {"0": "0x1"}, "proof": ""}, deep(100_000), {"outputs": GOLDEN, "proof": [[[[[[[[[]]]]]]]]]}]:
+            self.assertEqual(self.post(url, body)[0], 400, body)
+        self.assertEqual(self.runs, [])
+        self.assertEqual(self.post(self.start(execute=True), {"level": "pile10", "inputs": INPUTS})[0], 200)
+
+    def test_the_answer_is_written_under_the_idle_timeout(self):
+        """N20: the last read leaves the socket's timeout at what was left of the deadline; the answer is
+        written under the idle timeout instead."""
+        url = self.serve(attest.Attester(CONST["SECRET"], attest.Chain(CONTRACT, self.rpc, clock=lambda: 0.0),
+                                         attest.Executor(self.replay)), timeout=5.0, deadline=3.0)
+        seen, sendall = [], socket.socket.sendall
+
+        def record(sock, data, *args):
+            if threading.current_thread() is not threading.main_thread():
+                seen.append(sock.gettimeout())
+            return sendall(sock, data, *args)
+
+        with mock.patch.object(socket.socket, "sendall", record):
+            status, _ = self.post(url, {"level": "pile10", "inputs": INPUTS})
+        self.assertEqual(status, 200)
+        self.assertTrue(seen)
+        self.assertEqual(set(seen), {5.0})
 
     def test_health(self):
         url = self.start(TRUE_CMD, revision="29e3e5f")
