@@ -32,19 +32,25 @@ None.
 
 1. Replace the single `uses: foundry-rs/setup-snfoundry@v6` with three steps:
    - `id: snf1`, `continue-on-error: true`;
-   - `id: snf2`, `if: steps.snf1.outcome == 'failure'`, `continue-on-error: true`, after a short pause (a `run: sleep
-     10` step guarded by the same `if:` is fine);
+   - `id: snf2`, `if: steps.snf1.outcome == 'failure'`, `continue-on-error: true`, after a short pause: a
+     `run: sleep 10` step guarded by the same `if:`;
    - the last one, `if: steps.snf1.outcome == 'failure' && steps.snf2.outcome == 'failure'`, with **no**
-     `continue-on-error`, after the same pause.
+     `continue-on-error`, after a second pause guarded by that same two-outcome `if:`.
+   The pause steps carry no `continue-on-error`. Note that `steps.snf1.outcome` is `success` when the first attempt
+   works, so the other steps are skipped, as intended.
    All three use the same action and the same inputs (none today). Use `outcome`, not `conclusion`:
    `conclusion` is `success` when `continue-on-error` hid a failure.
 2. Update the comment above the steps: no wretry here, for the reason given, and this three-step form per nexus #69.
 3. Check, by reading the whole file, that `continue-on-error` appears on these two steps only (`grep -n
    continue-on-error .github/workflows/ci.yml`), and on no job.
-4. **Verification:** the PR's own run touches the workflow, so every job runs, and the `test` legs must pass with the
-   first attempt succeeding (the log shows `snf2` and the last step skipped). A forced failure is not required. If you
-   can show the retry path without adding a step that stays in the file, do it on a scratch branch and delete it
-   afterwards; otherwise say so.
+4. **Verification:** both paths, since the happy path alone cannot tell a working retry from a dead one (a typo in an
+   `id` leaves the retry skipped forever).
+   - The happy path: the PR's own run touches the workflow, so every job runs. The `test` legs pass with `snf1`
+     succeeding, and the log shows `snf2`, the pauses and the last step skipped.
+   - The retry path, proven once in this PR: a scratch commit that makes `snf1` and `snf2` fail on purpose, for
+     example by giving those two steps only a `version:` that does not exist. Its run must show `snf2` run after `snf1`
+     failed, the last step run and succeed, and the `test` legs pass. Then push a revert commit. Both commits stay in
+     the PR's history and are squashed at the merge.
 
 ## 5. Machine
 
