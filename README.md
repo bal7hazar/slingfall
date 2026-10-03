@@ -51,7 +51,7 @@ fake Satellite). Details, other devices on your network, troubleshooting: [`docs
 
 ## Commands
 
-Toolchain: scarb 2.19.4 and snforge 0.61.0 (`.tool-versions`, asdf), Python 3, Node 24. On the
+Toolchain: scarb 2.20.1 (Cairo 2.20.0) and snforge 0.64.0 (`.tool-versions`, asdf), Python 3, Node 24. On the
 shared machine, run one `scarb` / `snforge` command at a time and never `snforge test --workspace`
 (`AGENTS.md` §6).
 

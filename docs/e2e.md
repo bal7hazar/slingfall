@@ -55,7 +55,7 @@ Satellite` the attested tier is closed and only `submit_settled` records.
 
 ## Setup
 
-Node 24, Python 3, scarb 2.19.4 (`.tool-versions`). Then:
+Node 24, Python 3, scarb 2.20.1 (`.tool-versions`). Then:
 
 ```sh
 npm --prefix client ci

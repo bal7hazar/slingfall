@@ -15,7 +15,8 @@
 #   prove    scripts/play/prove_local.py: the prover service, fake SNIP-36 prover (proven tier) and
 #            fake Atlantic + the devnet's FakeSatellite (settled tier), relaying for the player
 #   client   Vite (client/), devnet mode, the player = devnet account #1; the devnet and the services
-#            behind its proxy (scripts/play/vite.config.mts)
+#            behind its proxy (scripts/play/vite.config.mts). PLAY_BUILT=1: the built client instead
+#            of the dev server (below)
 # Accounts (starknet-devnet --seed 0): #0 admin (and the FakeSatellite's facts), #1 the player, #2 the
 # SNIP-36 path of the prover service, #3 its relay.
 #
@@ -23,6 +24,9 @@
 #   PLAY_HOST (127.0.0.1)   the dev server's address; 0.0.0.0 to play from another device of the same
 #                           network (docs/play-local.md: never on a network exposed to the internet)
 #   PLAY_PORT (5173)  PLAY_DEVNET_PORT (5050)  PLAY_ATTEST_PORT (8547)  PLAY_PROVE_PORT (8549)
+#   PLAY_BUILT=1            serve the built client (vite build into target/play/dist, redone at each start
+#                           of the client, then vite preview) instead of the dev server: far fewer and
+#                           smaller requests, for a slow link (docs/play-local.md). `down` before switching
 #   PLAY_NO_VM=1            do not build the wasm runner (headless checks: the page then replays a
 #                           recorded trace)
 # The local mode ignores the caller's STARKNET_*, SLINGFALL_*, ATLANTIC_*, VITE_* and DEVNET_*
@@ -38,6 +42,8 @@ PORT="${PLAY_PORT:-5173}"
 DEVNET_PORT="${PLAY_DEVNET_PORT:-5050}"
 ATTEST_PORT="${PLAY_ATTEST_PORT:-8547}"
 PROVE_PORT="${PLAY_PROVE_PORT:-8549}"
+# The client's mode, recorded with its PID (fourth line): a running client of the other mode is restarted.
+if [ "${PLAY_BUILT:-}" = 1 ]; then MODE=built; else MODE=dev; fi
 RPC="http://127.0.0.1:${DEVNET_PORT}/rpc"
 ATTEST_KEY=0x736c696e6766616c6c2d6465766e6574 # 'slingfall-devnet': public, devnet only
 CONFIG="$PLAY/devnet.json"
@@ -102,6 +108,8 @@ started_for() { sed -n 2p "$(pid_file "$1")" 2>/dev/null || true; }
 # the old chain must not be mistaken for one of this chain. Third line of a service's PID file.
 instance() { cat "$PLAY/devnet.instance" 2>/dev/null || true; }
 started_on() { sed -n 3p "$(pid_file "$1")" 2>/dev/null || true; }
+# The mode a client was started in (fourth line; a PID file without one is a dev server).
+started_mode() { sed -n 4p "$(pid_file "$1")" 2>/dev/null || true; }
 new_instance() { printf '%s-%s\n' "$(date +%s)" "$$" >"$PLAY/devnet.instance"; }
 
 # The chain height (latest block number) of the devnet; empty when it does not answer.
@@ -223,12 +231,12 @@ build() {
   # (both wait on scarb's shared caches). The contract: deploy/devnet.sh builds it (scarb caches).
   if [ ! -f "$REPLAY_BUILT" ]; then
     say "the replay executables (scarb build of crates/slingfall_replay, once: a few minutes)"
-    scarb --manifest-path "$ROOT/crates/slingfall_replay/Scarb.toml" build >"$PLAY/replay-build.log" 2>&1 ||
+    (cd "$ROOT/crates/slingfall_replay" && scarb build) >"$PLAY/replay-build.log" 2>&1 ||
       { tail -n 20 "$PLAY/replay-build.log" >&2; die "replay build failed"; }
   fi
   if [ ! -f "$SPLIT_BUILT" ]; then
     say "the proven tier's classes (scarb build -p slingfall_split, once: a minute or two)"
-    scarb --manifest-path "$ROOT/Scarb.toml" build -p slingfall_split >"$PLAY/split-build.log" 2>&1 ||
+    (cd "$ROOT" && scarb build -p slingfall_split) >"$PLAY/split-build.log" 2>&1 ||
       { tail -n 20 "$PLAY/split-build.log" >&2; die "split classes build failed"; }
   fi
 }
@@ -277,14 +285,15 @@ start() {
   local name="$1" contract="$2" log="$3"
   shift 3
   nohup "$@" >"$log" 2>&1 </dev/null &
-  printf '%s\n%s\n%s\n' "$!" "$contract" "$(instance)" >"$(pid_file "$name")"
+  printf '%s\n%s\n%s\n%s\n' "$!" "$contract" "$(instance)" "$MODE" >"$(pid_file "$name")"
 }
 
 # A service is reused when it runs for this contract; restarted when the devnet was redeployed.
 fresh() {
   local name="$1" port="$2" contract="$3"
   if running "$name" "$(marker "$name")"; then
-    if [ "$(started_for "$name")" = "$contract" ] && [ "$(started_on "$name")" = "$(instance)" ]; then
+    if [ "$(started_for "$name")" = "$contract" ] && [ "$(started_on "$name")" = "$(instance)" ] &&
+      { [ "$name" != client ] || [ "$(started_mode "$name" | grep . || echo dev)" = "$MODE" ]; }; then
       say "$name: reused on :$port"
       return 1
     fi
@@ -317,14 +326,26 @@ up() {
       --store "$PLAY/prove/$contract"
   fi
   if fresh client "$PORT" "$contract"; then
-    # Vite reads VITE_* at start; every one the page uses is given (a client/.env* file cannot win).
-    start client "$contract" "$PLAY/client.log" env \
-      PLAY_DEVNET_PORT="$DEVNET_PORT" PLAY_ATTEST_PORT="$ATTEST_PORT" PLAY_PROVE_PORT="$PROVE_PORT" \
-      VITE_PLAY_LOCAL=1 VITE_NETWORK=devnet VITE_SLINGFALL_ADDRESS="$contract" VITE_DEPLOY_BLOCK=0 \
-      VITE_STARKNET_RPC_URL=/rpc VITE_RPC_URL=/rpc VITE_ATTEST_URL=/attest-service VITE_PROVE_URL=/prove-service \
-      VITE_DEVNET_ACCOUNT_ADDRESS="$(account 1 2)" VITE_DEVNET_PRIVATE_KEY="$(account 1 3)" \
-      node "$ROOT/client/node_modules/vite/bin/vite.js" "$ROOT/client" --config "$ROOT/scripts/play/vite.config.mts" \
-      --host "$HOST" --port "$PORT" --strictPort
+    # Vite reads VITE_* at start (at build, for the built client: they are baked in); every one the page
+    # uses is given (a client/.env* file cannot win).
+    local vite=(env
+      PLAY_DEVNET_PORT="$DEVNET_PORT" PLAY_ATTEST_PORT="$ATTEST_PORT" PLAY_PROVE_PORT="$PROVE_PORT"
+      VITE_PLAY_LOCAL=1 VITE_NETWORK=devnet VITE_SLINGFALL_ADDRESS="$contract" VITE_DEPLOY_BLOCK=0
+      VITE_STARKNET_RPC_URL=/rpc VITE_RPC_URL=/rpc VITE_ATTEST_URL=/attest-service VITE_PROVE_URL=/prove-service
+      VITE_DEVNET_ACCOUNT_ADDRESS="$(account 1 2)" VITE_DEVNET_PRIVATE_KEY="$(account 1 3)"
+      node "$ROOT/client/node_modules/vite/bin/vite.js")
+    local config=(--config "$ROOT/scripts/play/vite.config.mts")
+    if [ "$MODE" = built ]; then
+      # In the foreground: `start` waits at most 30 s for HTTP. The folder is outside the client root.
+      say "the built client (vite build into $PLAY/dist, redone at each start: the contract is baked in; log $PLAY/build.log)"
+      "${vite[@]}" build "$ROOT/client" "${config[@]}" --outDir "$PLAY/dist" --emptyOutDir >"$PLAY/build.log" 2>&1 ||
+        { tail -n 20 "$PLAY/build.log" >&2; die "vite build failed"; }
+      start client "$contract" "$PLAY/client.log" "${vite[@]}" preview "$ROOT/client" "${config[@]}" \
+        --outDir "$PLAY/dist" --host "$HOST" --port "$PORT" --strictPort
+    else
+      start client "$contract" "$PLAY/client.log" "${vite[@]}" "$ROOT/client" "${config[@]}" \
+        --host "$HOST" --port "$PORT" --strictPort
+    fi
   fi
   wait_http attest "http://127.0.0.1:$ATTEST_PORT/health" "$PLAY/attest.log"
   wait_http prove "http://127.0.0.1:$PROVE_PORT/health" "$PLAY/prove.log"

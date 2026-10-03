@@ -24,8 +24,8 @@ ports are free.
 | | needed for | install |
 |---|---|---|
 | Node 24 (`.tool-versions`: 24.21.0) | the client, `deploy/slingfall.ts` | `asdf plugin add nodejs && asdf install nodejs 24.21.0` |
-| scarb 2.19.4 | the replay, the contract, the proven tier's classes | `asdf plugin add scarb && asdf install scarb 2.19.4` |
-| snforge 0.61.0 | the Cairo tests only (not to play) | `asdf plugin add starknet-foundry && asdf install starknet-foundry 0.61.0` |
+| scarb 2.20.1 | the replay, the contract, the proven tier's classes | `asdf plugin add scarb && asdf install scarb 2.20.1` |
+| snforge 0.64.0 | the Cairo tests only (not to play) | `asdf plugin add starknet-foundry && asdf install starknet-foundry 0.64.0` |
 | Python 3.10+ | both services (standard library only) | macOS: `brew install python`; Linux: the distribution's `python3` |
 | Rust (rustup) | once, to build the browser's Cairo VM (`client/vm/`, a few minutes) | https://rustup.rs; the pinned toolchain installs itself |
 | curl, tar | the devnet's release binary | present on both systems |
@@ -86,6 +86,26 @@ Both boards of the level are shown after each step: **Settled (proven: SHARP or 
 (provisional and settled)**, each row with its proof and release. What a local record proves: that the
 contract, the services and the page agree on your attempt; nothing about its proof, which nobody made.
 
+## A faster page on a slow link: `PLAY_BUILT=1`
+
+By default the client is Vite's dev server, which ships every source module separately (about 24 MB in 74
+requests, measured in headless Chromium by the research thread of 2026-10-02). On a slow link (a phone on
+Wi-Fi, a throttled connection) the page takes minutes to be playable. `PLAY_BUILT=1` serves the **built** client
+instead:
+
+```sh
+PLAY_BUILT=1 scripts/play.sh        # vite build into target/play/dist, then vite preview, same proxy and port
+```
+
+The build runs in the foreground at each start of the client (the contract's address is baked into it, so it
+is redone each time; a few seconds to a minute). The page and the services behave the same. `vite preview`
+also gzips the wasm runner (`scripts/play/vite.config.mts`). Use it to play from another device
+(`PLAY_HOST=0.0.0.0`) or whenever the first load matters; keep the dev server to edit the client (no hot reload
+in the built mode).
+
+A running client is restarted when its mode differs (`up` notes the mode beside the client's PID), so `PLAY_BUILT=1
+scripts/play.sh` after a plain `up` switches it, and the reverse. Measurements: `REPORT.md`.
+
 ## Resetting the devnet
 
 `scripts/play.sh reset` stops everything and deletes the saved state (`target/play/devnet-state.json`), the
@@ -137,7 +157,8 @@ first (a second `up` reuses the running dev server as it is).
   network, allow it (System Settings > Privacy & Security > Local Network). Playing on the Mac itself, in
   Chromium, is verified (lot L2); the LAN address (`PLAY_HOST=0.0.0.0`), Safari and the firewall dialog are not.
 * **`No version is set for command starknet-devnet`** (asdf's shim): `deploy/devnet.sh` ignores a
-  `starknet-devnet` that does not run and downloads its own release binary into `deploy/.devnet/bin/`.
+  `starknet-devnet` that does not run and downloads its own release binary into `deploy/.devnet/bin/` and looks it up again (a first `up` used to stop
+  silently there); if the installed binary still does not run, `up` prints the failing command and its output.
 * **Something failed during `up`**: its last lines are printed; the whole log is in `target/play/`
   (`deploy.log`, `vm-build.log`, `replay-build.log`, `split-build.log`, `attest.log`, `prove.log`,
   `client.log`, `devnet-5050.log`). After a contract change, `scripts/play.sh reset`.

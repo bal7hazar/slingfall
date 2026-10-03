@@ -3,9 +3,11 @@
 
 use starknet::ClassHash;
 
+// Build root of these class hashes:
+// /home/runner/work/slingfall/slingfall
 pub const TYPED_RULES_HASH: felt252 =
-    0x3e04611738dc4c96ca2076c98be9148501931f43b2f2767a6dbef9f98c63f6a;
-pub const EDIT_HASH: felt252 = 0x365ed50630cce019cc3a97fd1d127422ad4954837c494d2a5ab8b4d3b5da322;
+    0x438904a2a6a570332184f699a77a9cd8dc7f5ba43fc2a6cc5d5f9846c63a6fb;
+pub const EDIT_HASH: felt252 = 0x77758904171475cd7b6c83480ec0b14cbf5ed0f45f9cf12000021fe3164d31c;
 
 /// Where the alternatives find their classes.
 pub trait ProbeHashes {

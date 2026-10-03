@@ -1,0 +1,21 @@
+# slingfall-attest.socket: systemd holds the attestation service's socket from boot (docs/hosting.md
+# "Socket and limits"): a Unix socket that only root and the reverse proxy's group (@PROXY_GROUP@,
+# install.sh --proxy-group) can open; the agents' user cannot reach the service at all. The service
+# receives the listening socket (attest.py serve --systemd-socket) and trusts X-Forwarded-For only
+# there. /run/slingfall-attest is created root-owned by systemd, so no other process can take the
+# path while the service is down.
+
+[Unit]
+Description=Slingfall attestation service, its socket (/run/slingfall-attest/attest.sock)
+
+[Socket]
+ListenStream=/run/slingfall-attest/attest.sock
+SocketUser=root
+SocketGroup=@PROXY_GROUP@
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=yes
+Backlog=64
+
+[Install]
+WantedBy=sockets.target

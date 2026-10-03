@@ -21,36 +21,38 @@ pub trait SplitHashes {
     fn step() -> ClassHash;
 }
 
+// Build root of these class hashes:
+// /home/runner/work/slingfall/slingfall
 pub const WORLD_EDIT_HASH: felt252 =
-    0x6b80770cb8a1b6d5d31003c35a670cede94c049e22718077c8f728f1ccf3610;
+    0x10c4d0f04c869f302be8209a7d230809628831ec2bb4fd93603784dfcc98693;
 pub const CONTACT_BALL_HASH: felt252 =
-    0x4efa41be660cdf0afad6953de378645d439efea43d9409603db060d432c38df;
+    0x5f9b275f6554d67248a2d06302bc48eb7fc08854ab213a36cd558dc9ef7d08b;
 pub const SOLVE_ADVANCE_HASH: felt252 =
-    0x6f22ca2b78b9955a5b288e4e80663a65fcb997739e11b68bf5c2226022b72d3;
-pub const ISLANDS_HASH: felt252 = 0x640435f9c277ebb55e1c01979eeb2cf84948424dcacbd669e11055d12b78bde;
+    0xb0f496a340509f79c875459843cbf6870aa01f35231b72ecaf0d9403ed36d2;
+pub const ISLANDS_HASH: felt252 = 0x3e2a3e1ff275efee0257ef842298712e98b6b555203048a5b9b2648e24c9a46;
 pub const BROAD_PHASE_HASH: felt252 =
-    0x63c302fc078a15b81bc53c4d4bbc7c3c10920773cedcf9c4edf5a64c8e7a2b8;
-pub const MASS_HASH: felt252 = 0x59bd3e4c27c773dc1cd65d09408315b6344aad370a0ef1c60f8b24af42c0fce;
+    0x53423c89826872bf0609676dde383e1e7fd4716d8c76c4964785c1e73a51014;
+pub const MASS_HASH: felt252 = 0x60051ffb6f7fe7e5a29c6ac58db800bafcfa716e79b3d97a058a71027e10c3b;
 pub const NARROW_PHASE_HASH: felt252 =
-    0x447bcf48b1735aaba6fdfaa632aed8582d115764ae676fdda24c31b20a10dbd;
+    0x7c3425c0a8f5c38a3941fdb3f41d495729347b049ca3eb8934adf80b6366502;
 pub const ACTIVE_SET_HASH: felt252 =
-    0x74d52fcda3b1da92328620cffef1ff1b9563f36b5cb02512dd1505a5fe12b14;
-pub const RULES_HASH: felt252 = 0x712ae1a857fbf88caef8749cda329cc9746a7fd01d2095357d5f1c4abefb9d0;
-pub const STEP_HASH: felt252 = 0x70f5ddc00c002eccc615047984e25e3f6ac5fa522a110d22985add7696a2c70;
+    0x5ea0e678c30220f403888fa50bf0b304040ee2628f14edfa4158cf082e90e9b;
+pub const RULES_HASH: felt252 = 0x37c9b47d091e7531d86e6ac40b3f310345aaf60d3e9cc781433331f83ea2be;
+pub const STEP_HASH: felt252 = 0x3c420b3e3689244a0c6d399f4b4f8662bd1429e04e11dbf734c5190288572e3;
 
-pub const WORLD_HASH: felt252 = 0x3334afa92dfe4025d77d6e9358cd62850b3b8442e36aa6bca10367900968523;
+pub const WORLD_HASH: felt252 = 0x7d40b2eddf6080060620d54a5dccaf02e19181f8f988a5acfc4854c975961f3;
 pub const FALLBACK_GAME_HASH: felt252 =
-    0x58891d8ad938fde422281f13941e3521a26af6e7cdc1397f85602130d366ae7;
-pub const BUILD_HASH: felt252 = 0x6e49b45453d93f54a0b8b88f402c548456d5da1bf63d7d4fcf4aafb5fa860d8;
-pub const SETTLE_HASH: felt252 = 0x70334b5eb173685c788f43c0e2ddc129b9aa6fdbb7e8222f172a8f488c9fb15;
-pub const OUTPUTS_HASH: felt252 = 0x3a619e67f7d06f3a10d54f9a2b79b9cc681155273b33b24892a05b59fd236fc;
+    0x458b7f5a168f46a124ade6ed56832fdc3d6156b4b4e4417e44b3a0f7bfd5310;
+pub const BUILD_HASH: felt252 = 0x592421400795bf672876d4270c8cd5e53b853f60e841ec24af7c9459ecb5bc0;
+pub const SETTLE_HASH: felt252 = 0x38650b81140f92b1209aab2e798e19d49f75fe93aca1d4191ceb02f7794d029;
+pub const OUTPUTS_HASH: felt252 = 0x4debb40a1fa636c3a68c9c540236ef5caf0c034d413dd86db84a95b76c0a0d6;
 pub const SPLIT_CHAIN_HASH: felt252 =
-    0x6120153d1ba21f4599a43a49da1e31a8a432ef7cb12c6fff4196e1e23b72cdd;
+    0xd86128e076fb3c81f25cfb801c2c824299204c2da26257af4ad879487ddf0a;
 
 /// The bundle hash of layout (e)'s chain (contract v3's `pin_chain`): Poseidon of [`bundle`].
 /// `services/prove/snip36.py` (`own_bundle`) and `deploy/split.ts` (`bundleOf`) compute the same
 /// value from `classes.json`'s order and the constants above (their tests check this one).
-pub const BUNDLE_HASH: felt252 = 0x8a629c64c8e6c34dcc4cd0f29fd51c2c34d19cefe83647335a98825ddd7368;
+pub const BUNDLE_HASH: felt252 = 0x318b7756466e3f8e77a9639afacd6b449673f937e766c1416b7f42fd8179ae;
 
 /// The class hash of the stage classes the game never calls (`ContactPolygonClass`: in
 /// `NarrowPhaseClass` since alpha.8; `SolverClass`, `ForceEventsClass`: `SlimSplitStages` runs the

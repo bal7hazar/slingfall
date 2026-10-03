@@ -7,7 +7,7 @@ import { hudAt } from '../render/hud';
 import { Playback } from '../render/playback';
 import type { TraceEvent, TraceFrame } from '../trace/types';
 import type { ShotHandlers, ShotRequest } from '../vm/index';
-import type { ShotResult } from '../vm/shot';
+import type { ChunkReport, ShotResult } from '../vm/shot';
 import { ShotLoop } from './play';
 import { LevelSession, type GameVm } from './session';
 
@@ -27,6 +27,11 @@ const pebbleAt = (tick: number): TraceFrame => ({
 
 /** A worker the test drives: `emit` streams frames of the shot in flight, `finish` ends it. */
 class StreamVm implements GameVm {
+  /** Every request and the handler keys the session passed, in order. */
+  readonly requests: { request: ShotRequest; handlerKeys: string[] }[] = [];
+  /** Frames of each shot. */
+  shotTicks = SHOT_TICKS;
+  private chunks = 0;
   private flight: { request: ShotRequest; handlers: ShotHandlers; sent: number; resolve: (r: ShotResult) => void; reject: (e: Error) => void } | null = null;
 
   get busy(): boolean {
@@ -39,6 +44,8 @@ class StreamVm implements GameVm {
   }
 
   shot(request: ShotRequest, handlers: ShotHandlers = {}): Promise<ShotResult> {
+    this.chunks = 0;
+    this.requests.push({ request: structuredClone(request), handlerKeys: Object.keys(handlers).sort() });
     return new Promise((resolve, reject) => (this.flight = { request, handlers, sent: 0, resolve, reject }));
   }
 
@@ -49,14 +56,21 @@ class StreamVm implements GameVm {
   emit(frames: number): void {
     const f = this.flight!;
     const start = Number(f.request.state![5]);
-    for (let k = 0; k < frames && f.sent < SHOT_TICKS; k++) f.handlers.onFrame?.(pebbleAt(start + ++f.sent));
+    for (let k = 0; k < frames && f.sent < this.shotTicks; k++) f.handlers.onFrame?.(pebbleAt(start + ++f.sent));
+  }
+
+  /** A stepping chunk: its frames, then its report (`ms` of VM wall time). */
+  chunk(ticks: number, steps: number, ms: number): void {
+    this.emit(ticks);
+    const report: ChunkReport = { index: this.chunks++, ticks, steps, memoryCells: 0, execCells: 0, reserveCells: 0, ms, wasmBytes: 0 };
+    this.flight!.handlers.onChunk?.(report);
   }
 
   finish(): void {
     const f = this.flight!;
-    this.emit(SHOT_TICKS);
+    this.emit(this.shotTicks);
     const shot = f.request.shot!;
-    const tick = Number(f.request.state![5]) + SHOT_TICKS;
+    const tick = Number(f.request.state![5]) + this.shotTicks;
     f.handlers.onEvent?.({ tick, kind: 'shot_end', shot });
     this.flight = null;
     f.resolve({ state: header(shot + 1, shot + 1 === 3, tick), chunks: [], steps: 1, ms: 1 });
@@ -70,14 +84,17 @@ class StreamVm implements GameVm {
 }
 
 /** A session, its buffer, a playback and a loop on a fake clock; `run` plays display frames of 1/60 s. */
-async function setup() {
+async function setup(options: { levelId?: number; shotTicks?: number } = {}) {
   const vm = new StreamVm();
-  const session = await LevelSession.open(vm, { felts: [] });
+  vm.shotTicks = options.shotTicks ?? SHOT_TICKS;
+  // version, level_id, seed, gravity_y, shots, tick_cap (`levelInfo`); the id keys the tick table.
+  const session = await LevelSession.open(vm, { felts: ['1', String(options.levelId ?? 2), '0', '0', '3', '180'] });
   let now = 0;
   const buffer = new TraceBuffer(session.traceLevel);
   buffer.push(session.startFrame());
   const playback = new Playback(() => buffer.frameCount);
   const log: string[] = [];
+  const sink = { info: [] as string[], warn: [] as string[] };
   const loop = new ShotLoop(
     session,
     buffer,
@@ -90,6 +107,7 @@ async function setup() {
       over: () => log.push(`over@${now}`),
     },
     () => now,
+    { info: (m: string) => sink.info.push(m), warn: (m: string) => sink.warn.push(m) },
   );
   const frameMs = 1000 / 60;
   /** Plays `ms` of display time; `each` runs before every display frame (the worker's pace). */
@@ -100,7 +118,7 @@ async function setup() {
       loop.advance(frameMs);
     }
   };
-  return { vm, session, buffer, playback, loop, log, run, time: () => now };
+  return { vm, session, buffer, playback, loop, log, sink, run, time: () => now };
 }
 
 describe('ShotLoop: the result and the sling wait for the playback (M2, M3)', () => {
@@ -128,13 +146,14 @@ describe('ShotLoop: the result and the sling wait for the playback (M2, M3)', ()
     expect(armedAt).toBeLessThan(1000 + 20);
   });
 
-  it('VM slower than real time: the head waits for the frames, and re-arms once the last one arrived and is shown', async () => {
+  it('VM slower than real time: the head holds with no measured rate, then re-arms once the last frame arrived and is shown', async () => {
     t.loop.release({ x: -150, y: -150 });
     let frame = 0;
-    // 20 frames per second: the head plays at the arrival rate, never past the newest frame.
+    // 20 frames per second and no chunk report yet: the head holds at the release frame.
     t.run(2500, () => {
       if (++frame % 3 === 0) t.vm.emit(1);
-      expect(t.playback.position).toBeLessThanOrEqual(t.playback.lastFrame);
+      expect(t.playback.position).toBe(0);
+      expect(t.playback.speed).toBe(0);
     });
     expect(t.loop.producing).toBe(true);
     expect(t.loop.armed).toBe(false);
@@ -280,5 +299,274 @@ describe('Playback: Play / Pause from the real state (m3)', () => {
     playback.seek(29);
     playback.toggle(true); // producing: resumes where it is
     expect([playback.playing, playback.position]).toEqual([true, 29]);
+  });
+});
+
+/**
+ * A worker that runs the chunks of `plan` at `stepsPerSecond` of VM speed, on the test's clock: a
+ * chunk's frames and report land when its wall time (steps / speed) has elapsed. Returns the
+ * per-display-frame step for `run`'s `each`; the shot ends after the last chunk.
+ */
+function worker(t: Awaited<ReturnType<typeof setup>>, plan: { ticks: number; stepsPerTick: number }[], stepsPerSecond: number) {
+  const queue = [...plan];
+  let budget = 0; // ms of VM time banked
+  let finished = false;
+  return () => {
+    if (finished) return;
+    budget += 1000 / 60;
+    for (let c = queue[0]; c !== undefined; c = queue[0]) {
+      const steps = c.ticks * c.stepsPerTick;
+      const ms = (steps / stepsPerSecond) * 1000;
+      if (budget < ms) return;
+      budget -= ms;
+      queue.shift();
+      t.vm.chunk(c.ticks, steps, ms);
+    }
+    t.vm.finish();
+    finished = true;
+  };
+}
+
+/** A shot of `total` ticks: flight chunks of 65k steps per tick, then `rest` of the given plan. */
+const FLIGHT = 65_000;
+const flight = (ticks: number) => [{ ticks, stepsPerTick: FLIGHT }];
+
+describe('ShotLoop: compute ahead, then real time (lot CB)', () => {
+  it('holds at the release: speed 0, head still, with no rate to price the shot', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.run(500);
+    expect(t.playback.speed).toBe(0);
+    expect(t.playback.position).toBe(0);
+    expect(t.loop.producing && t.playback.speed < 1).toBe(true); // what `#simulating` shows
+  });
+
+  it('never stalls once started: the head advances by dt x 60 on every advance, with the lead kept', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    // A fast machine (60M steps/s): the whole shot is produced in well under real time.
+    const work = worker(t, [...flight(20), { ticks: 130, stepsPerTick: 150_000 }], 60e6);
+    let started = false;
+    let moved = 0;
+    for (let i = 0; i < 400; i++) {
+      work();
+      await Promise.resolve(); // the worker's result message lands before the next display frame
+      const before = t.playback.position;
+      t.run(1000 / 60 - 1e-9);
+      if (t.playback.speed === 1) started = true;
+      if (started && before < t.playback.lastFrame && t.playback.position < t.playback.lastFrame) {
+        // the display frame is 1000/60 ms: one tick, whatever the lead
+        expect(t.playback.position - before).toBeCloseTo(1, 6);
+        moved++;
+      }
+      if (started) expect(t.playback.speed).toBe(1);
+    }
+    expect(started).toBe(true);
+    expect(moved).toBeGreaterThan(100);
+    expect(t.loop.dryEvents).toBe(0);
+    expect(t.sink.warn).toEqual([]);
+    expect(t.loop.armed).toBe(true);
+  });
+
+  it('15x stress: priced at the prior, the rule does not start at the release; the impact then runs dry, the head waits at speed 1 and the event is logged', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.run(200);
+    expect(t.playback.speed).toBe(0); // nothing measured yet
+    // A fast machine for the flight, an impact 15x dearer per tick than the flight, which the prior (10x) did not expect.
+    const work = worker(t, [...flight(20), { ticks: 130, stepsPerTick: 15 * FLIGHT }], 40e6);
+    const speeds = new Set<number>();
+    for (let i = 0; i < 600; i++) {
+      work();
+      await Promise.resolve();
+      t.run(1000 / 60 - 1e-9);
+      if (t.loop.producing && t.playback.speed > 0) speeds.add(t.playback.speed);
+    }
+    expect([...speeds]).toEqual([1]); // started once, never slow motion
+    expect(t.loop.dryEvents).toBeGreaterThanOrEqual(1);
+    expect(t.sink.warn.length).toBe(t.loop.dryEvents);
+    expect(t.sink.warn[0]).toMatch(/lead ran dry at \d+ ms: \d+ ticks produced of ~180 expected, head at \d+\.\d, \d+\.\d\dM steps\/s, flight 65000 steps\/tick/);
+    await t.loop.settled;
+    expect(t.loop.armed).toBe(true); // it caught up in the end
+  });
+
+  it('15x stress on a slower machine: the flight alone does not start it', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    const work = worker(t, [...flight(20), { ticks: 130, stepsPerTick: 15 * FLIGHT }], 13e6);
+    for (let i = 0; i < 40; i++) {
+      work();
+      await Promise.resolve();
+      t.run(1000 / 60 - 1e-9);
+    }
+    expect(t.playback.speed).toBe(0);
+    expect(t.playback.position).toBe(0);
+  });
+
+  it('a slow impact followed by a fast settle: no dry event', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    const work = worker(
+      t,
+      [...flight(30), { ticks: 20, stepsPerTick: 300_000 }, { ticks: 100, stepsPerTick: 40_000 }],
+      26e6,
+    );
+    for (let i = 0; i < 600; i++) {
+      work();
+      await Promise.resolve();
+      t.run(1000 / 60 - 1e-9);
+    }
+    await t.loop.settled;
+    expect(t.loop.dryEvents).toBe(0);
+    expect(t.sink.warn).toEqual([]);
+    expect(t.loop.armed).toBe(true);
+    expect(t.sink.info.length).toBe(3);
+    expect(t.sink.info[0]).toMatch(/^chunk 0: 30 ticks, 1950000 steps, [\d.]+ ms$/);
+    expect(t.sink.info[1]).toMatch(/\(contact\)$/);
+  });
+
+  it('production ending while still holding: the hold releases at once and the end check fires', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.vm.chunk(20, 20 * FLIGHT, 400); // 3.25M steps/s: far too slow to start
+    t.run(100);
+    expect(t.playback.speed).toBe(0);
+    t.vm.finish();
+    await t.loop.settled;
+    t.run(100);
+    expect(t.playback.speed).toBe(1);
+    expect(t.playback.position).toBeGreaterThan(0);
+    t.run(3000);
+    expect(t.loop.armed).toBe(true);
+    expect(t.loop.dryEvents).toBe(0);
+  });
+
+  it('a shot that fails during the hold: the hold clears', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.run(100);
+    t.vm.fail();
+    await t.loop.settled;
+    t.run(100);
+    expect(t.playback.speed).toBe(1);
+    expect(t.loop.armed).toBe(true);
+    expect(t.log.map((l) => l.split('@')[0])).toEqual(['released', 'failed']);
+  });
+
+  it('dispose during the hold: nothing moves and a late chunk report is ignored', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.run(100);
+    t.loop.dispose();
+    t.vm.chunk(20, 20 * FLIGHT, 20);
+    t.run(500);
+    expect(t.playback.position).toBe(0);
+    expect(t.sink.info).toEqual([]);
+    t.vm.finish();
+    await t.loop.settled;
+    expect(t.log.map((l) => l.split('@')[0])).toEqual(['released']);
+  });
+
+  it('a second shot that starts with the head at the last frame holds again from there', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.vm.finish();
+    await t.loop.settled;
+    t.run(3000);
+    expect(t.loop.armed).toBe(true);
+    const end = t.playback.lastFrame;
+    expect(t.playback.position).toBe(end);
+    expect(t.loop.release({ x: -150, y: -150 })).toBe(true);
+    t.run(300);
+    expect([t.playback.speed, t.playback.position]).toEqual([0, end]);
+    expect(t.loop.dryEvents).toBe(0); // holding on the last frame is not a dry lead
+    t.vm.finish();
+    await t.loop.settled;
+    t.run(3000);
+    expect(t.loop.armed).toBe(true);
+  });
+
+  it('a second shot starts early when the lead allows it: shown ticks count from this shot, not from the buffer start', async () => {
+    const t = await setup({ shotTicks: 150 });
+    t.loop.release({ x: -604, y: -392 });
+    t.vm.finish();
+    await t.loop.settled;
+    t.run(3000);
+    expect(t.loop.armed).toBe(true);
+    const base = t.playback.position; // the previous shot's last frame
+    expect(base).toBeGreaterThan(100);
+    t.loop.release({ x: -150, y: -150 });
+    // At 40M steps/s the prior (130 x 650k steps = 2.6 s) fits the 3 s of the whole shot after the first chunk,
+    // but not the ~0.5 s that an absolute frame index would leave (150 of 180 already 'shown').
+    const work = worker(t, [...flight(20), ...Array.from({ length: 13 }, () => ({ ticks: 10, stepsPerTick: 150_000 }))], 40e6);
+    let startedWhileProducing = false;
+    for (let i = 0; i < 400; i++) {
+      work();
+      await Promise.resolve();
+      t.run(1000 / 60 - 1e-9);
+      // started on the first chunk (20 ticks); an absolute frame index only starts at ~50 produced
+      if (t.playback.speed === 1 && t.buffer.frameCount - 1 - base <= 30) startedWhileProducing = true;
+    }
+    expect(startedWhileProducing).toBe(true);
+    expect(t.loop.dryEvents).toBe(0);
+    expect(t.loop.armed).toBe(true);
+  });
+
+  it('pause and scrub during the hold: the head stays where it is put, and plays on from there once started', async () => {
+    const t = await setup({ shotTicks: 150 });
+    // Frames of an earlier shot to scrub in: a first shot, shown.
+    t.loop.release({ x: -604, y: -392 });
+    t.vm.finish();
+    await t.loop.settled;
+    t.run(3000);
+    t.loop.release({ x: -150, y: -150 });
+    t.playback.playing = false;
+    t.playback.seek(20);
+    t.run(500);
+    expect(t.playback.position).toBe(20);
+    t.playback.playing = true;
+    t.run(100);
+    expect(t.playback.position).toBe(20); // still holding: no rate
+    t.vm.finish();
+    await t.loop.settled;
+    t.run(100);
+    expect(t.playback.position).toBeGreaterThan(20);
+    expect(t.loop.dryEvents).toBe(0);
+  });
+});
+
+describe('ShotLoop: the proof is unchanged', () => {
+  /** A shot with chunk reports, then one without any: the same fire arguments and frames in the buffer. */
+  async function play(withChunks: boolean) {
+    const vm = new StreamVm();
+    vm.shotTicks = 10;
+    const session = await LevelSession.open(vm, { felts: ['1', '2', '0', '0', '3', '180'] });
+    const pushed: TraceFrame[] = [];
+    const sink = { push: (f: TraceFrame) => void pushed.push(f), get frameCount() { return pushed.length; } };
+    const buffer = sink as unknown as ConstructorParameters<typeof ShotLoop>[1];
+    const loop = new ShotLoop(session, buffer, new Playback(() => pushed.length), {}, () => 0, { info: () => {}, warn: () => {} });
+    loop.release({ x: -604, y: -392 });
+    if (withChunks) {
+      vm.chunk(4, 4 * FLIGHT, 10);
+      vm.chunk(6, 6 * FLIGHT * 3, 10);
+    }
+    vm.finish();
+    await loop.settled;
+    return { vm, pushed };
+  }
+
+  it('fires with the same arguments as before (plus an onChunk handler) and pushes the same frames in order', async () => {
+    const a = await play(true);
+    const b = await play(false);
+    const expected = {
+      level: { felts: ['1', '2', '0', '0', '3', '180'] },
+      inputs: { player: expect.any(String), shots: [{ pull_x: -604, pull_y: -392, delay: 0 }] },
+      shot: 0,
+      state: header(0, false, 0),
+    };
+    expect(a.vm.requests).toEqual([{ request: expected, handlerKeys: ['onChunk', 'onEvent', 'onFrame'] }]);
+    expect(b.vm.requests).toEqual(a.vm.requests);
+    expect(a.pushed.map((f) => f.tick)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(a.pushed).toEqual(b.pushed);
   });
 });
