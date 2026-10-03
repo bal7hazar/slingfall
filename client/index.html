@@ -38,6 +38,15 @@
       <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub" />
       <span id="hint" class="hint"></span>
     </div>
+    <div id="rotate" class="rotate" role="dialog" aria-modal="true" aria-labelledby="rotate-title">
+      <svg class="rotate-icon" viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+        <rect class="rotate-phone-body" x="22" y="6" width="20" height="36" rx="4" />
+        <path d="M14 52a22 22 0 0 0 36 0" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+        <path d="M52 44l-2 9-8-4" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <p id="rotate-title" class="rotate-title">Rotate your phone</p>
+      <p class="rotate-text">Slingfall plays in landscape. The game waits for you.</p>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

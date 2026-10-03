@@ -3,6 +3,7 @@ import { UNITS_PER_METRE, groundBelowAnchor, worldToScreen, type Camera } from '
 import { fixedToNumber, type TraceLevel } from '../trace/types';
 import { FLAT_PALETTE } from '../render/skin/palette';
 import type { Palette } from '../render/skin/types';
+import { overlayShown } from '../game/orientation';
 import { arcParamsFromLevel, flightArc, type ArcParams } from './arc';
 import { nudgePull, pullFromDrag, pullToDrag, type Pull } from './pull';
 
@@ -191,7 +192,9 @@ export class AimController {
   private readonly onUp = (event: PointerEvent): void => {
     if (event.pointerId !== this.pointerId) return;
     this.pointerId = undefined;
-    this.release();
+    // A drag still going when the phone turned to portrait (game/orientation.ts) ends without a shot.
+    if (overlayShown()) this.cancel();
+    else this.release();
   };
 
   private readonly onCancel = (event: PointerEvent): void => {
@@ -199,7 +202,8 @@ export class AimController {
   };
 
   private readonly onKey = (event: KeyboardEvent): void => {
-    if (!this.armed || this.pointerId !== undefined || typing(event.target)) return;
+    // The "rotate your phone" overlay (game/orientation.ts) stops the keys too: `inert` only stops the pointer.
+    if (!this.armed || overlayShown() || this.pointerId !== undefined || typing(event.target)) return;
     const nudge = arrowNudge(event.key, event.shiftKey);
     if (nudge !== null) {
       event.preventDefault();
