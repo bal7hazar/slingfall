@@ -13,7 +13,7 @@ set -euo pipefail
 
 FORK_REV=da8e48c62ab1383f6d7a410e5d2151033e40b544
 FORK_REPO=https://github.com/HerodotusDev/starkware-cairo-vm
-RUST_TOOLCHAIN=1.89.0
+RUST_TOOLCHAIN=1.94.0
 PATCH=cairo-vm-cairo-lang-2.20.0.patch
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

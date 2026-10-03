@@ -619,7 +619,7 @@ jobs:
         id: fork
         with:
           path: tools/atlantic/out/cairo1-run
-          key: cairo1-run-da8e48c-rust1.89.0-${{ hashFiles('tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch') }}
+          key: cairo1-run-da8e48c-rust1.94.0-${{ hashFiles('tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch') }}
       - name: Build cairo1-run (the fork, patched for the toolchain's compiler)
         if: steps.fork.outputs.cache-hit != 'true'
         run: tools/atlantic/program-hash.sh fork
@@ -627,7 +627,7 @@ jobs:
         if: steps.fork.outputs.cache-hit != 'true'
         with:
           path: tools/atlantic/out/cairo1-run
-          key: cairo1-run-da8e48c-rust1.89.0-${{ hashFiles('tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch') }}
+          key: cairo1-run-da8e48c-rust1.94.0-${{ hashFiles('tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch') }}
       - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
         with:
           action: software-mansion/setup-scarb@v1
