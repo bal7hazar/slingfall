@@ -39,13 +39,23 @@ None. The lot only reads the pin; it never sends a re-pin.
 
 1. **The `program-hash` job** follows the recipe of `docs/proving.md` "Reproduce", up to the hash:
    - check out HerodotusDev/starkware-cairo-vm at `da8e48c62ab1383f6d7a410e5d2151033e40b544`, apply
-     `tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch`, and build `cairo1-run` with `cargo build --release`. Cache the
-     built binary, keyed on the revision and the patch's hash, like the `prove` job's stwo cache;
+     `tools/atlantic/cairo-vm-cairo-lang-2.20.0.patch`, and build `cairo1-run` with `cargo build --release`.
+     - Pin the Rust toolchain (`cargo +<version>`, say which), or put the `rustc --version` output in the cache key.
+     - Cache the built binary, keyed on the revision, the patch's hash and that toolchain, like the `prove` job's stwo
+       cache.
+   - set up scarb in the **wretry form the other jobs use**, never with `continue-on-error`;
    - build `tools/atlantic/c1main` with `RAYON_NUM_THREADS=1` (already set workflow-wide);
    - `tracec.py args` on `one_block --shot=-150,-150`, `atlantic.py c1-input`, `cairo1-run … --cairo_pie_output`, then
      `atlantic.py program-hash --pie`;
-   - compare the result with `CHILD_PROGRAM_HASH` in `deploy/slingfall.ts`, with `program.current` in
-     `deploy/sepolia.json`, and with the latest `child-hash-*.json` record. **Fail on any mismatch**, printing the
+   - read the pins strictly. Each must be present and match `^0x[0-9a-f]{1,64}$`, or the job fails: a missing or
+     unparsable pin is a failure, never an empty match.
+     - `CHILD_PROGRAM_HASH` in `deploy/slingfall.ts` (`const CHILD_PROGRAM_HASH = '0x…'`);
+     - `program.current` in `deploy/sepolia.json` (read with `json`, not grep);
+     - **the record:** exactly one `fixtures/proofs/atlantic/child-hash-*.json` must have `child_program_hash` equal to
+       the computed hash. Today that is `child-hash-scarb-2.20.1.json`. Name order means nothing: `alpha8` sorts after
+       `scarb-2.20.1`, and the older files hold older hashes.
+   - compare the computed hash with the first two pins, and check that the record exists. **Fail on any mismatch**,
+     printing the
      computed hash and each pinned one, and the line "the c1main program moved: this PR must carry the Sepolia re-pin
      plan (OPERATIONS.md §7): its brief names the pin_program transaction".
 2. **Path gating** (CP's `changes` job): the job runs only when `c1main`'s inputs or the pins change:
@@ -55,16 +65,24 @@ None. The lot only reads the pin; it never sends a re-pin.
    - `deploy/slingfall.ts`, `deploy/sepolia.json`, `fixtures/proofs/atlantic/**`;
    - `T`: the toolchain, every `Scarb.toml` and `Scarb.lock`, the workflow.
    On push to main it always runs.
-3. **`all-checks`** needs `program-hash`, with the same fail-closed logic as the other jobs.
+3. **`all-checks`**, with the same fail-closed logic as the other jobs. In `ci.yml` that takes three places:
+   - a new filter key and output in the `changes` job;
+   - `program-hash` in `all-checks`'s `needs:`;
+   - a `program-hash:${{ needs.changes.outputs.<key> }}:${{ needs.program-hash.result }}` entry in its `JOBS` list.
+   Adding `needs` alone would leave the job unchecked.
 4. **Verification:**
    - the PR's own run (it touches the workflow, so the job runs): the job passes on main's code, showing the computed
      hash equal to the pin;
-   - **prove once, in this PR, that it fails on a wrong pin:** a scratch commit that changes the pin in
-     `deploy/slingfall.ts` by one digit, pushed, its run showing the job red with the mismatch named. Then a revert commit,
-     pushed. Both stay in the PR's history and are squashed at the merge. No separate scratch PR.
-   - Report the job's wall time, cold and with the cache. **The job must stay within a few minutes with the cache.** If
-     building `cairo1-run` in CI is too slow even cached, stop before choosing another way, and report the measured
-     times.
+   - **prove once, in this PR, that it fails on a wrong pin:** a scratch commit that changes one digit of the pin in
+     `deploy/slingfall.ts` **and** one digit of `program.current` in `deploy/sepolia.json`, pushed. Its run must show the
+     job red, with both mismatches named; the `client` job's `config.test.ts` also goes red, as expected. Then a revert
+     commit, pushed. Both stay in the PR's history and are squashed at the merge. No separate scratch PR.
+   - The push hook runs on both commits. Never skip it. If it refuses the scratch commit, stop and report its output.
+   - Report the job's wall time, cold and with the cache, measured from the runs.
+     - **Target: at most 5 minutes with the cache.**
+     - If the cached run exceeds 10 minutes, stop before choosing another way, and report the measured times of each
+       step (the fork build, the `c1main` build, `cairo1-run`, `program-hash`).
+     - A cold run may be longer: report it.
 
 ## 5. Machine
 
