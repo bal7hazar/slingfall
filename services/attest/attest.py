@@ -128,6 +128,7 @@ KEY_FILE_ENV = "SLINGFALL_ATTEST_KEY_FILE"
 SERVICE = "slingfall-attest"
 REVISION = ROOT / "REVISION"
 MAX_BODY = 64 << 20  # a base64 proof; P1's proofs are a few MB
+DRAIN_LIMIT = 64 << 10  # a refused request's body is read, to answer on a live connection, up to this
 MAX_EXECUTE_BODY = 16 << 10  # an --execute request: a level, at most 22 input felts, 10 outputs
 LEVELS = ROOT / "fixtures" / "levels"
 OUTPUT_NAMES = ["version", "level_hash", "seed", "player", "inputs_hash", "score", "won", "shots_used",
@@ -828,25 +829,26 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
             self.answer(200, attester.health())
 
         def drain(self) -> None:
-            # A body within the limit is read before the refusal goes out: closing on unread bytes resets
-            # the connection, and the client would see a broken pipe instead of its answer. Over the limit,
-            # or not within the deadline, the connection is closed as it is.
+            # A body declared within `DRAIN_LIMIT` is read before a refusal goes out: closing on unread
+            # bytes resets the connection, and the client would see a broken pipe instead of its answer.
+            # A larger one (or one not read within the timeout) is not read: the connection is closed as is.
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 return
-            if not 0 < length <= attester.max_body:
+            if not 0 < length <= DRAIN_LIMIT:
                 return
             try:
-                while length and (chunk := self.rfile.read(min(length, 1 << 16))):
+                while length and (chunk := self.rfile.read(length)):
                     length -= len(chunk)
             except OSError:  # TimeoutError included
                 self.close_connection = True
 
         def do_POST(self):  # noqa: N802
             if self.path != "/attest":
+                self.drain()
                 return self.answer(404, {"error": "not found"})
-            read = False
+            consumed = False
             try:
                 attester.charge_client(self.client())
                 try:
@@ -855,9 +857,9 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
                     raise AttestError(400, "body: bad Content-Length") from None
                 if not 0 < length <= attester.max_body:
                     raise AttestError(400 if length <= 0 else 413, "body: missing or too large")
+                consumed = True  # read, or unreadable (a timeout): never drained after this
                 try:
                     data = self.rfile.read(length)
-                    read = True
                 except TimeoutError:
                     self.close_connection = True
                     raise AttestError(408, f"body: not received within {timeout:.0f} s, or the request took "
@@ -872,7 +874,7 @@ def make_handler(attester: Attester, log=sys.stdout, cors_origin: str = "*", tim
                 self.info["error"] = json.dumps(str(e)[:200])
                 if e.detail:
                     self.info["detail"] = json.dumps(e.detail[:200])
-                if not read:
+                if not consumed:
                     self.drain()
                 self.answer(e.status, {"error": str(e)}, e.retry_after)
 
