@@ -277,3 +277,135 @@ canvas {
     max-height: calc(100% - 120px);
   }
 }
+
+/* The Kenney skin's interface (M6, docs/briefs/m6-art-kenney.md): UI Pack buttons and icon, Kenney Future,
+   panels in the palette of src/render/skin/palette.ts (text #1f3a44 over the pale sky, the same dark teal as bars).
+   `?skin=flat` keeps everything above as it was. Files and licence: ASSETS.md. */
+@font-face {
+  font-family: 'Kenney Future';
+  src: url('/assets/kenney/ui/font/KenneyFuture.ttf') format('truetype');
+  font-display: swap;
+}
+
+body[data-skin='kenney'] {
+  font-family: 'Kenney Future', system-ui, sans-serif;
+  font-size: 12px;
+}
+
+/* Status text straight on the playfield sits on a pale pill: readable over sky, hills and earth. */
+body[data-skin='kenney'] .hud,
+body[data-skin='kenney'] .chain-info {
+  padding: 5px 14px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 2px solid #2f4f5c;
+  border-radius: 14px;
+  color: #1f3a44;
+  opacity: 1;
+}
+
+body[data-skin='kenney'] .simulating {
+  color: #b35a00;
+}
+
+body[data-skin='kenney'] .controls {
+  background: rgba(31, 58, 68, 0.94);
+  color: #eaf6fa;
+}
+
+body[data-skin='kenney'] .hint {
+  opacity: 1;
+  color: #cfe9f2;
+}
+
+body[data-skin='kenney'] button {
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 2px 12px 6px;
+  border: solid transparent;
+  border-width: 10px 10px 14px;
+  border-image: url('/assets/kenney/ui/blue/button_rectangle_depth_gradient.png') 18 18 26 fill / 10px 10px 14px / 0 stretch;
+  background: none;
+  color: #fff;
+  font: inherit;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+body[data-skin='kenney'] button:disabled {
+  filter: grayscale(1);
+  opacity: 0.55;
+  cursor: default;
+}
+
+body[data-skin='kenney'] button:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+body[data-skin='kenney'] .controls button {
+  width: 96px;
+  padding: 0 0 4px;
+}
+
+body[data-skin='kenney'] #retry::before,
+body[data-skin='kenney'] #retry-result::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 12px;
+  margin-right: 5px;
+  background: url('/assets/kenney/ui/extra/icon_repeat_light.png') center / contain no-repeat;
+}
+
+body[data-skin='kenney'] select,
+body[data-skin='kenney'] input[type='text'] {
+  font: inherit;
+  padding: 4px 6px;
+  border: 2px solid #2f4f5c;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f3a44;
+}
+
+body[data-skin='kenney'] .banner,
+body[data-skin='kenney'] .result {
+  background: rgba(255, 255, 255, 0.94);
+  border: 3px solid #2f4f5c;
+  border-radius: 14px;
+  color: #1f3a44;
+}
+
+body[data-skin='kenney'] .banner.notice {
+  background: rgba(255, 255, 255, 0.9);
+  border-width: 2px;
+}
+
+body[data-skin='kenney'] .result h2 {
+  color: #0b6c94;
+}
+
+body[data-skin='kenney'] .result tr.proof td,
+body[data-skin='kenney'] .submit-board li.mine,
+body[data-skin='kenney'] .chain-info a,
+body[data-skin='kenney'] .submit a {
+  color: #0b6c94;
+}
+
+body[data-skin='kenney'] .submit {
+  border-top-color: rgba(31, 58, 68, 0.3);
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  body[data-skin='kenney'] .hud {
+    padding: 4px 10px;
+  }
+
+  body[data-skin='kenney'] .controls button {
+    width: auto;
+    padding: 0 0 4px;
+  }
+
+  body[data-skin='kenney'] .controls {
+    gap: 6px;
+  }
+}

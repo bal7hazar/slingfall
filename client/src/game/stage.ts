@@ -50,7 +50,7 @@ export class Stage {
     this.insets = options.insets;
     this.buffer = new TraceBuffer(level);
     this.scene = new Scene(level, this.buffer, options.skin);
-    this.effects = new Effects(this.buffer, events);
+    this.effects = new Effects(this.buffer, events, level.bodies);
     this.backdrop = options.skin.background();
     if (this.backdrop) {
       this.backdrop.resize(app.screen.width, app.screen.height);

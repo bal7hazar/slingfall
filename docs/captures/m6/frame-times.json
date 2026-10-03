@@ -1,12 +1,36 @@
 {
-  "flat": {
-    "frames": 49,
-    "taskMsPerFrame": 64.6615918367347,
-    "rafMeanMs": 67.68367346938777
-  },
-  "kenney": {
-    "frames": 37,
-    "taskMsPerFrame": 110.78756756756755,
-    "rafMeanMs": 114.85945945945944
-  }
+  "flat": [
+    {
+      "frames": 115,
+      "taskMsPerFrame": 21.8,
+      "rafMeanMs": 21.4
+    },
+    {
+      "frames": 82,
+      "taskMsPerFrame": 29.9,
+      "rafMeanMs": 29.1
+    },
+    {
+      "frames": 119,
+      "taskMsPerFrame": 21.3,
+      "rafMeanMs": 21.1
+    }
+  ],
+  "kenney": [
+    {
+      "frames": 29,
+      "taskMsPerFrame": 84.7,
+      "rafMeanMs": 77.6
+    },
+    {
+      "frames": 40,
+      "taskMsPerFrame": 61.1,
+      "rafMeanMs": 57.9
+    },
+    {
+      "frames": 23,
+      "taskMsPerFrame": 249.8,
+      "rafMeanMs": 228.3
+    }
+  ]
 }

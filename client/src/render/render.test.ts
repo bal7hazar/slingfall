@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ABSENT, ASLEEP, AWAKE, TraceBuffer } from './buffer';
 import { boundsOf, fitCamera, screenToWorld, worldToScreen } from './camera';
 import { hudAt } from './hud';
+import { Effects } from './effects';
 import { Playback } from './playback';
 import { buildPile10 } from '../trace/synth';
 import type { TraceEvent } from '../trace/types';
@@ -126,5 +127,29 @@ describe('hudAt', () => {
     [55, 1100, 2],
   ])('tick %d: score %d, %d shots left', (tick, score, shotsLeft) => {
     expect(hudAt(events, 3, tick)).toEqual({ score, shotsLeft });
+  });
+});
+
+describe('Effects wear', () => {
+  const trace = buildPile10();
+
+  it('wears a body under half its material hp, from the damage events, and clears on a seek back', () => {
+    const buffer = new TraceBuffer(trace.level);
+    for (const frame of trace.frames) buffer.push(frame);
+    const timber = trace.level.bodies.find((b) => b.material === 'timber' && b.kind === 'block')!;
+    const slot = buffer.slotOfHandle.get(timber.handle)!;
+    const events: TraceEvent[] = [
+      { tick: 10, kind: 'damage', handle: timber.handle, hp: 60 },
+      { tick: 20, kind: 'damage', handle: timber.handle, hp: 49 },
+    ];
+    const effects = new Effects(buffer, events, trace.level.bodies);
+    effects.advance(10, 10, 0);
+    expect(effects.worn(slot)).toBe(false);
+    effects.advance(20, 20, 100);
+    expect(effects.worn(slot)).toBe(true);
+    effects.advance(5, 5, 200);
+    expect(effects.worn(slot)).toBe(false);
+    effects.advance(25, 25, 300);
+    expect(effects.worn(slot)).toBe(true);
   });
 });

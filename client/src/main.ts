@@ -94,6 +94,7 @@ interface View {
 async function main(): Promise<void> {
   // The art (`?skin=flat|kenney`): its textures load before any scene is built; the page takes its colours.
   const skin = await loadSkin(skinName(location.search), import.meta.env.BASE_URL);
+  document.body.dataset.skin = skin.name; // style.css styles the page per skin
   document.body.style.background = skin.palette.page;
   document.body.style.color = skin.palette.text;
   const app = new Application();

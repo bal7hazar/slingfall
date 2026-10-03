@@ -45,6 +45,10 @@ export interface Skin {
   body(body: LevelBody, extent: number): Container;
   /** The pebble, at the sling and in flight, of radius `radiusMetres`. */
   pebble(radiusMetres: number): Container;
+  /** Shows or hides the wear of a body's view (hp under half its material's): optional, a skin without wear leaves it out. */
+  wear?(view: Container, worn: boolean): void;
+  /** One piece of debris of a destroyed body of `material` (`index` picks the piece): optional. */
+  debris?(material: string, index: number): Container;
   /** The backdrop behind the world; `undefined` for the page colour alone. */
   background(): Backdrop | undefined;
 }

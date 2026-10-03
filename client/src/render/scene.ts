@@ -5,6 +5,20 @@ import type { Effects } from './effects';
 import { fixedToNumber, type TraceLevel } from '../trace/types';
 import type { Skin } from './skin';
 
+/** Display-only debris of a destroyed body: thrown up and out, falls under gravity, fades (scene units, s). */
+interface Piece {
+  view: Container;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  spin: number;
+  born: number;
+}
+const DEBRIS_PIECES = 3;
+const DEBRIS_LIFE_MS = 900;
+const DEBRIS_GRAVITY = 980;
+
 /** D12: the pebble is a ball of radius 0.25 m. */
 export const PEBBLE_RADIUS_METRES = 0.25;
 
@@ -31,6 +45,12 @@ export class Scene {
   private readonly extent: number;
   private readonly sprites: Container[] = [];
   private readonly tints: number[] = [];
+  private readonly worn: boolean[] = [];
+  /** `Effects.fadeStart` of the last destruction that threw debris, per slot. */
+  private readonly burst: number[] = [];
+  private readonly pieces: Piece[] = [];
+  private readonly debrisLayer = new Container();
+  private seed = 1;
 
   constructor(level: TraceLevel, buffer: TraceBuffer, skin: Skin) {
     this.level = level;
@@ -40,7 +60,7 @@ export class Scene {
     const w = fixedToNumber(b.max_x) - fixedToNumber(b.min_x);
     const h = fixedToNumber(b.max_y) - fixedToNumber(b.min_y);
     this.extent = u(Math.hypot(w, h));
-    this.world.addChild(this.overlay);
+    this.world.addChild(this.debrisLayer, this.overlay);
     this.syncSprites();
   }
 
@@ -56,6 +76,7 @@ export class Scene {
    */
   update(position: number, effects?: Effects, now = 0): void {
     this.syncSprites();
+    this.moveDebris(now);
     const { frameCount, columns } = this.buffer;
     if (frameCount === 0) return;
     const last = frameCount - 1;
@@ -83,6 +104,14 @@ export class Scene {
       // A body gone at the next frame stays where it was until then.
       const t = c.state[g] === ABSENT ? 0 : a;
       sprite.position.set(u(c.x[f] + (c.x[g] - c.x[f]) * t), u(c.y[f] + (c.y[g] - c.y[f]) * t));
+      if (effects !== undefined) {
+        const worn = effects.worn(slot);
+        if (this.worn[slot] !== worn) {
+          this.worn[slot] = worn;
+          this.skin.wear?.(sprite, worn);
+        }
+        this.throwDebris(slot, effects, sprite, now);
+      }
       const re = c.re[f] + (c.re[g] - c.re[f]) * t;
       const im = c.im[f] + (c.im[g] - c.im[f]) * t;
       sprite.rotation = Math.atan2(im, re);
@@ -93,6 +122,45 @@ export class Scene {
         sprite.tint = tint;
       }
     }
+  }
+
+  /** Debris from where a body was destroyed, once per destruction (`Effects.fadeStart` changes). */
+  private throwDebris(slot: number, effects: Effects, at: Container, now: number): void {
+    const start = effects.fadeStart(slot);
+    if (start === this.burst[slot]) return;
+    this.burst[slot] = start;
+    const body = slot < this.buffer.levelSlotCount ? this.level.bodies.find((b) => b.handle === this.buffer.handles[slot]) : undefined;
+    if (body === undefined || start === -Infinity || !this.skin.debris) return;
+    for (let i = 0; i < DEBRIS_PIECES; i++) {
+      const view = this.skin.debris(body.material, i);
+      const r1 = this.random();
+      const r2 = this.random();
+      view.position.copyFrom(at.position);
+      this.debrisLayer.addChild(view);
+      this.pieces.push({ view, x: at.x, y: at.y, vx: (r1 - 0.5) * 500, vy: 150 + r2 * 250, spin: (r1 - r2) * 8, born: now });
+    }
+  }
+
+  /** Moves the debris along its fall and drops what has faded. */
+  private moveDebris(now: number): void {
+    for (let i = this.pieces.length - 1; i >= 0; i--) {
+      const p = this.pieces[i];
+      const age = (now - p.born) / 1000;
+      if (age < 0 || age * 1000 >= DEBRIS_LIFE_MS) {
+        p.view.destroy();
+        this.pieces.splice(i, 1);
+        continue;
+      }
+      p.view.position.set(p.x + p.vx * age, p.y + p.vy * age - 0.5 * DEBRIS_GRAVITY * age * age);
+      p.view.rotation = p.spin * age;
+      p.view.alpha = 1 - (age * 1000) / DEBRIS_LIFE_MS;
+    }
+  }
+
+  /** A small deterministic generator (display only): the same trace throws the same debris. */
+  private random(): number {
+    this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
+    return this.seed / 2 ** 32;
   }
 
   /** Removes the scene from the stage and frees its sprites (a new level or a retry). */
@@ -110,6 +178,8 @@ export class Scene {
       sprite.visible = false;
       this.sprites.push(sprite);
       this.tints.push(AWAKE_TINT);
+      this.worn.push(false);
+      this.burst.push(-Infinity);
       this.world.addChildAt(sprite, this.world.children.length - 1); // below the overlay
     }
   }
