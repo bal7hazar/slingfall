@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { ABSENT, ASLEEP, AWAKE, TraceBuffer } from './buffer';
 import { boundsOf, fitCamera, screenToWorld, worldToScreen } from './camera';
 import { hudAt } from './hud';
+import { Container, Texture } from 'pixi.js';
 import { Effects } from './effects';
+import { Scene } from './scene';
+import { kenneySkin } from './skin';
+import { KENNEY_FILES, type KenneyTextures } from './skin/kenney';
 import { Playback } from './playback';
 import { buildPile10 } from '../trace/synth';
 import type { TraceEvent } from '../trace/types';
@@ -151,5 +155,57 @@ describe('Effects wear', () => {
     expect(effects.worn(slot)).toBe(false);
     effects.advance(25, 25, 300);
     expect(effects.worn(slot)).toBe(true);
+  });
+});
+
+describe('Scene debris', () => {
+  const trace = buildPile10();
+  const textures = Object.fromEntries(Object.keys(KENNEY_FILES).map((k) => [k, Texture.EMPTY])) as KenneyTextures;
+  const destroyed = trace.events.find((e) => e.kind === 'destroyed')!;
+  const shotEnd = trace.events.find((e) => e.kind === 'shot_end')!;
+
+  function setup() {
+    const buffer = new TraceBuffer(trace.level);
+    for (const frame of trace.frames) buffer.push(frame);
+    const scene = new Scene(trace.level, buffer, kenneySkin(textures));
+    const effects = new Effects(buffer, trace.events, trace.level.bodies);
+    const debris = () => (scene.world.children[0] as Container).children.length;
+    const show = (tick: number, now: number) => {
+      effects.advance(tick, tick, now);
+      scene.update(tick, effects, now);
+    };
+    return { debris, show };
+  }
+
+  it('throws three pieces per destruction, once, and none for a spent pebble', () => {
+    const { debris, show } = setup();
+    show(destroyed.tick - 1, 0);
+    expect(debris()).toBe(0);
+    show(destroyed.tick, 100);
+    expect(debris()).toBe(3);
+    show(destroyed.tick, 150); // the same destruction, later frames of the display
+    expect(debris()).toBe(3);
+    show(shotEnd.tick, 200); // the pebble is spent here: it fades, it throws nothing
+    expect(debris()).toBe(3);
+  });
+
+  it('drops the pieces when they have fallen and faded, and throws none again after a seek back', () => {
+    const { debris, show } = setup();
+    show(destroyed.tick, 100);
+    expect(debris()).toBe(3);
+    show(destroyed.tick, 100 + 1000);
+    expect(debris()).toBe(0);
+    show(destroyed.tick - 10, 1200); // a seek back clears the effects
+    show(destroyed.tick - 5, 1300);
+    expect(debris()).toBe(0);
+  });
+
+  it('throws again when the destruction is played again', () => {
+    const { debris, show } = setup();
+    show(destroyed.tick, 100);
+    show(destroyed.tick - 10, 1500);
+    expect(debris()).toBe(0);
+    show(destroyed.tick, 1600);
+    expect(debris()).toBe(3);
   });
 });

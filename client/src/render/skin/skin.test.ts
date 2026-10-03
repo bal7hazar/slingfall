@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { Container, NineSliceSprite, Sprite, Texture } from 'pixi.js';
 import { describe, expect, it } from 'vitest';
 import { flatSkin, kenneySkin, skinName, type Skin } from '.';
@@ -103,6 +104,20 @@ describe('kenney skin: triangles, wear, debris', () => {
       expect(textures.size).toBe(3);
     }
     expect(skin.debris!('timber', 0).scale.y).toBeLessThan(0);
+  });
+});
+
+describe('kenney files', () => {
+  /** Width and height from a PNG's IHDR: `Texture.EMPTY` in the tests above cannot tell a wrong file from a right one. */
+  const size = (file: string): [number, number] => {
+    const png = readFileSync(new URL(`../../../public/assets/kenney/physics/${file}`, import.meta.url));
+    return [png.readUInt32BE(16), png.readUInt32BE(20)];
+  };
+
+  it.each(Object.entries(KENNEY_FILES))('%s has the size its use needs', (key, file) => {
+    if (/H$|HCracked$|Tri$/.test(key)) expect(size(file)).toEqual([140, 70]); // blocks lie 2 m x 1 m, triangles 2 m x 1 m
+    else if (/V$|VCracked$/.test(key)) expect(size(file)).toEqual([70, 140]);
+    else if (key === 'pebble' || key === 'core' || key === 'grass') expect(size(file)).toEqual([70, 70]);
   });
 });
 

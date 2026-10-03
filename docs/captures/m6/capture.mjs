@@ -22,8 +22,12 @@ const DESKTOP = { width: 1280, height: 800 };
 const MOBILE = { width: 412, height: 915 };
 /** The pull of the reference shot (scripts/play/qa-browser.mjs) and the shots tried per level until one scores. */
 const PULLS = ['-1022,-63', '-900,-200', '-1000,-330', '-800,-100'];
+// WORN=level:pull;pull;pull takes one extra desktop capture (`<level>-worn-1280x800.png`, after the last shot) and only that.
+// INTERFACE=1 redoes the interface captures alone.
 // ONLY=cores3,tower redoes the after-shot captures of those levels alone (a fix to one skin path).
 const ONLY = process.env.ONLY?.split(',');
+const WORN = process.env.WORN;
+const INTERFACE = process.env.INTERFACE;
 const LEVELS = ['pile10', 'cores3', 'tower', 'bridge', 'twin', 'one_block'].filter((l) => !ONLY || ONLY.includes(l));
 
 async function open(viewport, query) {
@@ -53,9 +57,21 @@ const waitLine = (log, re, timeout = 180000) =>
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent ?? '', sel);
 const shotName = (kind, level, vp) => `${level}-${kind}-${vp.width}x${vp.height}.png`;
 const report = [];
+if (WORN) {
+  const [level, shots] = WORN.split(':');
+  const { context, page, log } = await open(DESKTOP, `level=${level}&skin=kenney&autoshot=${shots}`);
+  await waitLine(log, /^level over/, 400000).catch(() => {});
+  await page.waitForFunction(() => !document.querySelector('#result')?.hidden, null, { timeout: 60000 }).catch(() => {});
+  await page.evaluate(() => (document.querySelector('#result').hidden = true)); // the panel would hide the blocks
+  await sleep(900);
+  await page.screenshot({ path: path.join(outDir, `${level}-worn-1280x800.png`) });
+  console.log(`${level}-worn-1280x800.png: shots ${shots}, ${await text(page, '[data-hud="tick"]')}`);
+  await browser.close();
+  process.exit(0);
+}
 
 // 1. Rest: the sling armed, before any shot (one per orientation), pile10.
-for (const vp of ONLY ? [] : [DESKTOP, MOBILE]) {
+for (const vp of ONLY || INTERFACE ? [] : [DESKTOP, MOBILE]) {
   const { context, page, log } = await open(vp, 'level=pile10&skin=kenney');
   await sleep(1200);
   const file = shotName('rest', 'pile10', vp);
@@ -65,7 +81,7 @@ for (const vp of ONLY ? [] : [DESKTOP, MOBILE]) {
 }
 
 // 2. After a shot, every level, both viewports: the first pull of PULLS that scores (HUD score > 0), else the last one.
-for (const vp of [DESKTOP, MOBILE]) {
+for (const vp of INTERFACE ? [] : [DESKTOP, MOBILE]) {
   for (const level of LEVELS) {
     let used = '';
     for (const pull of PULLS) {
@@ -98,7 +114,7 @@ for (const vp of ONLY ? [] : [DESKTOP, MOBILE]) {
   await context.close();
 }
 console.log(report.join('\n'));
-if (ONLY) {
+if (ONLY || INTERFACE) {
   await browser.close();
   process.exit(0);
 }

@@ -14,7 +14,6 @@ Fetched over HTTPS on 2026-10-02 (VPS); zip size and sha256 as downloaded.
 | --- | --- | --- | --- | --- |
 | Physics Assets | 1.0 | https://kenney.nl/assets/physics-assets (zip: https://kenney.nl/media/pages/assets/physics-assets/e635010608-1677667214/kenney_physics-assets.zip) | CC0 1.0, `license.txt` of the zip (2014-08-06), copied unchanged beside the files | 2577770, `95949d1d9a733bf4b3f6312dc412013cd59184341c03ac284866499febcb67e8` |
 | UI Pack | 2.0 | https://kenney.nl/assets/ui-pack (zip: https://kenney.nl/media/pages/assets/ui-pack/f651646eab-1718203990/kenney_ui-pack.zip) | CC0 1.0, `License.txt` of the zip | 1229750, `a8a14a234911eb648c062622915c93e79e94e97cb7f9f375a70f6617f1174318` |
-
 | Particle Pack | 1.1 | https://kenney.nl/assets/particle-pack (zip: https://kenney.nl/media/pages/assets/particle-pack/f8fe0f8cb8-1677578741/kenney_particle-pack.zip) | CC0 1.0, `License.txt` of the zip | 15001764, `b631d4b07f7002549fdcf155f01141ad482f79f3440e4e301eed49ce5f1d8958` |
 
 The Particle Pack was fetched on 2026-10-03 and **not used**: its README thanks the authors of the filter templates the
@@ -34,9 +33,9 @@ and debris sprites), unchanged from the Physics Assets 1.0 zip (`PNG/<folder>/`)
 | `glass/elementGlass016.png` (140x70), `glass/elementGlass023.png` (70x140) | `PNG/Glass elements/` | Frost blocks, nine-slice |
 | `stone/elementStone001.png` (70x70) | `PNG/Stone elements/` | The pebble (stone circle) |
 | `wood/elementWood046.png` (140x70), `wood/elementWood048.png` (70x140) | `PNG/Wood elements/` | Worn timber: the cracked sprites, swapped in under half hp |
-| `stone/elementStone046.png`, `stone/elementStone048.png` | `PNG/Stone elements/` | Worn slate |
+| `stone/elementStone047.png` (140x70), `stone/elementStone049.png` (70x140) | `PNG/Stone elements/` | Worn slate |
 | `glass/elementGlass048.png` (140x70), `glass/elementGlass050.png` (70x140) | `PNG/Glass elements/` | Worn frost |
-| `wood/elementWood054.png`, `stone/elementStone054.png` (140x70), `glass/elementGlass001.png` (140x70) | `PNG/<Wood\|Stone\|Glass> elements/` | Triangles (cores3's static triangle, the trace's roof), mapped onto the polygon's three vertices |
+| `wood/elementWood054.png`, `stone/elementStone006.png`, `glass/elementGlass001.png` (all 140x70 isosceles; checked by `skin.test.ts`) | `PNG/<Wood\|Stone\|Glass> elements/` | Triangles (cores3's static triangle, the trace's roof), mapped onto the polygon's three vertices |
 | `debris/debris{Wood,Stone,Glass}_{1,2,3}.png` (9 files, about 60x55) | `PNG/Debris/` | Three pieces thrown by a destroyed body |
 | `aliens/alienGreen_round.png` (70x70) | `PNG/Aliens/` | Cores |
 | `other/grass.png` (70x70) | `PNG/Other/` | The ground's grass strip; its earth colour (rgb 189, 137, 88) fills below |

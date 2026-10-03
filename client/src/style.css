@@ -264,17 +264,33 @@ canvas {
     max-width: 88px;
   }
 
+  /* The scene stands on the bottom of the screen (camera.ts `alignBottom`): the result panel goes to the top,
+     over the sky, under the HUD; the hint floats above the controls bar, wrapped, instead of being cut in it. */
   .banner {
     top: auto;
-    bottom: 52px;
+    bottom: 92px;
   }
 
   .result {
-    top: auto;
-    bottom: 52px;
+    top: 64px;
+    bottom: auto;
     right: 8px;
     width: min(560px, calc(100% - 16px));
-    max-height: calc(100% - 120px);
+    max-height: calc(100% - 64px - 96px);
+  }
+
+  .hint {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 50px;
+    padding: 3px 10px;
+    border-radius: 10px;
+    background: rgba(20, 22, 27, 0.85);
+    white-space: normal;
+    text-align: center;
+    opacity: 1;
+    pointer-events: none;
   }
 }
 
@@ -398,6 +414,11 @@ body[data-skin='kenney'] .submit {
 @media (max-width: 600px), (max-height: 500px) {
   body[data-skin='kenney'] .hud {
     padding: 4px 10px;
+  }
+
+  body[data-skin='kenney'] .hint {
+    background: rgba(31, 58, 68, 0.92);
+    border: 2px solid #2f4f5c;
   }
 
   body[data-skin='kenney'] .controls button {
