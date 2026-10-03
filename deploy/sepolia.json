@@ -6,7 +6,7 @@
   "address": "0x292f4b7dcbdb3ee7e5c3d1873e36ac03c71f3d4d5146ff009bcdf6e8bca4a02",
   "admin": "0x59b1a0c489b635d7c7f43594d187362ddd2dcea6c82db4eef2579fd185b3753",
   "verifier": "Stub",
-  "attestation_key": "0x66ca673bb9a69e143f1072eda143886e2349baf4c996f200b06f7e3d4ddbf4",
+  "attestation_key": "0x1d569abbfe59185d5bc5a95a24cc53d13a40838a1df8e40cd9a89e05d120a1d",
   "program": {
     "current": "0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360",
     "pins": [
@@ -50,7 +50,8 @@
     "register_level twin": "0x3cbfb788728970bbad057ee7184978cee46695db989e0cb0ce9e5a0a3862286",
     "submit (attested) pile10": "0x29b3289bf65b2d6fad40e263b76d94ec9c000bd5cd6d1b39b7d07e4c791651",
     "submit_settled f55cabf2 (relayed)": "0x369d3bde2bfb4447c1774135fa7370086d64a7b0ea54df8565354a5ed97a8fe",
-    "pin_program 0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360": "0x4c0170061b7aec6871a1e610b59fc03a01a9e2059951615148700134bf05c07"
+    "pin_program 0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360": "0x4c0170061b7aec6871a1e610b59fc03a01a9e2059951615148700134bf05c07",
+    "set_attestation_key": "0x702c0989bf16361f535ee1d11608c8fe1e6a0e502e1cf0a7d4d20f22b7efe2e"
   },
   "gas": {
     "declare Slingfall": {
@@ -135,6 +136,13 @@
       "l1DataGas": 416,
       "l2Gas": 2002185,
       "fee": "40491091778699585",
+      "unit": "FRI"
+    },
+    "set_attestation_key": {
+      "l1Gas": 0,
+      "l1DataGas": 320,
+      "l2Gas": 1495785,
+      "fee": "30658959949126400",
       "unit": "FRI"
     }
   },
