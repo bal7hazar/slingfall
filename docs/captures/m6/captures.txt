@@ -1,16 +1,18 @@
 pile10-rest-1280x800.png: at rest, errors: none
-pile10-rest-412x915.png: at rest, errors: none
+pile10-rest-915x412.png: at rest, errors: none
+pile10-overlay-412x915.png: overlay shown (expected: shown), errors: none
+pile10-no-overlay-500x900.png: overlay not shown (expected: not shown), errors: none
 pile10-impact-1280x800.png: pull -1022,-63, score 5300, 151 / 151, errors: none
 cores3-impact-1280x800.png: pull -900,-200, score 11050, 180 / 180, errors: none
 tower-impact-1280x800.png: pull -1022,-63, score 1100, 180 / 180, errors: none
 bridge-impact-1280x800.png: pull -900,-200, score 1100, 180 / 180, errors: none
 twin-impact-1280x800.png: pull -900,-200, score 1100, 77 / 77, errors: none
 one_block-impact-1280x800.png: pull -1022,-63, score 1050, 77 / 77, errors: none
-pile10-impact-412x915.png: pull -1022,-63, score 5300, 151 / 151, errors: none
-cores3-impact-412x915.png: pull -900,-200, score 11050, 180 / 180, errors: none
-tower-impact-412x915.png: pull -1022,-63, score 1100, 180 / 180, errors: none
-bridge-impact-412x915.png: pull -900,-200, score 1100, 180 / 180, errors: none
-twin-impact-412x915.png: pull -900,-200, score 1100, 77 / 77, errors: none
-one_block-impact-412x915.png: pull -1022,-63, score 1050, 77 / 77, errors: none
+pile10-impact-915x412.png: pull -1022,-63, score 5300, 151 / 151, errors: none
+cores3-impact-915x412.png: pull -900,-200, score 11050, 180 / 180, errors: none
+tower-impact-915x412.png: pull -1022,-63, score 1100, 180 / 180, errors: none
+bridge-impact-915x412.png: pull -900,-200, score 1100, 180 / 180, errors: none
+twin-impact-915x412.png: pull -900,-200, score 1100, 77 / 77, errors: none
+one_block-impact-915x412.png: pull -1022,-63, score 1050, 77 / 77, errors: none
 one_block-interface-1280x800.png: result panel open, errors: none
-one_block-interface-412x915.png: result panel open, errors: none
+one_block-interface-915x412.png: result panel open, errors: none

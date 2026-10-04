@@ -42,6 +42,7 @@ jobs:
       prove: ${{ github.event_name != 'pull_request' || steps.filter.outputs.prove == 'true' }}
       e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.e2e == 'true' }}
       play: ${{ github.event_name != 'pull_request' || steps.filter.outputs.play == 'true' }}
+      program_hash: ${{ github.event_name != 'pull_request' || steps.filter.outputs.program_hash == 'true' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -147,6 +148,15 @@ jobs:
               - 'services/prove/**'
               - 'deploy/sepolia.json'
               - 'deploy/sepolia.env.example'
+            program_hash:
+              - *toolchain
+              - 'tools/atlantic/**'
+              - 'crates/**'
+              - 'tools/tracec/**'
+              - 'fixtures/levels/**'
+              - 'deploy/slingfall.ts'
+              - 'deploy/sepolia.json'
+              - 'fixtures/proofs/atlantic/**'
 
   fmt:
     needs: changes
@@ -228,9 +238,23 @@ jobs:
           action: software-mansion/setup-scarb@v1
           attempt_limit: 3
           attempt_delay: 10000
-      # No retry here: setup-snfoundry is a composite action and wretry.action runs only JavaScript and Docker
-      # actions (wrapped, every test leg failed in seconds).
+      # No wretry here: setup-snfoundry is a composite action and wretry.action runs only JavaScript and Docker
+      # actions (wrapped, every test leg failed in seconds). Retry in the three-step form of nexus #69 instead: two
+      # attempts that may fail, then a last attempt with the same action and inputs, without continue-on-error, that
+      # runs only when both earlier attempts failed (outcome, not conclusion: conclusion hides the failure).
       - uses: foundry-rs/setup-snfoundry@v6
+        id: snf1
+        continue-on-error: true
+      - if: steps.snf1.outcome == 'failure'
+        run: sleep 10
+      - uses: foundry-rs/setup-snfoundry@v6
+        id: snf2
+        if: steps.snf1.outcome == 'failure'
+        continue-on-error: true
+      - if: steps.snf1.outcome == 'failure' && steps.snf2.outcome == 'failure'
+        run: sleep 10
+      - uses: foundry-rs/setup-snfoundry@v6
+        if: steps.snf1.outcome == 'failure' && steps.snf2.outcome == 'failure'
       - name: Run tests
         env:
           CRATE: ${{ matrix.crate }}
@@ -593,6 +617,43 @@ jobs:
           name: play-local
           path: target/play/*.log
 
+  program-hash:
+    # Sepolia's contract accepts proofs of the pinned `c1main` program only. Recompute the program hash as
+    # docs/proving.md "Reproduce" does (the Herodotus cairo1-run fork, `c1main`, one_block, the PIE) and fail
+    # when it differs from the pins (tools/atlantic/program-hash.sh). The hash is CASM-side: the runner's
+    # build root does not matter. The fork's binary is cached by revision, patch and Rust toolchain.
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'false' && needs.changes.outputs.program_hash == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # The key comes from the script, the one place that names the fork's revision, toolchain and patch.
+      - name: Cache key of the fork's binary
+        id: key
+        run: echo "key=$(tools/atlantic/program-hash.sh key)" >> "$GITHUB_OUTPUT"
+      # Restore and save apart, so that the build is cached even when a later step fails.
+      - uses: actions/cache/restore@v4
+        id: fork
+        with:
+          path: tools/atlantic/out/cairo1-run
+          key: ${{ steps.key.outputs.key }}
+      - name: Build cairo1-run (the fork, patched for the toolchain's compiler)
+        if: steps.fork.outputs.cache-hit != 'true'
+        run: tools/atlantic/program-hash.sh fork
+      - uses: actions/cache/save@v4
+        if: steps.fork.outputs.cache-hit != 'true'
+        with:
+          path: tools/atlantic/out/cairo1-run
+          key: ${{ steps.key.outputs.key }}
+      - uses: Wandalen/wretry.action@71a909ebf09f3ffdc6f42a17bd54ecb43481da49 # v3.8.0_js_action
+        with:
+          action: software-mansion/setup-scarb@v1
+          attempt_limit: 3
+          attempt_delay: 10000
+      - name: c1main's program hash against the pins
+        run: tools/atlantic/program-hash.sh check
+
   all-checks:
     # The single required check, always run so that `gh pr checks` always returns a result. Green when `changes`
     # succeeded and every job either succeeded or was skipped by the path rule: a job whose output is exactly
@@ -601,7 +662,7 @@ jobs:
     # `pages` (dispatch only) is not in it. vm, prove, e2e and play-local joined it after three green runs
     # on main each (docs/briefs/cp-ci-paths.md).
     if: always()
-    needs: [changes, fmt, lint, build, test, steps, golden, client, vm, prove, e2e, play-local]
+    needs: [changes, fmt, lint, build, test, steps, golden, client, vm, prove, e2e, play-local, program-hash]
     runs-on: ubuntu-latest
     steps:
       - name: Every job that had to run succeeded, every skip was by the rule
@@ -621,6 +682,7 @@ jobs:
             prove:${{ needs.changes.outputs.prove }}:${{ needs.prove.result }}
             e2e:${{ needs.changes.outputs.e2e }}:${{ needs.e2e.result }}
             play-local:${{ needs.changes.outputs.play }}:${{ needs.play-local.result }}
+            program-hash:${{ needs.changes.outputs.program_hash }}:${{ needs.program-hash.result }}
         run: |
           fail=0
           echo "changes: result=$CHANGES docs_only=$DOCS_ONLY"

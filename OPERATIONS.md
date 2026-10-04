@@ -53,6 +53,8 @@ The in-session Agent tool is used only for short read-only research.
   quota: fewer threads, and warn with the figure.
 - The Mac (12 cores, 64 GB) takes the heavy suites: a nalgebra build peaks at 11 GB, rapier's whole-shot tests near
   20 GB.
+- **Memory cap** (organisation rule, 2026-10-03): a test file is kept small enough that its build stays well under 8 GB. On the VPS, Cairo builds, tests and measures (scarb, snforge, replays) run under `prlimit --as=8589934592` (an address-space cap: it kills a build well below its real memory, so it is used only for work known to fit well under it); Node suites and whole hooks run uncapped when every step was measured well under 8 GB (`prlimit --as` kills Node at start-up). A real peak is measured uncapped only on the Mac (64 GB, no lock), never uncapped on the VPS. Heavy suites (nalgebra workspace ~11 GB, rapier whole-shot ~20 GB) run on the Mac. Pre-push hooks on the VPS compile Cairo under that cap inside the heavy flock and, if the cap kills the compile, print "memory cap reached: Cairo compile left to CI" and pass, like the lock-busy case.
+- **Long pushes**: a push whose pre-push hook may run long uses `git -c core.sshCommand='ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=40' push …` (no config written).
 - The VPS (Hostinger, 8 vCPU / 31 GB, shared with the owner's other programmes) runs one heavy suite at a time:
   `scarb` / `snforge` go through the shims that serialise heavy subcommands behind `~/orchestrator/heavy-build.lock`
   (rapier: a per-project lock for crate-scoped builds plus the shared heavy lock). `scarb prove` (Stwo) needs more
@@ -146,15 +148,38 @@ gas or step table), then a review thread (§2). Squash merge; conventional commi
 | Declared classes (SNIP-36 path) | class sizes under the gates with margins; SNIP-36 syscall / builtin check; bit-identity of the split layout against the in-process run |
 | Contract | negative tests for every attack of the research it implements; gas table; class size; `security` audit before any deployment |
 | Client / services | `npm run lint`, `npm test`, `npm run build`; devnet e2e in CI |
-| Release | main CI green at the release commit, CHANGELOG, version policy, dependency order, package dry run, the project manager's written go (the owner's delegation of 2026-09-25) |
+| Release | main CI green at the release commit, CHANGELOG, version policy, dependency order, package dry run, the project manager's publication go (§7) |
 | Documents, briefs, plan, status (nothing that runs changed) | none required: merge with the line `Review: none — <reason>`, per the standard's orchestrator text "Merging without a review"; a review when the orchestrator judges it useful. Never for value, access, secrets, a published interface or a result others depend on: a release record holding a checksum or a pin, and a publication request, are reviewed |
 | The programme's own documents, written on the project manager's instruction (this file, the programme plan) | none: the standard's no-review path, with the line `Review: none — documents` |
+
+A lot that must show no step change may show it by CI: every affected test's gas snapshot unchanged and `gas/bytecode.size` unchanged (2026-10-03).
+
+slingfall's `all-checks` gates 11 jobs, each path-gated: a job runs only when its inputs changed; pushes to main run everything (2026-10-03).
 
 ## 7. Releases and deployments
 
 - Registry releases (scarbs.xyz): the project manager gives the go in writing on the owner's behalf (delegation of
   2026-09-25) under the conditions above; the orchestrator publishes in dependency order, verifying each package
   against the registry, and tags.
+- **Release commit off main** (2026-10-03, project manager, with the Overseer's reading of the standard): when a
+  package's manifest cannot be published as it stands, because it lists unpublished `[dev-dependencies]` (test helpers
+  kept off the registry by the package-size rule), the release commit goes on a branch `release/<version>` cut from a
+  commit of `main`. Its whole diff is the removal of the `[dev-dependencies]` of the published crates. It is reviewed
+  by another model like any PR, and its CI is green. The publication go names that commit; the archives are built from
+  a clean checkout detached at it; the tag goes on it; the branch is kept and never merged. `main` keeps its
+  dev-dependencies. The release record on `main` names the release commit and says why it is off main. Reversed when
+  the helpers are published, or when scarb accepts unpublished dev-dependencies.
+- **Its CI**: a release commit lands on its branch by fast-forward (never a squash merge). Its "CI green" reads: every job that does not need the removed dev-dependencies is green on the release commit; the jobs that need them are green on its parent on main; and `scarb publish` verifies each crate. When a dependent crate cannot verify before its dependency is published, the goes are staged in dependency order (rapier 0.1.0-alpha.9, 2026-10-03).
+- **Request archives** may be built with `scarb package --no-verify -p` (packaging is not publication; the hash is identical, measured); the project manager spot-checks a package with no unpublished dependency built with verification. Publication itself is always plain `scarb publish -p`.
+- **Heavy publications** (standing rule, the Overseer, 2026-10-04, for both programmes): a package whose `scarb publish` verification compile exceeds the 8 GiB cap is published by the track's orchestrator on the VPS, inside the heavy flock, `RAYON_NUM_THREADS=1`, `prlimit --as=25769803776 -- /usr/bin/time -v scarb publish -p <pkg>`, started only when `machine-capacity` shows at least 20 GB free on the VPS, its peak recorded in the release record. Bounds: a package whose last recorded peak exceeded 16 GiB RSS, or whose verification failed once under this rule, goes to the owner on the Mac instead; the rule covers `scarb publish -p` only (a build or a test above 8 GiB still runs on the Mac or capped). Measured basis: nalgebra 0.2.0's facade `nalgebra` peaked at 9,154,636 kB RSS (2:28), `nalgebra_glam` at 1,912,516 kB (0:23), on 2026-10-03. Reversed by the owner, or by a resident-memory cap (nexus #96) that makes the address-space cap unnecessary.
+- **Flags**: `scarb publish` never runs with `--allow-dirty`, `--no-verify` or `--index` (the standard's rule). If
+  verification fails without `--no-verify`, the exact error goes to the Overseer as a platform request; nothing is
+  published meanwhile.
+- **The project manager's checklist** before a go, run by the project manager in a clean clone: the commit is on
+  `main` (or is a release commit as above, whose diff the project manager reads), with green checks; its review left
+  no blocker and no major; the archive built from a checkout detached exactly at that commit (the archive embeds the
+  checkout's HEAD) has the sha256 of the request. Several packages of one release may share one request and one go
+  message naming every row (package, version, commit, sha256).
 - Starknet Sepolia: a deployment or an admin transaction happens only inside a brief that names it, with the
   transactions listed one by one; mainnet is reserved to the owner.
 - The hosted client (GitHub Pages) is redeployed by a manual dispatch of the CI workflow after a merge that changes

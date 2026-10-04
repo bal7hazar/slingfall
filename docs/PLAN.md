@@ -1,12 +1,56 @@
 # Execution plan
 
-Status: **v1.42, 2026-10-02** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged; v1.2: G2 #3 merged, Pose2 swap, wave 2 G3 + G7 launched; v1.3: G1c #4 merged, wave 1 complete; v1.4: G7 #5 merged; v1.5: G3 #6 merged, wave 3 G3b + G4 launched; v1.6: G3b #7 merged (spent-pebble rule); v1.7: G4 #8 merged, milestone M4, wave 4 launched; v1.8: G6b #9 merged (live client); v1.9: G4b #10 merged, class-size blocker found, G7b launched; v1.10: G5 #11 merged, G8 + G4c launched; v1.11: G7b #12 merged: CASM 5.3x the limit, two-class layout decided, Stone + Integrity fallback until rapier CS; v1.12: G4c #13 merged, G7c launched; v1.13: G7c #14 merged (two-class contract); v1.14: G8 #15 merged (5 levels, tooling); v1.15: G8b #16 merged (legacy levels retuned); v1.16: B1 #17 merged (alpha.2: reference shot 10.7M steps); v1.17: H1 #18 merged; v1.18: local proving works (research 05), attested MVP: P1 + G9 launched; v1.19: G9 #20 merged (attested end-to-end on a devnet); v1.20: P1 #19 merged (local proving tooling; chunk binding needed), P1b launched; v1.21: B2 #22 merged (alpha.3: reference shot 8.78M steps), E3a PR #21 open; v1.22: P1b #23 merged (sound chains, whole pile10 proven locally), E3a results: Atlantic = Stwo + SHARP + Satellite, E3b briefed; v1.23: E3a #21 merged, E3b launched; v1.24: E3b #24 merged: **deployed on Sepolia, first settled submit, milestone M5**; v1.25: E3c #25 merged (translation tooling; default: the player settles on the keccak path), C1 client on Sepolia launched; v1.26: C1 #26 merged; v1.27: S1 #27 merged (x4 stays; client arc off by 1 mm per tick: C2 launched); v1.28: C2 #28 merged (exact arc); no lot running: waiting on the owner's browser test and assets (M6), rapier CC / SH2 / alpha.4; v1.29: B3 bump to alpha.5 launched; v1.30: B3 #29 merged (alpha.5, Sepolia re-pinned); v1.31: owner's Mac QA #30; Q1 #31, Q3 #32, Q2 #34 merged; B4 #35 merged (alpha.6); contract v2 in PR #33 with its wiring lot W1; v1.32: V2 + W1 #33 merged, D2 #36 merged: **contract v2 live on Sepolia, provisional tier in 18 s, relayed settle in 73.5 min**; v1.33: B5 #37 merged (alpha.7, nothing changes: same program hash, no transaction); S36a #38, H2 #39, V3 #40 merged: layout (e), world class 76,920 CASM under a temporary 78,000 gate; contract v3 with the proven tier; v1.35: W3 #41 merged (v3 wired on the devnet with a fake prover; 4 proofs and 6.84 STRK per reference shot at Sepolia prices); v1.36: H3 #42 merged (declared classes only); v1.37: B6 #43 merged (alpha.8; world class under the normal gate); v1.38: L1 #44 merged (play locally with one command); v1.39: H4 #48 merged (play-local CI fixed after four Codex reviews); L2 (Mac verification) waits for Node 24 on the Mac; v1.40: L2 #50 and L3 #51 merged (local play verified on the Mac; three local-mode UI defects fixed); v1.41: D1 #53 merged (one compiler thread for every hashed / sized / measured build), D1b (the remaining build scripts) in review; next: Scarb 2.20.1 migration (owner's rule D-180) after the libraries; v1.42: D1b #55 merged; the MVP's settled path is SNIP-36, not Atlantic (owner); HS row (attestation service hosting)) (owner of this file: the `slingfall` orchestrator session).
+Status: **v1.43, 2026-10-03** (v1: bootstrap; v1.1: B0 #1 and G6 #2 merged; v1.2: G2 #3 merged, Pose2 swap, wave 2 G3 + G7 launched; v1.3: G1c #4 merged, wave 1 complete; v1.4: G7 #5 merged; v1.5: G3 #6 merged, wave 3 G3b + G4 launched; v1.6: G3b #7 merged (spent-pebble rule); v1.7: G4 #8 merged, milestone M4, wave 4 launched; v1.8: G6b #9 merged (live client); v1.9: G4b #10 merged, class-size blocker found, G7b launched; v1.10: G5 #11 merged, G8 + G4c launched; v1.11: G7b #12 merged: CASM 5.3x the limit, two-class layout decided, Stone + Integrity fallback until rapier CS; v1.12: G4c #13 merged, G7c launched; v1.13: G7c #14 merged (two-class contract); v1.14: G8 #15 merged (5 levels, tooling); v1.15: G8b #16 merged (legacy levels retuned); v1.16: B1 #17 merged (alpha.2: reference shot 10.7M steps); v1.17: H1 #18 merged; v1.18: local proving works (research 05), attested MVP: P1 + G9 launched; v1.19: G9 #20 merged (attested end-to-end on a devnet); v1.20: P1 #19 merged (local proving tooling; chunk binding needed), P1b launched; v1.21: B2 #22 merged (alpha.3: reference shot 8.78M steps), E3a PR #21 open; v1.22: P1b #23 merged (sound chains, whole pile10 proven locally), E3a results: Atlantic = Stwo + SHARP + Satellite, E3b briefed; v1.23: E3a #21 merged, E3b launched; v1.24: E3b #24 merged: **deployed on Sepolia, first settled submit, milestone M5**; v1.25: E3c #25 merged (translation tooling; default: the player settles on the keccak path), C1 client on Sepolia launched; v1.26: C1 #26 merged; v1.27: S1 #27 merged (x4 stays; client arc off by 1 mm per tick: C2 launched); v1.28: C2 #28 merged (exact arc); no lot running: waiting on the owner's browser test and assets (M6), rapier CC / SH2 / alpha.4; v1.29: B3 bump to alpha.5 launched; v1.30: B3 #29 merged (alpha.5, Sepolia re-pinned); v1.31: owner's Mac QA #30; Q1 #31, Q3 #32, Q2 #34 merged; B4 #35 merged (alpha.6); contract v2 in PR #33 with its wiring lot W1; v1.32: V2 + W1 #33 merged, D2 #36 merged: **contract v2 live on Sepolia, provisional tier in 18 s, relayed settle in 73.5 min**; v1.33: B5 #37 merged (alpha.7, nothing changes: same program hash, no transaction); S36a #38, H2 #39, V3 #40 merged: layout (e), world class 76,920 CASM under a temporary 78,000 gate; contract v3 with the proven tier; v1.35: W3 #41 merged (v3 wired on the devnet with a fake prover; 4 proofs and 6.84 STRK per reference shot at Sepolia prices); v1.36: H3 #42 merged (declared classes only); v1.37: B6 #43 merged (alpha.8; world class under the normal gate); v1.38: L1 #44 merged (play locally with one command); v1.39: H4 #48 merged (play-local CI fixed after four Codex reviews); L2 (Mac verification) waits for Node 24 on the Mac; v1.40: L2 #50 and L3 #51 merged (local play verified on the Mac; three local-mode UI defects fixed); v1.41: D1 #53 merged (one compiler thread for every hashed / sized / measured build), D1b (the remaining build scripts) in review; next: Scarb 2.20.1 migration (owner's rule D-180) after the libraries; v1.42: D1b #55 merged; the MVP's settled path is SNIP-36, not Atlantic (owner); HS row (attestation service hosting); v1.43: **the game is on hold (owner, 2026-10-03)**: see "Resume point") (owner of this file: the `slingfall` orchestrator session).
 Programme context: `/home/claude/projects/pm/PLAN.md` phase D. Design: `docs/DESIGN.md`.
 
 **The MVP's settled path (owner, 2026-10-02).** The Atlantic / SHARP / Satellite path (E3a–E3c, contract v2's settled
 tier on Sepolia) is a test result, not the MVP's path: no Atlantic for the MVP. The MVP's settled tier is contract v3's
 proven tier through SNIP-36, which waits for PROOF2 (the Starknet upgrade that verifies proofs in the protocol) on Sepolia (E2), then a SNIP-36 proving machine (the owner's to
 rent). The attestation service (provisional tier) is prepared for hosting on the VPS (HS).
+
+## Resume point (2026-10-03: the game is on hold)
+
+**The owner's decision (scope), 2026-10-03:** the game and its provability are on hold, and the programme focuses on
+the Cairo libraries. No game lot runs until the hold lifts.
+
+**State at the hold** (main at `839a5d3`), the lots merged since v1.42:
+- toolchain Scarb 2.20.1 / Cairo 2.20.0 / snforge 0.64.0 (TC #59, pin recorded in #72);
+- pre-push check (PP #66);
+- local play: L4 #68 and PB #74;
+- client: Kenney skin, phase A (M6 #67); compute ahead, no slow motion (CB #75); phones in landscape (M6b #87);
+- CI: path gating (CP #76); program-hash gate on c1main (PH #80); setup-snfoundry retry (SR #91);
+- attestation service: hosted, with its hardening and the drain fix (HS #71, HS2 #85, AF #89); its key (#83);
+  one provisional submission through it (AT #86);
+- client hosting: the deploy script and the Caddy block (CH #90).
+
+**What is live:**
+- Sepolia: contract v2, provisional tier, signed by the hosted service at `https://attest.bal7hazar.com`.
+- GitHub Pages: the client as last deployed. No manual Pages dispatch until slingfall.bal7hazar.com serves the client.
+  If a dispatch becomes necessary before then, first give the Pages job its own empty `VITE_ATTEST_URL`.
+- slingfall.bal7hazar.com: the files are ready in `/home/claude/site/slingfall`. The site serves once the owner does
+  the four steps of `docs/hosting.md` "The owner's steps": DNS, ACL, site block, validate and restart. The owner may do
+  them at any time; they do not lift the hold.
+
+**First game lot after the hold (BM, decided by the PM, 2026-10-03):**
+- Context: the `bridge` reference pull (-463, -552) first touches a block at shot tick 120, which is exactly
+  `PEBBLE_FLIGHT_CAP` (cap 119 loses). `twin` shot 2 (-543, -472) touches at tick 119.
+- Re-pick the `bridge` reference pull, preferring (-770, -359) (contact at tick 62), and re-pick `twin` shot 2 the same way
+  (its new pull is to be measured).
+- Add a guard test: every reference shot touches at least 20 ticks before `PEBBLE_FLIGHT_CAP`.
+- The cap stays 120; no re-pin. The goldens and documents that hold the bridge pull are listed in the measurement
+  (orchestrator's library, `t-0107`).
+
+**Also on hold, in no set order:**
+- M6 / CH follow-ups;
+- the attestation service hardening (HS3; the 404 drain is not charged);
+- PH / CP notes and the docs follow-ups;
+- E2 / SNIP-36 and the `Snip36Verifier` lot;
+- contract v3;
+- the SNIP-36 proving machine;
+- every Sepolia transaction.
+
+The physics rate stays 60 Hz x4 (study 2026-10-03). It is revisited only at a re-pin, with a level re-tune, if the
+owner asks for 50 Hz.
 
 ## Target
 

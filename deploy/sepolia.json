@@ -49,6 +49,7 @@
     "register_level tower": "0xbbd1347e8c44a322c750136fbb15407539a61bf029ed78cdad39b4e4ddaa99",
     "register_level twin": "0x3cbfb788728970bbad057ee7184978cee46695db989e0cb0ce9e5a0a3862286",
     "submit (attested) pile10": "0x29b3289bf65b2d6fad40e263b76d94ec9c000bd5cd6d1b39b7d07e4c791651",
+    "submit (attested, hosted) tower": "0x29309c280b9ee6894185135fca3aafb3c85e38a8d575e55c77e94008f6cfe6d",
     "submit_settled f55cabf2 (relayed)": "0x369d3bde2bfb4447c1774135fa7370086d64a7b0ea54df8565354a5ed97a8fe",
     "pin_program 0x5dc8c8e25ea0b022da820ca7c14ce16cc228f24677a6c8a3c46bb0f9d41360": "0x4c0170061b7aec6871a1e610b59fc03a01a9e2059951615148700134bf05c07",
     "set_attestation_key": "0x702c0989bf16361f535ee1d11608c8fe1e6a0e502e1cf0a7d4d20f22b7efe2e"
@@ -122,6 +123,13 @@
       "l1DataGas": 864,
       "l2Gas": 5494931,
       "fee": "118236746343022492",
+      "unit": "FRI"
+    },
+    "submit (attested, hosted) tower": {
+      "l1Gas": 0,
+      "l1DataGas": 864,
+      "l2Gas": 5494931,
+      "fee": "112603098376423983",
       "unit": "FRI"
     },
     "submit_settled f55cabf2 (relayed)": {

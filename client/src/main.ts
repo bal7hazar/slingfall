@@ -4,6 +4,7 @@ import type { Pull } from './aim/pull';
 import { chainConfig, explorerLink } from './chain/config';
 import { SubmitPanel } from './chain/panel';
 import { inputsFelts, shortFelt } from './chain/slingfall';
+import { overlayShown, pageGuard, spaceToggles } from './game/orientation';
 import { ShotLoop } from './game/play';
 import { LevelSession, inputsJson } from './game/session';
 import { Stage } from './game/stage';
@@ -131,6 +132,13 @@ async function main(): Promise<void> {
   };
   const playback = new Playback(() => view?.stage.buffer.frameCount ?? 0);
   let view: View | null = null;
+  /** The shot `?autoshot` owes: released by the next `armed` or by the return to landscape, never under the overlay. */
+  let owed = false;
+  let releaseAutoshot: () => void = () => {};
+  // Portrait phones: the overlay, the pause and the inert page (game/orientation.ts).
+  const orientation = pageGuard(playback, (shown) => {
+    if (!shown && owed) releaseAutoshot();
+  });
   const producing = () => view?.loop?.producing ?? false;
 
   /** Play / Pause from the real state: "Pause" only while the head moves or waits for frames. */
@@ -144,11 +152,7 @@ async function main(): Promise<void> {
   };
   ui.play.addEventListener('click', togglePlay);
   ui.scrub.addEventListener('input', () => playback.seek(Number(ui.scrub.value)));
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'Space' || (event.target as HTMLElement | null)?.tagName === 'INPUT') return;
-    event.preventDefault();
-    togglePlay();
-  });
+  window.addEventListener('keydown', spaceToggles(togglePlay));
 
   let shownFrame = -1;
   let shownReleases = -1;
@@ -184,6 +188,7 @@ async function main(): Promise<void> {
     playback.position = 0;
     playback.playing = true;
     shownFrame = -1;
+    orientation.adopt(); // a stage shown under the overlay waits too
     refreshPlay();
   };
 
@@ -228,6 +233,11 @@ async function main(): Promise<void> {
     ui.result.hidden = true;
     submit?.hide();
     let loop: ShotLoop | null = null;
+    releaseAutoshot = () => {
+      if (overlayShown() || !owed || autoshots.length === 0) return;
+      owed = false;
+      loop?.release(autoshots.shift()!);
+    };
     const stage = new Stage(app, s.traceLevel, s.events, {
       skin,
       insets: INSETS,
@@ -272,7 +282,8 @@ async function main(): Promise<void> {
         hud.setPull(undefined);
         setHint(HINTS.aim);
         console.log(`shot ${s.shots.length - 1}: shown`);
-        if (autoshots.length > 0) loop?.release(autoshots.shift()!);
+        owed = autoshots.length > 0;
+        releaseAutoshot();
       },
       over: () => {
         setHint(HINTS.over);
@@ -282,7 +293,8 @@ async function main(): Promise<void> {
     show({ stage, events: s.events, shots: s.traceLevel.shots, releases: s.releases, loop });
     hud.setPull(undefined);
     setHint(HINTS.aim);
-    if (autoshots.length > 0) loop.release(autoshots.shift()!);
+    owed = autoshots.length > 0;
+    releaseAutoshot();
   };
 
   /** The outputs table for `player` (m11: recomputed when a wallet connects after the level ended). */

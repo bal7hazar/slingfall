@@ -454,14 +454,15 @@ class ServiceTest(unittest.TestCase):
         return self.replay_outputs
 
     def start(self, command: str | None = None, execute: bool = False, rate: int = 20, client_rate: int = 120,
-              revision: str | None = None, local_rate: int = 60, cors_origin: str = "*", unix: bool = False) -> str:
+              revision: str | None = None, local_rate: int = 60, cors_origin: str = "*", unix: bool = False,
+              **options) -> str:
         chain = attest.Chain(CONTRACT, self.rpc, clock=lambda: 0.0)
         executor = attest.Executor(self.replay) if execute else None
         self.attester = attest.Attester(CONST["SECRET"], chain, executor, attest.Verifier(command, None, 30),
                                         attest.RateLimiter(rate, 3600), ttl=TTL,
                                         clients=attest.RateLimiter(client_rate, 3600), revision=revision,
                                         local=attest.RateLimiter(local_rate, 3600))
-        return self.serve(self.attester, cors_origin, unix)
+        return self.serve(self.attester, cors_origin, unix, **options)
 
     def serve(self, attester, cors_origin: str = "*", unix: bool = False, **options) -> str:
         """On 127.0.0.1 (TCP: every caller local), or on a Unix socket like the reverse proxy's
@@ -611,6 +612,37 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.post(url, b"{not json", a)[0], 429)  # the client's two are spent
         # The player named by none of them is untouched: one request left, from another client.
         self.assertEqual(self.post(url, {"level": "pile10", "inputs": INPUTS}, {"X-Forwarded-For": "198.51.100.7"})[0], 200)
+
+    def test_a_refusal_before_the_body_is_answered_not_reset(self):
+        url = self.start(local_rate=1)
+        self.assertEqual(self.post(url, b"{not json")[0], 400)  # the local client's only request
+        host, port = url[len("http://"):].split(":")
+        with socket.create_connection((host, int(port)), timeout=5) as s:
+            s.sendall(b"POST /attest HTTP/1.1\r\nHost: x\r\nContent-Length: 18\r\n\r\n")
+            time.sleep(0.2)  # the 429 is decided now; the body arrives after
+            s.sendall(b"{not json")
+            time.sleep(0.2)  # closed without draining, the first half was answered by a reset
+            s.sendall(b"{not json")
+            received = b""
+            while chunk := s.recv(4096):
+                received += chunk
+        self.assertTrue(received.startswith(b"HTTP/1.0 429"), received[:40])
+
+    def test_a_body_over_the_drain_limit_is_not_read_for_a_refusal(self):
+        url = self.start(local_rate=1, timeout=2.0)
+        self.assertEqual(self.post(url, b"{not json")[0], 400)
+        started = time.monotonic()
+        head = b"POST /attest HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n" % (attest.DRAIN_LIMIT + 1)
+        answer = self.raw(url, head + b"{" * 10)  # the rest never comes
+        self.assertTrue(answer.startswith(b"HTTP/1.0 429"), answer[:40])
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_a_timed_out_body_is_not_drained(self):
+        url = self.serve(attest.Attester(CONST["SECRET"], attest.Chain(CONTRACT, self.rpc)), timeout=1.0)
+        started = time.monotonic()
+        answer = self.raw(url, b"POST /attest HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n")
+        self.assertTrue(answer.startswith(b"HTTP/1.0 408"), answer[:40])
+        self.assertLess(time.monotonic() - started, 1.6)  # one idle timeout, not two
 
     def raw(self, url: str, data: bytes, wait: float = 5.0) -> bytes:
         """Sends `data` on a fresh connection and reads until the server closes it (or `wait`)."""
