@@ -149,8 +149,7 @@ gas or step table), then a review thread (§2). Squash merge; conventional commi
 | Contract | negative tests for every attack of the research it implements; gas table; class size; `security` audit before any deployment |
 | Client / services | `npm run lint`, `npm test`, `npm run build`; devnet e2e in CI |
 | Release | main CI green at the release commit, CHANGELOG, version policy, dependency order, package dry run, the project manager's publication go (§7) |
-| Brief of a lot | a review; merged at the first review with no blocker and no major, its minors and notes carried into the implementing thread's task text (programme rule, 2026-10-03) |
-| Documents, briefs, plan, status of a track | a short review on another model, like any pull request (the Overseer's ruling of 2026-10-02: a merge with no review is outside the owner's merge rule) |
+| Documents, briefs, plan, status (nothing that runs changed) | none required: merge with the line `Review: none — <reason>`, per the standard's orchestrator text "Merging without a review"; a review when the orchestrator judges it useful. Never for value, access, secrets, a published interface or a result others depend on: a release record holding a checksum or a pin, and a publication request, are reviewed |
 | The programme's own documents, written on the project manager's instruction (this file, the programme plan) | none: the standard's no-review path, with the line `Review: none — documents` |
 
 A lot that must show no step change may show it by CI: every affected test's gas snapshot unchanged and `gas/bytecode.size` unchanged (2026-10-03).
