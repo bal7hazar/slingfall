@@ -53,12 +53,8 @@ The in-session Agent tool is used only for short read-only research.
   quota: fewer threads, and warn with the figure.
 - The Mac (12 cores, 64 GB) takes the heavy suites: a nalgebra build peaks at 11 GB, rapier's whole-shot tests near
   20 GB.
-- **Memory cap** (organisation rule, 2026-10-03, after a VPS incident where an uncapped `scarb build --test` reached
-  16.7 GB and filled the machine): a test file is kept small enough that its build stays well under 8 GB (split a
-  golden or table file before it grows that far). Any build or test that may pass 8 GB runs on the Mac, or on the VPS
-  only under a hard cap, `prlimit --as=8589934592 -- /usr/bin/time -v <command>`, never uncapped. A peak-memory
-  measure is always capped that way. Known heavy suites (nalgebra builds ~11 GB, rapier whole-shot tests ~20 GB) run
-  on the Mac.
+- **Memory cap** (organisation rule, 2026-10-03): a test file is kept small enough that its build stays well under 8 GB. On the VPS, Cairo builds, tests and measures (scarb, snforge, replays) run under `prlimit --as=8589934592` (an address-space cap: it kills a build well below its real memory, so it is used only for work known to fit well under it); Node suites and whole hooks run uncapped when every step was measured well under 8 GB (`prlimit --as` kills Node at start-up). A real peak is measured uncapped only on the Mac (64 GB, no lock), never uncapped on the VPS. Heavy suites (nalgebra workspace ~11 GB, rapier whole-shot ~20 GB) run on the Mac. Pre-push hooks on the VPS compile Cairo under that cap inside the heavy flock and, if the cap kills the compile, print "memory cap reached: Cairo compile left to CI" and pass, like the lock-busy case.
+- **Long pushes**: a push whose pre-push hook may run long uses `git -c core.sshCommand='ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=40' push …` (no config written).
 - The VPS (Hostinger, 8 vCPU / 31 GB, shared with the owner's other programmes) runs one heavy suite at a time:
   `scarb` / `snforge` go through the shims that serialise heavy subcommands behind `~/orchestrator/heavy-build.lock`
   (rapier: a per-project lock for crate-scoped builds plus the shared heavy lock). `scarb prove` (Stwo) needs more
@@ -157,6 +153,8 @@ gas or step table), then a review thread (§2). Squash merge; conventional commi
 | Documents, briefs, plan, status of a track | a short review on another model, like any pull request (the Overseer's ruling of 2026-10-02: a merge with no review is outside the owner's merge rule) |
 | The programme's own documents, written on the project manager's instruction (this file, the programme plan) | none: the standard's no-review path, with the line `Review: none — documents` |
 
+A lot that must show no step change may show it by CI: every affected test's gas snapshot unchanged and `gas/bytecode.size` unchanged (2026-10-03).
+
 slingfall's `all-checks` gates 11 jobs, each path-gated: a job runs only when its inputs changed; pushes to main run everything (2026-10-03).
 
 ## 7. Releases and deployments
@@ -172,6 +170,9 @@ slingfall's `all-checks` gates 11 jobs, each path-gated: a job runs only when it
   a clean checkout detached at it; the tag goes on it; the branch is kept and never merged. `main` keeps its
   dev-dependencies. The release record on `main` names the release commit and says why it is off main. Reversed when
   the helpers are published, or when scarb accepts unpublished dev-dependencies.
+- **Its CI**: a release commit lands on its branch by fast-forward (never a squash merge). Its "CI green" reads: every job that does not need the removed dev-dependencies is green on the release commit; the jobs that need them are green on its parent on main; and `scarb publish` verifies each crate. When a dependent crate cannot verify before its dependency is published, the goes are staged in dependency order (rapier 0.1.0-alpha.9, 2026-10-03).
+- **Request archives** may be built with `scarb package --no-verify -p` (packaging is not publication; the hash is identical, measured); the project manager spot-checks a package with no unpublished dependency built with verification. Publication itself is always plain `scarb publish -p`.
+- **One-off exception** (the Overseer's ruling, 2026-10-03, reversed by the owner): nalgebra 0.2.0's last two rows (`nalgebra`, `nalgebra_glam`) could not verify under the 8 GiB cap. They were published by the nalgebra orchestrator inside the heavy flock, `RAYON_NUM_THREADS=1`, `prlimit --as=25769803776`, started only at ≥ 20 GB free: measured peaks 9,154,636 kB (2:28) and 1,912,516 kB (0:23). Not a standing rule.
 - **Flags**: `scarb publish` never runs with `--allow-dirty`, `--no-verify` or `--index` (the standard's rule). If
   verification fails without `--no-verify`, the exact error goes to the Overseer as a platform request; nothing is
   published meanwhile.
